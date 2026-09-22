@@ -4,10 +4,20 @@ version = "0.1.0"
 description = "Local-first personal agent with browser connectors and persistent memory"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.7,<3",
-  "sqlalchemy[asyncio]>=2.0,<3", "aiosqlite>=0.20,<1", "alembic>=1.14,<2",
-  "langgraph>=1,<2", "langgraph-checkpoint-sqlite>=3,<4", "langchain-openai>=1,<2",
-  "httpx>=0.28,<1", "playwright>=1.50,<2", "pypdf>=6,<7", "keyring>=25,<26",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic-settings>=2.7,<3",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "aiosqlite>=0.20,<1",
+  "alembic>=1.14,<2",
+  "langgraph>=1,<2",
+  "langgraph-checkpoint-sqlite>=3,<4",
+  "langchain-openai>=1,<2",
+  "httpx>=0.28,<1",
+  "playwright>=1.50,<2",
+  "pypdf>=6,<7",
+  "keyring>=25,<26",
+  "mcp>=2.2.0",
 ]
 
 [dependency-groups]

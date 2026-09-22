@@ -1,0 +1,12 @@
+[
+  {
+    "date": "2026-09-10",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "white / local sans / sage",
+    "enrichment": "none",
+    "brief": "亮白清新的个人工作台，输入优先，列表建议，轻柔切换",
+    "status": "visual draft; user approval before testing"
+  }
+]

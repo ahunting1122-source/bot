@@ -1,7 +1,20 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.config import Settings
 from app.main import create_app
+from app.storage import Store
+
+
+async def test_store_runs_in_wal_mode(tmp_path):
+    # 没有 WAL 时，SSE 的读事务会和任务写入抢锁，写操作报 database is locked。
+    store = Store(tmp_path / "app.sqlite")
+    await store.tune()
+    async with store.sessions() as session:
+        mode = (await session.execute(text("PRAGMA journal_mode"))).scalar()
+    assert str(mode).lower() == "wal"
+    assert store.wal_enabled is True
+    await store.engine.dispose()
 
 
 def test_conversation_task_and_memory_persist(tmp_path):

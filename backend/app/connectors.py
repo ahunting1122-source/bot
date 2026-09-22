@@ -1,11 +1,14 @@
 import asyncio
 import json
 import re
+from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import httpx
 import keyring
 from pydantic import Field, SecretStr
 
+from app.config import GRANTABLE_TOOLS, dump_grants, http_url, is_notion_host, load_grants
 from app.tools import Args, SearchArgs, Tool
 
 
@@ -28,11 +31,24 @@ class ConnectorConfig:
         self.settings = settings
         self.path = settings.data_dir / "settings.json"
         self.service = f"orbit:{settings.data_dir.resolve()}"
+        self._model_status: str | None = None
+        self._model_checked_at: str | None = None
+        self._model_check_error: str | None = None
+        self._model_revision = 0
+
+    public_fields = (
+        "model",
+        "model_base_url",
+        "github_repo",
+        "notion_url",
+        "browser_url",
+        "granted_actions",
+    )
 
     def load(self):
         if self.path.exists():
             for key, value in json.loads(self.path.read_text(encoding="utf-8")).items():
-                if key in {"model", "model_base_url", "github_repo", "notion_url"}:
+                if key in self.public_fields:
                     setattr(self.settings, key, value)
         for key in ("model_api_key", "github_token"):
             try:
@@ -41,6 +57,57 @@ class ConnectorConfig:
                 secret = None
             if secret:
                 setattr(self.settings, key, SecretStr(secret))
+        # Older versions put every website in notion_url. Move that address once,
+        # preserving any already-configured generic website.
+        legacy = self.settings.notion_url
+        if legacy and not is_notion_host(urlparse(legacy).hostname):
+            try:
+                http_url(legacy)
+            except ValueError:
+                return
+            if not self.settings.browser_url:
+                self.settings.browser_url = legacy
+            elif self.settings.browser_url != legacy:
+                # Don't discard a second saved address; leave it for an explicit edit.
+                return
+            self.settings.notion_url = ""
+            self._persist()
+
+    def _persist(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        stored = {key: getattr(self.settings, key) for key in self.public_fields}
+        self.path.write_text(json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def grant(self, host: str, tool: str) -> dict[str, list[str]]:
+        """Remember one in-page action for one site. Writes outward are never remembered."""
+        if tool not in GRANTABLE_TOOLS:
+            raise ValueError("这类操作不能设为免确认")
+        if not re.fullmatch(
+            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+            host,
+        ):
+            raise ValueError("站点主机名无效")
+        grants = load_grants(self.settings.granted_actions)
+        grants.setdefault(host, [])
+        if tool not in grants[host]:
+            grants[host].append(tool)
+        self.settings.granted_actions = dump_grants(grants)
+        self._persist()
+        return grants
+
+    def revoke(self, host: str) -> dict[str, list[str]]:
+        grants = load_grants(self.settings.granted_actions)
+        grants.pop(host, None)
+        self.settings.granted_actions = dump_grants(grants)
+        self._persist()
+        return grants
+
+    def _model_configured(self):
+        return bool(
+            self.settings.model.strip()
+            and self.settings.model_base_url.strip()
+            and self.settings.model_api_key.get_secret_value()
+        )
 
     def public(self):
         return {
@@ -48,9 +115,16 @@ class ConnectorConfig:
             "model_base_url": self.settings.model_base_url,
             "github_repo": self.settings.github_repo,
             "notion_url": self.settings.notion_url,
+            "browser_url": self.settings.browser_url,
+            "grants": load_grants(self.settings.granted_actions),
             "workspace": str(self.settings.workspace.resolve()),
             "model_key_set": bool(self.settings.model_api_key.get_secret_value()),
             "github_token_set": bool(self.settings.github_token.get_secret_value()),
+            "model_status": (
+                (self._model_status or "configured") if self._model_configured() else "unconfigured"
+            ),
+            "model_checked_at": self._model_checked_at,
+            "model_check_error": self._model_check_error,
         }
 
     def update(self, values):
@@ -59,14 +133,36 @@ class ConnectorConfig:
             "model_base_url",
             "github_repo",
             "notion_url",
+            "browser_url",
             "model_api_key",
             "github_token",
         }
         if set(values) - allowed:
             raise ValueError("包含不支持的配置项")
+        if any(not isinstance(value, str) for value in values.values()):
+            raise ValueError("配置项必须为文本")
+        values = {key: value.strip() for key, value in values.items()}
         repo = values.get("github_repo", "")
         if repo and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
             raise ValueError("仓库格式为 owner/repo")
+        for field, label in (
+            ("model_base_url", "模型接口地址"),
+            ("browser_url", "网页起始地址"),
+            ("notion_url", "Notion 页面地址"),
+        ):
+            if field in values:
+                values[field] = http_url(values[field], label)
+        if values.get("notion_url") and not is_notion_host(urlparse(values["notion_url"]).hostname):
+            raise ValueError(
+                "Notion 专用地址必须属于 notion.so、notion.com 或 notion.site；其他网站请填网页连接"
+            )
+        model_changed = any(
+            key in values and values[key] != getattr(self.settings, key)
+            for key in ("model", "model_base_url")
+        ) or bool(
+            values.get("model_api_key")
+            and values["model_api_key"] != self.settings.model_api_key.get_secret_value()
+        )
         for key, value in values.items():
             if key in {"model_api_key", "github_token"}:
                 if value:
@@ -74,12 +170,66 @@ class ConnectorConfig:
                     setattr(self.settings, key, SecretStr(value))
             else:
                 setattr(self.settings, key, value.strip())
-        public = self.public()
-        stored = {
-            key: public[key] for key in ("model", "model_base_url", "github_repo", "notion_url")
-        }
-        self.path.write_text(json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
-        return public
+        if model_changed:
+            self._model_revision += 1
+            self._model_status = self._model_checked_at = self._model_check_error = None
+        self._persist()
+        return self.public()
+
+    async def check_model(self):
+        """Verify one tiny completion; stored credentials alone never imply connectivity."""
+        if not self._model_configured():
+            return self.public()
+        revision = self._model_revision
+        model = self.settings.model
+        base_url = self.settings.model_base_url
+        token = self.settings.model_api_key.get_secret_value()
+        error = None
+        try:
+            http_url(base_url, "模型接口地址")
+            async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+                response = await client.post(
+                    base_url.rstrip("/") + "/chat/completions",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "Reply only OK."}],
+                        "max_tokens": 16,
+                        "stream": False,
+                    },
+                )
+            if response.status_code != 200:
+                hints = {
+                    401: "请检查 API 密钥",
+                    403: "请检查模型访问权限",
+                    404: "请检查接口地址和模型名称",
+                    429: "请检查余额或稍后重试",
+                }
+                error = f"模型服务返回 HTTP {response.status_code}，{hints.get(response.status_code, '请检查服务状态和配置')}"
+            else:
+                payload = response.json()
+                choices = payload.get("choices", []) if isinstance(payload, dict) else []
+                message = (
+                    choices[0].get("message", {})
+                    if isinstance(choices, list) and choices and isinstance(choices[0], dict)
+                    else {}
+                )
+                if not isinstance(message, dict) or not (
+                    message.get("content") or message.get("reasoning_content")
+                ):
+                    error = "模型接口未返回有效回复，请检查模型名称及接口兼容性"
+        except httpx.TimeoutException:
+            error = "模型连接超时，请检查网络和接口地址后重试"
+        except httpx.RequestError:
+            error = "无法连接模型服务，请检查网络、代理和接口地址"
+        except (ValueError, TypeError, AttributeError):
+            error = "模型接口地址或返回格式无效，请检查 OpenAI 兼容接口配置"
+        # A settings save during the check invalidates the response for the old model.
+        if revision == self._model_revision:
+            self._model_status = "failed" if error else "verified"
+            self._model_checked_at = datetime.now(UTC).isoformat()
+            self._model_check_error = error
+        return self.public()
 
 
 class GitHubConnector:

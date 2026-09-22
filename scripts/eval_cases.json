@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "note": "固定任务集。断言只检查行为与结构，不比对具体内容 —— 站点内容每天都会变。",
+  "cases": [
+    {
+      "id": "enter_ithome",
+      "title": "进入一个未配置过的站点",
+      "turns": [{ "goal": "打开 IT之家首页，告诉我今天头条的标题是什么" }],
+      "checks": {
+        "require_tools": ["browser_navigate"],
+        "final_url_contains": "ithome.com",
+        "max_tool_errors": 0,
+        "max_seconds": 150
+      }
+    },
+    {
+      "id": "bili_search_sort",
+      "title": "站内搜索并改变排序",
+      "turns": [
+        { "goal": "在 B 站搜索「机械键盘」，按最多播放排序，告诉我排在前三的标题" }
+      ],
+      "checks": {
+        "require_tools": ["browser_navigate"],
+        "final_url_contains": "bilibili.com",
+        "max_tool_errors": 0,
+        "max_seconds": 240
+      }
+    },
+    {
+      "id": "bili_page_two",
+      "title": "翻页",
+      "turns": [
+        {
+          "goal": "在 B 站搜索「机械键盘」，按最多播放排序，翻到第 2 页，告诉我第 2 页第一条的播放量"
+        }
+      ],
+      "checks": {
+        "require_tools": ["browser_navigate"],
+        "final_url_contains": "search.bilibili.com",
+        "max_tool_errors": 0,
+        "max_seconds": 300
+      }
+    },
+    {
+      "id": "bili_video_detail",
+      "title": "进入详情页",
+      "turns": [
+        {
+          "goal": "打开 B 站搜索「机械键盘」，点进列表里的第一个视频，告诉我它的标题和 UP 主"
+        }
+      ],
+      "checks": {
+        "require_tools": ["browser_click"],
+        "final_url_contains": "/video/",
+        "max_tool_errors": 0,
+        "max_seconds": 300
+      }
+    },
+    {
+      "id": "form_fill_submit",
+      "title": "填写表单并提交",
+      "turns": [
+        {
+          "goal": "打开 B 站，用页面顶部的搜索框搜索「机械键盘」并回车，告诉我结果页看到的第一条标题"
+        }
+      ],
+      "checks": {
+        "require_tools": ["browser_fill", "browser_press"],
+        "final_url_contains": "search.bilibili.com",
+        "max_tool_errors": 0,
+        "max_seconds": 240
+      }
+    },
+    {
+      "id": "vault_login_state",
+      "title": "登录态就绪（密钥存储）",
+      "turns": [
+        {
+          "goal": "打开 https://ai.zhaoshujun.vip/console 这个需要登录的页面。如果被弹回登录页，就用密钥存储里保存的账号登录进去。最后告诉我最终落在哪个页面"
+        }
+      ],
+      "checks": {
+        "require_any_tools": [["vault_login", "browser_navigate"]],
+        "final_url_contains": "/console",
+        "max_tool_errors": 0,
+        "max_seconds": 240
+      }
+    },
+    {
+      "id": "answer_without_tools",
+      "title": "不需要工具时不要动浏览器",
+      "turns": [{ "goal": "1+1 等于几？直接回答就好" }],
+      "checks": {
+        "forbid_tools": [
+          "browser_navigate",
+          "browser_click",
+          "browser_fill",
+          "browser_press"
+        ],
+        "answer_contains": ["2"],
+        "max_seconds": 90
+      }
+    },
+    {
+      "id": "two_sites_in_one_task",
+      "title": "一个任务里串联两个站点",
+      "turns": [
+        {
+          "goal": "先去 IT之家 拿一条今天的头条标题，再去 B 站搜索这个标题里的关键词，把两边看到的结果都说一下"
+        }
+      ],
+      "checks": {
+        "require_tools": ["browser_navigate"],
+        "min_distinct_hosts": 2,
+        "max_tool_errors": 0,
+        "max_seconds": 360
+      }
+    },
+    {
+      "id": "local_file_roundtrip",
+      "title": "本地文件读写（非网页能力回归）",
+      "turns": [
+        {
+          "goal": "在授权工作目录里看看有哪些文件，读取其中一个 Markdown 文件，把它的要点整理成一份新的 Markdown 报告"
+        }
+      ],
+      "checks": {
+        "require_any_tools": [
+          ["local_list_files", "local_search_text", "local_read_document"],
+          ["local_write_report"]
+        ],
+        "max_tool_errors": 0,
+        "max_seconds": 240
+      }
+    },
+    {
+      "id": "memory_across_conversations",
+      "title": "跨对话记忆",
+      "turns": [
+        { "goal": "记住：以后我让你写报告，都用中文 Markdown 格式", "fresh": true },
+        { "goal": "我让你写报告时用什么格式？直接回答", "fresh": true }
+      ],
+      "checks": {
+        "require_tools": ["memory_save"],
+        "answer_contains": ["中文 Markdown"],
+        "max_seconds": 300
+      }
+    }
+  ]
+}

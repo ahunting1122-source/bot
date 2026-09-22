@@ -1,0 +1,11 @@
+{
+  "date": "2026-09-10",
+  "framework": "React 19 + Vite 7 + TypeScript",
+  "original_stylesheet": "frontend/src/styles.css",
+  "original_palette": "Dark green navigation with off-white workbench",
+  "original_fonts": "DM Sans (not bundled), Segoe UI, Microsoft YaHei",
+  "motion_dependencies": [],
+  "requested_direction": "Bright white, simple, fresh, subtle page transitions",
+  "implementation": "Add tokens.css and fresh.css, keep the original stylesheet file, reuse existing page modules",
+  "testing": "Deferred until user approves the visual draft"
+}

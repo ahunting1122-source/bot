@@ -1,44 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  api,
-  type Config,
-  type Conversation,
-  type Message,
-  type Task,
-  type TaskEvent,
-} from "./api";
+import { api, ensureSession, type Config, type Conversation, type Message, type Task, type TaskEvent } from "./api";
+
+export type LiveReply = { id: string; responseId: string; content: string };
+const activeStatuses = ["PENDING", "RUNNING"];
 
 export function useWorkspace() {
   const [config, setConfig] = useState<Config | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedState] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [liveReply, setLiveReply] = useState<LiveReply | null>(null);
   const [error, setError] = useState("");
+  const [connectionNote, setConnectionNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+  const [loading, setLoading] = useState(false);
+  const selectedRef = useRef<string | null>(null);
+  const busyRef = useRef(false);
   const cursor = useRef({ task: "", id: 0 });
+
+  const setSelected = useCallback((id: string | null) => {
+    if (selectedRef.current === id) return;
+    selectedRef.current = id;
+    setSelectedState(id);
+    setMessages([]);
+    setTask(null);
+    setEvents([]);
+    setLiveReply(null);
+    setLoading(!!id);
+    setError("");
+    setConnectionNote("");
+    cursor.current = { task: "", id: 0 };
+  }, []);
+
+  const refreshConversations = useCallback(async () => {
+    setConversations(await api<Conversation[]>("/conversations"));
+  }, []);
+
+  const refreshConfig = useCallback(async () => {
+    setConfig(await api<Config>("/connectors"));
+  }, []);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      await api("/session");
-      const [settings, chats] = await Promise.all([
-        api<Config>("/connectors"),
-        api<Conversation[]>("/conversations"),
-      ]);
-      if (alive) {
-        setConfig(settings);
-        setConversations(chats);
-      }
-    })().catch((e) => {
-      if (alive) setError(`无法连接工作台：${e.message}`);
-    });
-    return () => {
-      alive = false;
-    };
+      await ensureSession();
+      const [settings, chats] = await Promise.all([api<Config>("/connectors"), api<Conversation[]>("/conversations")]);
+      if (alive) { setConfig(settings); setConversations(chats); }
+    })().catch((e) => { if (alive) setError(`无法连接工作台：${e.message}`); });
+    return () => { alive = false; };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -52,15 +63,13 @@ export function useWorkspace() {
     if (selectedRef.current === id) {
       setMessages(history);
       setTask(latest);
+      setLoading(false);
+      if (!latest || !activeStatuses.includes(latest.status)) setLiveReply(null);
     }
   }, []);
 
   useEffect(() => {
-    setMessages([]);
-    setTask(null);
-    setEvents([]);
-    cursor.current = { task: "", id: 0 };
-    if (selected) void refresh().catch((e) => setError(e.message));
+    if (selected) void refresh().catch((e) => { setError(e.message); setLoading(false); });
   }, [selected, refresh]);
 
   const taskId = task?.id;
@@ -70,73 +79,151 @@ export function useWorkspace() {
     if (cursor.current.task !== taskId) {
       cursor.current = { task: taskId, id: 0 };
       setEvents([]);
+      setLiveReply(null);
     }
-    const id = selectedRef.current;
-    const source = new EventSource(
-      `/api/tasks/${taskId}/events?after=${cursor.current.id}`,
-      { withCredentials: true },
-    );
-    source.onmessage = (event) => {
-      if (selectedRef.current !== id) return;
-      const item: TaskEvent = JSON.parse(event.data);
-      cursor.current.id = Math.max(cursor.current.id, item.id);
-      setEvents((previous) =>
-        previous.some((e) => e.id === item.id) ? previous : [...previous, item],
-      );
-      if (
-        [
-          "task_completed",
-          "task_failed",
-          "waiting_user",
-          "task_cancelled",
-          "artifact_created",
-          "task_started",
-        ].includes(item.event_type)
-      )
-        void refresh().catch((e) => setError(e.message));
+    const conversationId = selectedRef.current;
+    let source: EventSource | null = null;
+    let stopped = false;
+    let timer = 0;
+    let heartbeatTimer = 0;
+    let failures = 0;
+    let lastHeartbeat = Date.now();
+    let settled = false;
+    const current = () => !stopped && !settled && selectedRef.current === conversationId;
+    function disconnected() {
+      window.clearInterval(heartbeatTimer);
+      window.clearTimeout(timer);
+      source?.close();
+      if (!current()) return;
+      setConnectionNote("连接暂时中断，正在重新连接…");
+      timer = window.setTimeout(() => {
+        void ensureSession().then(() => { if (current()) connect(); })
+          .catch(() => { if (current()) disconnected(); });
+      }, Math.min(1000 * 2 ** failures++, 10000));
+    }
+    function connect() {
+      if (!current()) return;
+      source = new EventSource(`/api/tasks/${taskId}/events?after=${cursor.current.id}`, { withCredentials: true });
+      lastHeartbeat = Date.now();
+      source.onopen = () => { if (current()) { setConnectionNote(""); failures = 0; lastHeartbeat = Date.now(); } };
+      source.addEventListener("heartbeat", () => { lastHeartbeat = Date.now(); });
+      source.onmessage = (event) => {
+        if (!current()) return;
+        lastHeartbeat = Date.now();
+        const item: TaskEvent = JSON.parse(event.data);
+        if (item.id <= cursor.current.id) return;
+        cursor.current.id = item.id;
+        const payload = item.payload;
+        const receiving = taskStatus === "PENDING" || taskStatus === "RUNNING";
+        if (receiving && item.event_type === "message_started") {
+          setLiveReply({ id: String(payload.message_id), responseId: String(payload.response_id), content: "" });
+        } else if (receiving && item.event_type === "message_delta") {
+          setLiveReply((previous) => previous && previous.responseId === payload.response_id
+            ? { id: previous.id, responseId: previous.responseId, content: previous.content + String(payload.text ?? "") } : previous);
+        } else if (item.event_type === "message_finished" && payload.response_kind === "activity") {
+          setLiveReply(null);
+        }
+        if (!item.event_type.startsWith("message_")) setEvents((previous) => [...previous, item]);
+        if (["task_completed", "task_failed", "waiting_user", "task_cancelled", "artifact_created"].includes(item.event_type)) {
+          void refresh().then(refreshConversations).catch((e) => { if (current()) setError(e.message); });
+        }
+      };
+      source.addEventListener("settled", () => {
+        source?.close();
+        window.clearInterval(heartbeatTimer);
+        window.clearTimeout(timer);
+        if (!current()) return;
+        settled = true;
+        setConnectionNote("");
+        void refresh().catch((e) => {
+          if (!stopped && selectedRef.current === conversationId) setError(e.message);
+        });
+      });
+      source.onerror = () => {
+        window.clearInterval(heartbeatTimer);
+        disconnected();
+      };
+      heartbeatTimer = window.setInterval(() => {
+        if (current() && Date.now() - lastHeartbeat > 3500) {
+          window.clearInterval(heartbeatTimer);
+          disconnected();
+        }
+      }, 1000);
+    }
+    connect();
+    return () => {
+      stopped = true;
+      source?.close();
+      window.clearTimeout(timer);
+      window.clearInterval(heartbeatTimer);
     };
-    source.addEventListener("settled", () => {
-      source.close();
-      void refresh().catch((e) => setError(e.message));
-    });
-    return () => source.close();
-  }, [taskId, taskStatus, refresh]);
+  }, [taskId, taskStatus, refresh, refreshConversations]);
 
-  async function submit(content: string) {
-    if (!content.trim() || busy) return;
+  async function operate(action: () => Promise<void>) {
+    if (busyRef.current) return false;
+    busyRef.current = true;
     setBusy(true);
     setError("");
-    try {
-      let id = selectedRef.current;
-      if (!id) {
-        const c = await api<Conversation>("/conversations", "POST");
-        id = c.id;
-        selectedRef.current = id;
-        setSelected(id);
-      }
-      await api<Task>(`/conversations/${id}/messages`, "POST", { content });
-      setConversations(await api<Conversation[]>("/conversations"));
-      await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    try { await action(); return true; }
+    catch (e) { setError((e as Error).message); return false; }
+    finally { busyRef.current = false; setBusy(false); }
   }
 
-  return {
-    config,
-    setConfig,
-    conversations,
-    selected,
-    setSelected,
-    messages,
-    task,
-    events,
-    error,
-    setError,
-    busy,
-    submit,
-    refresh,
-  };
+  async function resume(answer: string, approved = true, remember = false) {
+    if (!task || task.status !== "WAITING_USER") return false;
+    const id = selectedRef.current;
+    return operate(async () => {
+      await api(`/tasks/${task.id}/resume`, "POST", { answer, approved, remember });
+      if (selectedRef.current === id) await refresh();
+      if (remember) await refreshConfig();
+    });
+  }
+
+  async function revokeGrant(host: string) {
+    return operate(async () => {
+      const result = await api<{ grants: Record<string, string[]> }>(
+        "/grants/revoke",
+        "POST",
+        { host },
+      );
+      setConfig((previous) => (previous ? { ...previous, grants: result.grants } : previous));
+    });
+  }
+
+  async function submit(content: string) {
+    if (!content.trim()) return false;
+    if (task?.status === "WAITING_USER") {
+      if (task.waiting.reason === "approval") {
+        setError("请先选择允许或拒绝这项操作。");
+        return false;
+      }
+      return resume(content);
+    }
+    if (task && activeStatuses.includes(task.status)) return false;
+    return operate(async () => {
+      let id = selectedRef.current;
+      if (!id) {
+        const conversation = await api<Conversation>("/conversations", "POST");
+        id = conversation.id;
+        setSelected(id);
+      }
+      const reply = await api<Task>(`/conversations/${id}/messages`, "POST", { content });
+      if (selectedRef.current === id) setTask(reply);
+      await refreshConversations();
+      if (selectedRef.current === id) await refresh();
+    });
+  }
+
+  async function stop() {
+    if (!task) return;
+    await operate(async () => { await api(`/tasks/${task.id}/cancel`, "POST"); await refresh(); });
+  }
+  async function retry() {
+    if (!task) return;
+    await operate(async () => { await api(`/tasks/${task.id}/retry`, "POST"); await refresh(); });
+  }
+
+  return { config, setConfig, conversations, selected, setSelected, messages, task, events, liveReply,
+    error, setError, busy, loading, connectionNote, submit, resume, stop, retry, refresh, refreshConversations,
+    revokeGrant };
 }

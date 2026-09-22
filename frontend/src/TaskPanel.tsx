@@ -59,13 +59,12 @@ export function TaskPanel({
       <div className="panel-heading">
         <Activity size={16} />
         <h2>执行过程</h2>
-        <span className="small-tag">LIVE</span>
       </div>
       {!task ? (
         <div className="panel-empty">
-          <div className="empty-orbit" />
-          <h3>每一步，都有记录</h3>
-          <p>开始任务后，在这里查看工具调用、网页观察与生成文件。</p>
+          <FileText size={24} strokeWidth={1.3} />
+          <h3>还没有进行中的任务</h3>
+          <p>任务开始后，执行步骤和生成的文件会出现在这里。</p>
         </div>
       ) : (
         <>
@@ -174,7 +173,7 @@ export function TaskPanel({
           )}
         </>
       )}
-      <div className="panel-footnote">操作结果以工具返回和保存记录为准</div>
+      <div className="panel-footnote">过程与结果，保存在当前对话。</div>
     </aside>
   );
 }

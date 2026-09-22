@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app.config import Settings
+from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Operation, Store, Task, serialize
 
 
@@ -49,18 +49,33 @@ class TaskArgs(Args):
 
 @dataclass
 class Tool:
+    """A callable the model may pick.
+
+    Built-in tools declare a Pydantic model so arguments are validated strictly. External
+    tools (MCP servers, HTTP endpoints) arrive with a JSON Schema that we pass through
+    unchanged — we did not define their contract and must not pretend to validate it.
+    """
+
     name: str
     description: str
-    schema: type[BaseModel]
+    schema: type[BaseModel] | None = None
     confirmation: bool = False
+    parameters: dict | None = None
+    source: str = "builtin"
 
     def specification(self):
+        if self.parameters is not None:
+            arguments = self.parameters
+        elif self.schema is not None:
+            arguments = self.schema.model_json_schema()
+        else:
+            arguments = {"type": "object", "properties": {}}
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.schema.model_json_schema(),
+                "parameters": arguments,
             },
         }
 
@@ -107,19 +122,43 @@ class ToolRegistry:
         self.settings, self.store = settings, store
         self.tools = {tool.name: tool for tool in LOCAL_TOOLS}
         self.external: dict[str, Any] = {}
+        self.browser: Any = None
+
+    def granted(self, name: str) -> bool:
+        """True when the user permanently approved this action on the site currently open."""
+        if name not in GRANTABLE_TOOLS or self.browser is None:
+            return False
+        host = self.browser.current_host()
+        if not host:
+            return False
+        return name in load_grants(self.settings.granted_actions).get(host, [])
 
     def register(self, tools: list[Tool], executor):
         for tool in tools:
             self.tools[tool.name] = tool
             self.external[tool.name] = executor
 
+    def unregister_source(self, source: str) -> None:
+        """Drop every tool that came from one source, e.g. an MCP server that went away."""
+        for name in [n for n, tool in self.tools.items() if tool.source == source]:
+            self.tools.pop(name, None)
+            self.external.pop(name, None)
+
     def specs(self):
         return [tool.specification() for tool in self.tools.values()]
 
     def validate(self, name: str, args: dict) -> dict:
-        if name not in self.tools:
+        tool = self.tools.get(name)
+        if tool is None:
             raise ValueError(f"未知工具：{name}")
-        return self.tools[name].schema.model_validate(args).model_dump()
+        if tool.parameters is not None:
+            # External contract: only check the shape we must send.
+            if not isinstance(args, dict):
+                raise ValueError("参数必须是 JSON 对象")
+            return args
+        if tool.schema is None:
+            raise ValueError(f"{name} 没有参数定义")
+        return tool.schema.model_validate(args).model_dump()
 
     async def execute(self, task_id: str, operation_id: str, name: str, args: dict):
         try:

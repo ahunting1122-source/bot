@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text, select
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -27,6 +27,13 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(default="新对话")
     summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[str] = mapped_column(default=now)
+    updated_at: Mapped[str] = mapped_column(default=now)
+    message_revision: Mapped[int] = mapped_column(Integer, default=0)
+    summary_status: Mapped[str] = mapped_column(default="empty")
+    summary_error: Mapped[str] = mapped_column(Text, default="")
+    summary_updated_at: Mapped[str] = mapped_column(default="")
+    summary_message_id: Mapped[str] = mapped_column(default="")
+    summary_message_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Message(Base):
@@ -99,6 +106,19 @@ class Store:
         )
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         self.lock = asyncio.Lock()
+        self.wal_enabled = False
+
+    async def tune(self):
+        """WAL lets the long-lived SSE reader run while tasks keep writing.
+
+        Without it a read transaction and a write commit collide and every later write
+        fails with "database is locked".
+        """
+        async with self.sessions() as session:
+            await session.execute(text("PRAGMA journal_mode=WAL"))
+            await session.execute(text("PRAGMA synchronous=NORMAL"))
+            await session.execute(text("PRAGMA busy_timeout=20000"))
+        self.wal_enabled = True
 
     async def get(self, model, key):
         async with self.sessions() as session:
@@ -110,7 +130,21 @@ class Store:
 
     async def save(self, row):
         async with self.lock, self.sessions() as session:
+            message_changed = False
+            if isinstance(row, Message):
+                previous = await session.get(Message, row.id) if row.id else None
+                message_changed = previous is None or (
+                    previous.content != row.content or previous.role != row.role
+                )
             saved = await session.merge(row)
+            if message_changed:
+                conversation = await session.get(Conversation, row.conversation_id)
+                if conversation:
+                    conversation.updated_at = now()
+                    conversation.message_revision += 1
+                    if conversation.summary_message_count or conversation.summary_status == "pending":
+                        conversation.summary_status = "pending"
+                    conversation.summary_error = ""
             await session.commit()
             return saved
 

@@ -1,0 +1,59 @@
+/* Orbit · Hallmark · modern-minimal · white / sage · shared app tokens */
+:root {
+  --color-paper: oklch(100% 0 0);
+  --color-paper-2: oklch(98.5% 0.003 145);
+  --color-paper-3: oklch(96.8% 0.004 145);
+  --color-ink: oklch(28% 0.015 155);
+  --color-ink-2: oklch(46% 0.012 155);
+  --color-muted: oklch(54% 0.01 155);
+  --color-rule: oklch(92.8% 0.006 145);
+  --color-rule-strong: oklch(85% 0.014 145);
+  --color-accent: oklch(44% 0.07 155);
+  --color-accent-ink: oklch(100% 0 0);
+  --color-accent-soft: oklch(95% 0.022 145);
+  --color-focus: oklch(51% 0.1 155);
+  --color-error: oklch(47% 0.12 35);
+  --color-error-soft: oklch(97% 0.014 35);
+  --color-warning: oklch(48% 0.085 80);
+  --color-warning-soft: oklch(97.5% 0.019 85);
+  --color-transparent: transparent;
+  --color-shadow: oklch(28% 0.02 155 / 0.045);
+  --color-backdrop: oklch(28% 0.02 155 / 0.18);
+  --font-display:
+    "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI",
+    "PingFang SC", sans-serif;
+  --font-body:
+    "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
+    sans-serif;
+  --font-mono: "Cascadia Code", Consolas, monospace;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-body: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-display: clamp(1.625rem, 2.4vw, 2rem);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-round: 50%;
+  --rule-width: 1px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-press: 100ms;
+  --dur-short: 180ms;
+  --dur-page: 280ms;
+  --nav-width: 224px;
+  --topbar-height: 72px;
+}
