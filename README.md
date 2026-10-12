@@ -189,7 +189,9 @@ uv run python ..\scripts\check_browser_visible.py
 - `tests/test_graph.py::test_ask_user_still_interrupts_and_resumes` 的 15s stall 断言在**全包串行**下偶发超时（CPU 争用导致的计时 flake，单独跑 3.66s 通过）。建议收紧等待判据或隔离该用例。
 
 ### 7. 版本管理习惯
-- 本次把积压的工作区改动一次性落成版本。后续请**小步提交**——此前 3 个 commit 之上积压了 87 个文件改动，是纯风险敞口。
+- 本次把积压的工作区改动一次性落成版本（标签 `orbit-2026-10-12`）。后续请**小步提交**——此前 3 个 commit 之上积压了 87 个文件改动，是纯风险敞口。
+- **本机环境注意（已踩过一次）**：在本机的沙箱 shell 里，git 的**嵌套引用**（形如 `refs/heads/feature/xxx`）更新会被回滚——`git commit` 会打印成功哈希、对象也写进了 `.git/objects`，但**分支引用不落盘**，于是 `git log` 报「当前分支没有任何提交」。因此**分支名不能带斜杠**，本仓库已从 `feature/local-web-agent` 改名为 `local-web-agent`。
+- 万一分支引用丢失（`git log` 报 unborn），提交对象不会丢，直接用标签恢复引用即可：`git rev-parse <tag> > .git/refs/heads/<branch>`（必要时先 `mkdir -p .git/refs/heads`）。
 
 ## 目录
 
