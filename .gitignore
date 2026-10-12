@@ -16,5 +16,12 @@ data/
 test-results/
 playwright-report/
 
-# 本地临时调试产物（不属于版本内容）
-.workbuddy/tmp_*
+# 个人求职材料 —— 仅本地保留，不随仓库发布
+AGENT_INTERVIEW_EVALUATION.md
+AGENT_INTERVIEW_QA_ASSESSMENT.md
+ALI_INTERVIEW_EVALUATION.md
+RAG_INTERVIEW_EVALUATION.md
+interview-jianying-ai-agent-round1.html
+
+# WorkBuddy 本地记忆 / 工作日志 / 临时调试产物（项目数据，不入版本库）
+.workbuddy/
