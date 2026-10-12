@@ -33,6 +33,12 @@ class ScrollArgs(Args):
     pixels: int = Field(default=600, ge=-2000, le=2000)
 
 
+class ClickAtArgs(Args):
+    x: int = Field(ge=0, le=100000, description="视口内点击点的 x 坐标（相对视口左上角）")
+    y: int = Field(ge=0, le=100000, description="视口内点击点的 y 坐标（相对视口左上角）")
+    version: int = Field(description="当前观察返回的版本号，用于确认点击发生在已观察页面上")
+
+
 class SummaryArgs(Args):
     content: str = Field(min_length=1, max_length=12000)
 
@@ -55,6 +61,13 @@ BROWSER_TOOLS = [
         NavigateArgs,
     ),
     Tool("browser_click", "点击最新观察中的元素；需要确认。", ElementArgs, True),
+    Tool(
+        "browser_click_at",
+        "在视口指定坐标处点击（视觉兜底：当元素 ref 已失效、无法用 browser_click 定位时，"
+        "模型可根据最新截图/观察判断目标位置并给出坐标）。需要确认。",
+        ClickAtArgs,
+        True,
+    ),
     Tool("browser_fill", "填写最新观察中的输入元素；需要确认。", FillArgs, True),
     Tool("browser_press", "按一个键；需要确认。", PressArgs, True),
     Tool("browser_scroll", "滚动页面。", ScrollArgs),
@@ -89,8 +102,44 @@ OBSERVE_JS = """() => {
   return nodes.map((e,i) => {
     const ref = 'e' + i;
     e.setAttribute('data-orbit-ref', ref);
-    return {ref,tag:e.tagName.toLowerCase(),role:e.getAttribute('role'),name:(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||'').slice(0,100)};
+    const r = e.getBoundingClientRect();
+    // 中心坐标：坐标点击（视觉兜底）与元素几何定位都依赖它。
+    return {ref,tag:e.tagName.toLowerCase(),role:e.getAttribute('role'),name:(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||'').slice(0,100),x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),width:Math.round(r.width),height:Math.round(r.height)};
   });
+}"""
+
+
+EXTRACT_JS = """() => {
+  const clean = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+  const skip = 'nav,header,footer,script,style,noscript,aside,svg';
+  const out = [];
+  let inTable = false;
+  for (const node of document.querySelectorAll('h1,h2,h3,h4,p,li,tr,blockquote,pre')) {
+    if (node.closest(skip)) continue;
+    const tag = node.tagName.toLowerCase();
+    if (tag === 'p' && node.closest('li')) continue;
+    const text = clean(node.innerText);
+    if (!text) continue;
+    if (tag === 'tr') {
+      const cells = [...node.querySelectorAll('th,td')].map((cell) => clean(cell.innerText));
+      if (!cells.length) continue;
+      if (!inTable) {
+        out.push('| ' + cells.join(' | ') + ' |');
+        out.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+        inTable = true;
+      } else {
+        out.push('| ' + cells.join(' | ') + ' |');
+      }
+      continue;
+    }
+    inTable = false;
+    if (tag === 'li') out.push('- ' + text);
+    else if (tag === 'blockquote') out.push('> ' + text);
+    else if (tag === 'pre') out.push('```\\n' + (node.innerText || '').trim().slice(0, 2000) + '\\n```');
+    else if (tag === 'p') out.push(text);
+    else out.push('#'.repeat(Math.min(6, Number(tag.slice(1)) || 1)) + ' ' + text);
+  }
+  return out.join('\\n\\n').slice(0, 24000);
 }"""
 
 
@@ -134,6 +183,7 @@ class BrowserController:
         self._lifecycle_lock = asyncio.Lock()
         self._headless: bool | None = None
         self._context_closed = False
+        self._last_screenshot: str | None = None
 
     async def start(self):
         async with self._lifecycle_lock:
@@ -325,9 +375,14 @@ class BrowserController:
         self.refs = {item["ref"]: item for item in elements}
         self.observed_url = page.url
         text = (await page.locator("body").inner_text())[:14000]
+        # 结构化正文只给索引器用：进模型上下文会被 ToolResultPolicy.project() 剥离。
+        structured = ""
+        with suppress(Exception):
+            structured = str(await page.evaluate(EXTRACT_JS))[:24000]
         artifact_id = hashlib.sha256(f"{task_id}:screen:{self.version}".encode()).hexdigest()[:32]
         path = self.settings.data_dir / "artifacts" / f"{artifact_id}.png"
         await page.screenshot(path=str(path))
+        self._last_screenshot = str(path)
         await self.store.save(
             Artifact(
                 id=artifact_id,
@@ -341,6 +396,7 @@ class BrowserController:
             "url": page.url,
             "title": await page.title(),
             "text": text,
+            "structured": structured,
             "version": self.version,
             "elements": elements,
             "screenshot_id": artifact_id,
@@ -349,16 +405,38 @@ class BrowserController:
     async def locate(self, args):
         page = await self.start()
         self.validate_url(page.url)
-        if (
-            args["version"] != self.version
-            or page.url != self.observed_url
-            or args["ref"] not in self.refs
-        ):
+        if args["ref"] not in self.refs:
             raise ValueError("页面引用过期，请重新观察")
         locator = page.locator(f'[data-orbit-ref="{args["ref"]}"]')
-        if await locator.count() != 1:
-            raise ValueError("元素已变化，请重新观察")
-        return locator
+        if await locator.count() == 1:
+            return locator
+        # 降级：ref 过期或 DOM 轻微变动，但元素其实还在——用 name/text 在最新 refs 里
+        # 重新匹配找回新 ref，让「ref 过期」从断任务变成自动恢复。
+        target = self.refs.get(args["ref"]) or {}
+        target_name = (target.get("name") or "").strip()
+        if target_name:
+            refreshed = await page.evaluate(OBSERVE_JS)
+            new_refs = {item["ref"]: item for item in refreshed}
+            for item in refreshed:
+                if (item.get("name") or "").strip() == target_name:
+                    self.refs = new_refs
+                    self.version += 1
+                    self.observed_url = page.url
+                    return page.locator(f'[data-orbit-ref="{item["ref"]}"]')
+        raise ValueError("元素已变化，请重新观察")
+
+    def last_screenshot_data_url(self) -> str | None:
+        """最新观察截图的 base64 data URL，供视觉兜底喂给多模态模型。"""
+        if not self._last_screenshot:
+            return None
+        try:
+            import base64
+
+            with open(self._last_screenshot, "rb") as fh:
+                encoded = base64.b64encode(fh.read()).decode("ascii")
+            return f"data:image/png;base64,{encoded}"
+        except OSError:
+            return None
 
     async def execute(self, name, args, task_id, operation_id):
         if name.startswith("notion_"):
@@ -382,6 +460,11 @@ class BrowserController:
         before = await self.page_signature(page)
         if name == "browser_click":
             await (await self.locate(args)).click()
+        elif name == "browser_click_at":
+            self.validate_url(page.url)
+            if args["version"] != self.version or page.url != self.observed_url:
+                raise ValueError("页面引用过期，请重新观察后再点击")
+            await page.mouse.click(args["x"], args["y"])
         elif name == "browser_fill":
             await (await self.locate(args)).fill(args["text"])
         elif name == "browser_press":
@@ -413,18 +496,29 @@ class BrowserController:
             return f"{page.url}|{len(text)}"
         return getattr(page, "url", "")
 
-    async def wait_for_change(self, page, before: str, *, tries: int = 12, delay: float = 0.25):
+    async def wait_for_change(
+        self, page, before: str, *, tries: int = 12, delay: float = 0.25, grace: int = 4
+    ):
         """A click or Enter may navigate, or open a new tab.
 
         Without this the observation handed back describes the page as it was before the
         action, and the model concludes "nothing happened" and retries blindly.
+
+        同页签名变化后**不立刻收工**：有些站点（B 站搜索结果就是）点击时先在当前页
+        挂一个跟踪参数，真正的内容在新标签页里稍后才出现。没有宽限期就会在新标签页
+        出现之前把旧页面当成结果交回去，模型据此判定"点了不跳转"而反复重试。
+        宽限期内一旦发现新标签页，就跟随它（new_page 已经把 self.page 切过去了）。
         """
-        for _ in range(tries):
+        changed_at: int | None = None
+        for step in range(tries):
             current = await self.start()
             if current is not page:
                 await self.settle(current, full=True)
                 return
-            if await self.page_signature(current) != before:
+            if changed_at is None:
+                if await self.page_signature(current) != before:
+                    changed_at = step
+            elif step - changed_at >= grace:
                 await self.settle(current, full=True)
                 return
             await asyncio.sleep(delay)

@@ -80,6 +80,7 @@ function SettingsSection({
 
 const mcpLabels: Record<McpServer["state"], string> = {
   ready: "已连接",
+  reconnecting: "正在重连",
   error: "连接失败",
   disabled: "已停用",
   idle: "等待连接",
@@ -136,7 +137,9 @@ function McpSection({ onError }: { onError: (e: string) => void }) {
                   {" "}
                   {mcpLabels[server.state]}
                   {server.state === "ready" ? ` · ${server.tools} 个工具` : ""}
-                  {server.auto_approve ? " · 免确认" : ""}
+                  {server.state === "reconnecting" || server.state === "idle"
+                    ? " · 无需人工干预"
+                    : ""}
                 </span>
                 {server.error && (
                   <span className="hint"> {server.error.slice(0, 120)}</span>
@@ -161,7 +164,7 @@ function McpSection({ onError }: { onError: (e: string) => void }) {
       </label>
       <p className="hint">
         <code>command</code> + <code>args</code> 启动本地进程，或填 <code>url</code> 连远程服务。
-        默认每个工具都要确认；确认无误的服务可以加 <code>"auto_approve": true</code>。
+        本地进程断开后会自动重连，不需要手工点重连。
         密钥不要写在文件里：把值写成 <code>"keyring:名称"</code> 再用下面的接口单独保存。
       </p>
       <div className="connection-actions">

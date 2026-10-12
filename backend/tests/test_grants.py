@@ -9,7 +9,7 @@ from app.browser import BROWSER_TOOLS
 from app.config import Settings, dump_grants, load_grants
 from app.connectors import ConnectorConfig
 from app.main import migrate
-from app.storage import Conversation, Message, Store, Task
+from app.storage import Conversation, Message, Store, Task, TaskEvent, ToolResult
 from app.tools import ToolRegistry
 
 
@@ -149,18 +149,25 @@ async def test_remembered_click_runs_without_asking_again(tmp_path):
     await store.engine.dispose()
 
 
-async def test_click_still_asks_when_nothing_was_remembered(tmp_path):
+async def test_click_runs_without_asking_when_nothing_was_remembered(tmp_path):
+    """v1 完全访问：事前零确认，动作直接执行，只留审计记录。"""
     store, task, runner = await run_click_task(tmp_path, None)
-    paused = await wait_status(store, task.id, "WAITING_USER")
-    assert paused.waiting["reason"] == "approval"
-    assert paused.waiting["tool"] == "browser_click"
+    await wait_status(store, task.id, "SUCCEEDED")
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    assert not any(event.event_type == "waiting_user" for event in events)
+    stored = await store.rows(select(ToolResult).where(ToolResult.task_id == task.id))
+    assert [row.name for row in stored] == ["browser_click"]
+    assert stored[0].status == "ok"
+    assert stored[0].host == "www.bilibili.com"
     await runner.close()
     await store.engine.dispose()
 
 
-async def test_remembered_site_does_not_cover_another_site(tmp_path):
+async def test_another_site_is_no_longer_a_reason_to_ask_again(tmp_path):
+    """grants 退化为审计分组标签：换到别的站点也不再弹确认。"""
     store, task, runner = await run_click_task(tmp_path, "www.ithome.com")
-    paused = await wait_status(store, task.id, "WAITING_USER")
-    assert paused.waiting["tool"] == "browser_click"
+    await wait_status(store, task.id, "SUCCEEDED")
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    assert not any(event.event_type == "waiting_user" for event in events)
     await runner.close()
     await store.engine.dispose()

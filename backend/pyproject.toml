@@ -18,6 +18,10 @@ dependencies = [
   "pypdf>=6,<7",
   "keyring>=25,<26",
   "mcp>=2.2.0",
+  "sqlite-vec==0.1.9",
+  "fastembed>=0.4,<1",
+  "onnxruntime>=1.19,<2",
+  "numpy>=2,<3",
 ]
 
 [dependency-groups]

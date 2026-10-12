@@ -10,6 +10,7 @@ import { flushSync } from "react-dom";
 import {
   ArrowUpRight,
   BookOpen,
+  Brain,
   ChevronRight,
   Folder,
   KeyRound,
@@ -17,17 +18,20 @@ import {
   MessageSquare,
   Plus,
   Settings2,
+  Sparkles,
   X,
 } from "lucide-react";
 import { useWorkspace } from "./useWorkspace";
 import { Settings } from "./Settings";
+import { Summaries } from "./Summaries";
 import { Memories } from "./Memories";
+import { Skills } from "./Skills";
 import { Vault } from "./Vault";
 import { Composer } from "./Composer";
 import { Welcome } from "./Welcome";
 import { MarkdownContent } from "./MarkdownContent";
 
-type View = "chat" | "memories" | "vault" | "settings";
+type View = "chat" | "summaries" | "memories" | "skills" | "vault" | "settings";
 // Mirrors GRANTABLE_TOOLS in backend/app/config.py: only in-page actions can be remembered.
 const GRANTABLE_ACTIONS = [
   "browser_click",
@@ -45,7 +49,9 @@ function StreamReply({ content }: { content: string }) {
 }
 const navigation = [
   { id: "chat" as const, label: "工作台", icon: MessageSquare },
-  { id: "memories" as const, label: "对话摘要", icon: BookOpen },
+  { id: "summaries" as const, label: "对话摘要", icon: BookOpen },
+  { id: "memories" as const, label: "长期记忆", icon: Brain },
+  { id: "skills" as const, label: "技能", icon: Sparkles },
   { id: "vault" as const, label: "密钥存储", icon: KeyRound },
   { id: "settings" as const, label: "连接与设置", icon: Settings2 },
 ];
@@ -118,7 +124,7 @@ export function App() {
   function switchView(next: View) {
     setMenu(false);
     if (next === view) return;
-    if (view === "memories") refreshSidebar();
+    if (view === "summaries") refreshSidebar();
     const change = () => flushSync(() => setView(next));
     const documentWithTransition = document as Document & {
       startViewTransition?: (change: () => void) => {
@@ -315,8 +321,8 @@ export function App() {
               onBack={() => switchView("chat")}
               onRevoke={workspace.revokeGrant}
             />
-          ) : view === "memories" ? (
-            <Memories
+          ) : view === "summaries" ? (
+            <Summaries
               onError={workspace.setError}
               onSelect={(id) => {
                 workspace.setSelected(id);
@@ -324,6 +330,16 @@ export function App() {
               }}
               onBack={() => switchView("chat")}
               onRefresh={refreshSidebar}
+            />
+          ) : view === "memories" ? (
+            <Memories
+              onError={workspace.setError}
+              onBack={() => switchView("chat")}
+            />
+          ) : view === "skills" ? (
+            <Skills
+              onError={workspace.setError}
+              onBack={() => switchView("chat")}
             />
           ) : view === "vault" ? (
             <Vault

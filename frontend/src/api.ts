@@ -69,7 +69,7 @@ export type McpServer = {
   enabled: boolean;
   auto_approve: boolean;
   secrets: string[];
-  state: "idle" | "ready" | "error" | "disabled";
+  state: "idle" | "ready" | "reconnecting" | "error" | "disabled";
   tools: number;
   error: string;
 };
@@ -77,7 +77,36 @@ export type Memory = {
   id: string;
   key: string;
   value: string;
+  source: string;
+  hit_count: number;
+  last_used_at: string;
   updated_at: string;
+};
+export type Profile = {
+  path: string;
+  body: string;
+  entries: string[];
+  chars: number;
+  limit: number;
+  exists: boolean;
+  dropped?: string[];
+  added?: boolean;
+};
+export type Skill = {
+  name: string;
+  scope: string;
+  version: number;
+  triggers: string[];
+  status: "unreviewed" | "active" | "stale" | "archived";
+  usage_count: number;
+  success_rate: number;
+  consecutive_failures: number;
+  last_used_at: string;
+  updated_at: string;
+  source?: string;
+};
+export type SkillDetail = Skill & {
+  body: string;
 };
 export type Config = {
   model: string;

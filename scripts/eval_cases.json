@@ -117,6 +117,24 @@
       }
     },
     {
+      "id": "recall_previous_page",
+      "title": "召回上一轮抓到的页面（RAG 读取侧）",
+      "turns": [
+        {
+          "goal": "在 B 站搜索「机械键盘」，按最多播放排序，告诉我排在前三的标题"
+        },
+        {
+          "goal": "再检索一下刚才关于机械键盘的内容，整理成一小段话，不用重新打开浏览器"
+        }
+      ],
+      "checks": {
+        "require_tools": ["browser_navigate"],
+        "expect_origins": ["bilibili.com"],
+        "max_tool_errors": 0,
+        "max_seconds": 360
+      }
+    },
+    {
       "id": "local_file_roundtrip",
       "title": "本地文件读写（非网页能力回归）",
       "turns": [
@@ -137,13 +155,68 @@
       "id": "memory_across_conversations",
       "title": "跨对话记忆",
       "turns": [
-        { "goal": "记住：以后我让你写报告，都用中文 Markdown 格式", "fresh": true },
-        { "goal": "我让你写报告时用什么格式？直接回答", "fresh": true }
+        {
+          "goal": "记住：我的报告校验码是 {run_id}，以后我让你写报告，都用中文 Markdown 格式"
+        },
+        {
+          "goal": "我让你写报告时用什么格式？我的报告校验码是多少？直接回答",
+          "fresh": true
+        }
       ],
       "checks": {
         "require_tools": ["memory_save"],
-        "answer_contains": ["中文 Markdown"],
+        "answer_contains": ["中文 Markdown", "{run_id}"],
         "max_seconds": 300
+      },
+      "cleanup": {
+        "note": "本用例每轮用新 run_id 写入记忆，不清就会无限累积（真库曾因此叠出 5 条同义 key）。收尾删掉本用例写过的任何记忆。",
+        "memory_keys": ["报告", "校验码", "格式偏好"]
+      }
+    },
+    {
+      "id": "guardrails_quiet_on_smalltalk",
+      "title": "护栏不误触发（常识问答）",
+      "turns": [{ "goal": "用一句话解释什么是二分查找，不需要查任何资料" }],
+      "checks": {
+        "forbid_tools": ["browser_navigate", "retriever_search"],
+        "forbid_events": ["reflections", "retries", "budget_stops"],
+        "max_seconds": 90
+      }
+    },
+    {
+      "id": "retrieval_call_cap",
+      "title": "检索次数上限真的生效（护栏）",
+      "turns": [
+        {
+          "goal": "请连续调用 6 次 retriever_search 工具，关键词依次是「键盘」「鼠标」「显示器」「迁移」「检索」「预算」，每次都必须单独调用一次这个工具，然后把每次找到的内容列出来"
+        }
+      ],
+      "checks": {
+        "forbid_tools": ["local_search_text"],
+        "require_tools": ["retriever_search"],
+        "max_tool_calls": { "retriever_search": 4 },
+        "min_blocked_calls": { "retriever_search": 1 },
+        "require_tool_notice": true,
+        "max_seconds": 240
+      }
+    },
+    {
+      "id": "citation_on_retrieval_answer",
+      "title": "检索类回答必须回填来源（引用硬约束）",
+      "turns": [
+        {
+          "goal": "在 B 站搜索「机械键盘」，告诉我排在前三的标题和各自的播放量"
+        },
+        {
+          "goal": "不要重新打开浏览器。用检索工具回顾一下刚才关于机械键盘的内容，用一段话总结，并给每条结论标出来源地址"
+        }
+      ],
+      "checks": {
+        "require_events": ["retrieval"],
+        "expect_origins": ["bilibili.com"],
+        "min_citation_coverage": 0.5,
+        "max_tool_errors": 0,
+        "max_seconds": 360
       }
     }
   ]

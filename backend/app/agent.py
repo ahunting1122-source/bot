@@ -1,77 +1,46 @@
 import asyncio
-import time
-from typing import Annotated, Any, TypedDict
-from uuid import uuid4
+import logging
+from typing import Any
 
-from langchain_core.messages import AnyMessage, ToolMessage, message_chunk_to_message
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.types import Command, interrupt
-from pydantic import Field
+from langgraph.types import Command
 from sqlalchemy import select
 
-from app.context import build_context
-from app.storage import Message, Task
-from app.tools import Args, Tool, as_tool_text
-from app.vault import Vault
+from app.graph import build_graph
+from app.graph.nodes import ModelFailureError, Nodes, register_ask_user
+from app.policies import Policies
+from app.storage import Message, Operation, Task
 
-
-class AskArgs(Args):
-    question: str = Field(description="需要用户回答或在浏览器处理的具体事项")
-    reason: str = Field(default="clarification", description="clarification、login 或 verification")
-    tried: str = Field(
-        default="",
-        description="请求接管前已经尝试过的做法，例如换过哪些入口网址、是否用密钥存储登录过",
-    )
-
-
-def tried_tool(state, name: str) -> bool:
-    for message in state.get("messages", []):
-        for call in getattr(message, "tool_calls", None) or []:
-            if call.get("name") == name:
-                return True
-    return False
-
-
-class AgentState(TypedDict):
-    task_id: str
-    messages: Annotated[list[AnyMessage], add_messages]
-    calls: list[dict]
-    actions: int
-    answer: dict
-    waiting: dict
+log = logging.getLogger("orbit.agent")
 
 
 class AgentRunner:
-    def __init__(self, settings, store, registry, model=None, summaries=None):
+    """队列、worker、取消与生命周期；链路本身在 app/graph/ 里。"""
+
+    def __init__(self, settings, store, registry, model=None, summaries=None, policies=None):
         self.settings, self.store, self.registry = settings, store, registry
         self.model = model
         self.summaries = summaries
+        self.policies = policies or Policies.default(settings, store)
+        self.nodes = Nodes(self)
         self.partial: dict[str, str] = {}
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.queued: set[str] = set()
         self.current: dict[str, asyncio.Task] = {}
-        registry.tools["ask_user"] = Tool(
-            "ask_user", "请求澄清或浏览器人工接管，回答后继续原任务。", AskArgs
-        )
+        register_ask_user(registry)
+
+    def takeover_allowed(self, state, args) -> str:
+        """保留在 Runner 上的门面：接管门槛的判定实现在 gate 节点里。"""
+        return self.nodes.takeover_allowed(state, args)
 
     async def start(self):
         self.checkpoint_context = AsyncSqliteSaver.from_conn_string(
             str(self.settings.data_dir / "checkpoints.sqlite")
         )
         self.checkpointer = await self.checkpoint_context.__aenter__()
-        graph = StateGraph(AgentState)
-        graph.add_node("think", self.think)
-        graph.add_node("gate", self.gate)
-        graph.add_node("execute", self.execute)
-        graph.add_edge(START, "think")
-        graph.add_conditional_edges("think", lambda state: "gate" if state["calls"] else END)
-        graph.add_edge("gate", "execute")
-        graph.add_conditional_edges("execute", lambda state: "gate" if state["calls"] else "think")
-        self.graph = graph.compile(checkpointer=self.checkpointer)
+        self.graph = build_graph(self).compile(checkpointer=self.checkpointer)
         for task in await self.store.rows(
             select(Task).where(Task.status.in_(["PENDING", "RUNNING"]))
         ):
@@ -87,7 +56,23 @@ class AgentRunner:
                         "question": "程序上次执行时退出。继续后会核对操作记录，浏览器将重新观察。",
                     },
                 )
+        await self._calibrate_vectors()
         self.worker = asyncio.create_task(self.work())
+
+    async def _calibrate_vectors(self) -> None:
+        """启动时校准向量表：维度/模型与配置不符就重建并留 warning（见 vectors.ensure_schema）。
+
+        不做这一步的后果是"检索恒空"：vec0 的维度建表时钉死，而 `embedding_dim` 是配置项，
+        换模型后如果没人重建表，写入失败、检索 0 召回，却只在 debug 日志里可见。
+        """
+        ensure = getattr(self.policies.vectors, "ensure_schema", None)
+        if ensure is None:  # NullVectorStore：向量路未开启
+            return
+        try:
+            if not await ensure():
+                log.warning("向量表校准失败，向量路将退化为空结果")
+        except Exception as exc:  # 校准失败不该拖垮启动
+            log.warning("向量表校准异常（不影响其它功能）：%s", exc)
 
     async def close(self):
         self.worker.cancel()
@@ -111,6 +96,32 @@ class AgentRunner:
             job.cancel()
             await asyncio.gather(job, return_exceptions=True)
 
+    async def _record_skill_outcome(self, task: Task, status: str) -> None:
+        """任务终态回写技能治理（降级淘汰）。
+
+        口径 B：只对本次被 skill_load 的技能记账——从 tool_calls 表查本任务的
+        skill_load 调用，取 args.name。治理失败只记日志，绝不影响任务本身。
+        """
+        try:
+            ops = await self.store.rows(
+                select(Operation).where(
+                    Operation.task_id == task.id, Operation.name == "skill_load"
+                )
+            )
+            used = []
+            for op in ops:
+                args = op.args or {}
+                name = args.get("name")
+                if name:
+                    used.append(str(name))
+            if not used:
+                return
+            await self.policies.skills.record_outcome(self.store, status, used)
+        except Exception as exc:  # 治理回写失败不拖垮任务
+            from app.graph.nodes import log
+
+            log.warning("技能治理回写失败（忽略）：%s", exc)
+
     async def work(self):
         while True:
             task_id = await self.queue.get()
@@ -133,15 +144,19 @@ class AgentRunner:
 
     async def run(self, task):
         config: RunnableConfig = {"configurable": {"thread_id": task.id}, "recursion_limit": 200}
+        # 记下摘要台账当前位置（M5）：任务结束后把这段时间里产生的摘要开销
+        # 补记到任务预算上，否则"摘要另起一次模型调用"的花费永远在账外。
+        ledger_mark = self._ledger_index()
         try:
             resume = task.waiting.get("resume")
             await self.store.transition(task.id, "RUNNING", waiting={}, error="")
-            await self.store.event(task.id, "task_started")
+            # 模型名随事件落库：换了模型之后回看历史任务能分清是哪次改的。
+            await self.store.event(task.id, "task_started", model=str(self.settings.model or ""))
             snapshot = await self.graph.aget_state(config)
             if not snapshot.values:
                 initial: Any = {
                     "task_id": task.id,
-                    "messages": await build_context(self.store, task, self.settings),
+                    "messages": [],
                     "actions": 0,
                     "calls": [],
                     "waiting": {},
@@ -158,7 +173,13 @@ class AgentRunner:
                 await self.store.transition(task.id, "WAITING_USER", waiting=waiting)
                 await self.store.event(task.id, "waiting_user", **waiting)
                 return
-            text = result["messages"][-1].text
+            # finalize 的产出才是这一轮的回答；状态里的最后一条消息只作兜底。
+            values = snapshot.values or (result if isinstance(result, dict) else {})
+            final = values.get("final") or {}
+            text = str(final.get("text") or "")
+            if not text:
+                messages = values.get("messages") or []
+                text = messages[-1].text if messages else ""
             # Stable IDs prevent duplicate final messages if completion is replayed.
             await self.store.save(
                 Message(
@@ -170,6 +191,7 @@ class AgentRunner:
             )
             await self.store.transition(task.id, "SUCCEEDED")
             await self.store.event(task.id, "task_completed", text=text)
+            await self._record_skill_outcome(task, "SUCCEEDED")
         except asyncio.CancelledError:
             await self.save_partial(task)
             raise
@@ -183,16 +205,57 @@ class AgentRunner:
                 "APIConnectionError": "暂时无法连接模型服务，请检查 API 地址和网络。",
             }
             message = messages.get(type(exc).__name__, "回复中断，可以重试或检查连接设置。")
+            if isinstance(exc, ModelFailureError):
+                message = str(exc)
             if not self.settings.model_api_key.get_secret_value() and self.model is None:
                 message = "请先在连接与设置中填写模型名称、API 地址和密钥。"
             await self.store.transition(task.id, "FAILED", error=message)
             await self.store.event(task.id, "task_failed", error=message)
+            await self._record_skill_outcome(task, "FAILED")
         finally:
             self.partial.pop(task.id, None)
             if self.summaries:
                 current = await self.store.get(Task, task.id)
                 if current and current.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
                     self.summaries.schedule(task.conversation_id)
+                # 摘要开销入账（M5）：发生在本次任务窗口内的摘要花费，落成事件并
+                # 记到会话累计上——预算的"任务花销"从此包含摘要这一路。
+                await self._record_summary_cost(task, ledger_mark)
+
+    def _ledger_index(self) -> int:
+        """摘要开销台账的当前位置。服务不支持记账（如测试替身）时返回 0，退化为不计。
+
+        这里用 getattr 而不是直接调用：`summaries` 是注入点，测试里会用轻量替身，
+        不该强迫每个替身都实现记账接口——没有台账就是"这部分开销暂不可见"，
+        而不是让任务起不来。
+        """
+        if not self.summaries:
+            return 0
+        reader = getattr(self.summaries, "ledger_index", None)
+        return int(reader()) if callable(reader) else 0
+
+    async def _record_summary_cost(self, task: Task, ledger_mark: int) -> None:
+        """把本次任务期间产生的摘要开销如实记进事件流与会话累计。"""
+        reader = getattr(self.summaries, "cost_since", None)
+        if not callable(reader):
+            return
+        try:
+            delta = reader(ledger_mark)
+        except Exception:  # 台账读失败不该影响任务收尾
+            return
+        if not delta.get("calls"):
+            return
+        try:
+            await self.store.event(
+                task.id,
+                "summary_cost",
+                calls=delta["calls"],
+                tokens=delta["tokens"],
+                elapsed=delta["elapsed"],
+                scope="task_window",
+            )
+        except Exception:
+            pass
 
     async def save_partial(self, task):
         text = self.partial.get(task.id, "")
@@ -218,147 +281,3 @@ class AgentRunner:
             timeout=60,
             max_retries=1,
         )
-
-    async def think(self, state):
-        if state["actions"] >= self.settings.max_actions:
-            raise RuntimeError("已达到最大工具动作数")
-        task = await self.store.get(Task, state["task_id"])
-        context = await build_context(self.store, task, self.settings)
-        messages = [context[0], *[m for m in state["messages"] if m.type != "system"]]
-        model = self.get_model().bind_tools(self.registry.specs(), parallel_tool_calls=False)
-        response_id = uuid4().hex
-        identity = {
-            "conversation_id": task.conversation_id,
-            "message_id": f"answer-{task.id}",
-            "response_id": response_id,
-        }
-        self.partial[task.id] = ""
-        await self.store.event(task.id, "message_started", **identity)
-        response: Any = None
-        if hasattr(model, "astream"):
-            full = None
-            pending = ""
-            last_sent = time.monotonic()
-            async for chunk in model.astream(messages):
-                full = chunk if full is None else full + chunk
-                # Only outward answer text is transmitted; raw model reasoning is not a summary.
-                delta = chunk.text
-                if delta:
-                    self.partial[task.id] += delta
-                    pending += delta
-                if pending and (time.monotonic() - last_sent >= 0.06 or len(pending) >= 80):
-                    await self.store.event(task.id, "message_delta", **identity, text=pending)
-                    pending = ""
-                    last_sent = time.monotonic()
-            if pending:
-                await self.store.event(task.id, "message_delta", **identity, text=pending)
-            if full is None:
-                raise RuntimeError("模型返回了空响应")
-            response = message_chunk_to_message(full)
-        else:
-            # Scripted test models may provide only ainvoke; production models use astream.
-            response = await model.ainvoke(messages)
-            self.partial[task.id] = response.text
-            if response.text:
-                await self.store.event(task.id, "message_delta", **identity, text=response.text)
-        answer: Any = response
-        if not answer.text and not answer.tool_calls:
-            raise RuntimeError("模型没有返回正文或工具调用")
-        kind = "activity" if answer.tool_calls else "answer"
-        await self.store.event(task.id, "message_finished", **identity, response_kind=kind)
-        if answer.tool_calls:
-            self.partial[task.id] = ""
-            if answer.text:
-                await self.store.event(task.id, "activity_summary", text=answer.text)
-        return {"messages": [answer], "calls": answer.tool_calls, "waiting": {}, "answer": {}}
-
-    async def gate(self, state):
-        call = state["calls"][0]
-        tool = self.registry.tools.get(call["name"])
-        if not tool:
-            return {"answer": {"approved": True}}
-        question = state.get("waiting")
-        if not question and call["name"] == "ask_user":
-            blocked = self.takeover_allowed(state, call["args"] or {})
-            if blocked:
-                # Hand the request back as a rejection so the model keeps working instead
-                # of pushing the problem to the user at the first sign of a login wall.
-                return {"answer": {"approved": False, "answer": blocked}}
-            question = call["args"]
-        if not question and tool.confirmation and not self.registry.granted(call["name"]):
-            actions = {
-                "memory_save": "记住这个偏好",
-                "memory_delete": "忘记这个偏好",
-                "browser_click": "点击页面中的这个位置",
-                "browser_fill": "在网页中填写这些内容",
-                "browser_press": "向网页发送按键",
-                "notion_append_summary": "将这些内容追加到 Notion",
-                "vault_login": "用密钥存储里保存的账号密码登录这个站点",
-            }
-            question = {
-                "reason": "approval",
-                "question": f"允许我{actions.get(call['name'], '进行这项操作')}吗？",
-                "tool": call["name"],
-                "args": call["args"],
-            }
-        if question:
-            answer = interrupt(question)
-            return {"answer": answer, "waiting": {}}
-        return {"answer": {"approved": True}}
-
-    def takeover_allowed(self, state, args) -> str:
-        """Empty string means the takeover request may proceed.
-
-        A login wall the agent could clear itself with saved credentials is not a reason
-        to interrupt the user: try vault_login first, hand over only when that fails.
-        """
-        if str(args.get("reason", "")) not in {"login", "verification"}:
-            return ""
-        browser = self.registry.browser
-        host = browser.current_host() if browser else ""
-        if not tried_tool(state, "vault_login") and host and Vault(self.settings).site_credentials(host):
-            return (
-                f"密钥存储里有 {host} 的账号，请先用 vault_login 尝试登录；"
-                "只有它失败、或出现验证码/二次验证时再请求接管。"
-            )
-        # One bounded nudge: the first request must say what was already attempted. The
-        # second one goes through, so a genuinely blocked run is never stuck here.
-        if not str(args.get("tried", "")).strip() and not tried_tool(state, "ask_user"):
-            return (
-                "请求接管前请在 tried 里写清已经试过什么：换过哪些入口网址、"
-                "是否用密钥存储登录过、重新观察后看到什么。确认没有别的办法再请求接管。"
-            )
-        return ""
-
-    async def execute(self, state):
-        call = state["calls"][0]
-        if not state["answer"].get("approved", True):
-            result = {
-                "status": "denied",
-                "message": state["answer"].get("answer", "用户拒绝该操作"),
-            }
-        elif call["name"] == "ask_user":
-            result = {
-                "status": "ok",
-                "answer": state["answer"].get("answer", "用户已完成接管，请重新观察页面"),
-            }
-        else:
-            result = await self.registry.execute(
-                state["task_id"], f"{state['task_id']}:{call['id']}", call["name"], call["args"]
-            )
-        if result["status"] in {"needs_user", "uncertain"}:
-            return {
-                "waiting": {
-                    "reason": result.get("reason", "verification"),
-                    "question": result.get("message", "请检查浏览器，完成后继续"),
-                    "tool": call["name"],
-                },
-                "answer": {},
-            }
-        return {
-            "messages": [ToolMessage(content=as_tool_text(result), tool_call_id=call["id"])],
-            "calls": state["calls"][1:],
-            "actions": state["actions"] + 1,
-            "answer": {},
-            "waiting": {},
-        }

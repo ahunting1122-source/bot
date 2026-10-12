@@ -162,3 +162,116 @@ async def test_migration_preserves_history_without_claiming_legacy_excerpt_is_su
         assert (await storage.get(Message, "message")).content == "保留的消息"
     finally:
         await storage.engine.dispose()
+
+
+# ── M5：摘要开销入账（此前这部分花费完全在预算之外） ─────────────────────────
+
+
+async def test_summary_generation_reports_its_cost(store):
+    """摘要生成必须回一个成本对象：调用次数 / 输入输出字符 / token / 耗时。
+
+    没有它，任务的"成功"和真实账单就是两个数——摘要另起一次模型调用，
+    而三层预算看不到这次调用。
+    """
+    conversation = await store.save(Conversation())
+    for index in range(6):
+        await store.save(
+            Message(conversation_id=conversation.id, role="user", content=f"第 {index} 轮对话内容")
+        )
+    service = SummaryService(Settings(), store, model=SummaryModel())
+    service.schedule(conversation.id)
+    await finish(service)
+    assert len(service.costs) == 1
+    entry = service.costs[0]
+    assert entry["calls"] == 1
+    assert entry["input_chars"] > 0 and entry["output_chars"] > 0
+    assert entry["total_tokens"] > 0
+    assert entry["elapsed"] >= 0
+    await service.close()
+
+
+async def test_summary_cost_accumulates_on_the_conversation(store):
+    """会话累计字段要随每次摘要累加，重启后也能读到（不只在进程内存里）。"""
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="聊点什么"))
+    service = SummaryService(Settings(), store, model=SummaryModel())
+    service.schedule(conversation.id)
+    await finish(service)
+    first = await store.get(Conversation, conversation.id)
+    assert first.summary_tokens > 0 and first.summary_cost_seconds >= 0
+    before_tokens, before_seconds = first.summary_tokens, first.summary_cost_seconds
+    await service.rebuild(conversation.id)
+    await finish(service)
+    second = await store.get(Conversation, conversation.id)
+    assert second.summary_tokens > before_tokens, "第二次摘要应继续累加，而不是覆盖"
+    assert second.summary_cost_seconds >= before_seconds
+    await service.close()
+
+
+async def test_discarded_stale_summary_is_not_billed(store):
+    """被 revision 校验丢弃的摘要不该计入花费台账——那是白花的钱，不是这笔任务的账。"""
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="用 Flask"))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class SlowModel:
+        calls = 0
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                entered.set()
+                await release.wait()
+            latest = "FastAPI" if "FastAPI" in messages[-1].content else "Flask"
+            return AIMessage(content=json.dumps({"title": latest, "summary": latest}))
+
+    service = SummaryService(Settings(), store, model=SlowModel())
+    service.schedule(conversation.id)
+    async with asyncio.timeout(5):
+        await entered.wait()
+    await store.save(Message(conversation_id=conversation.id, role="user", content="改为 FastAPI"))
+    release.set()
+    await finish(service)
+    conversation_row = await store.get(Conversation, conversation.id)
+    # 只有第二次（生效的那次）计入会话累计：第一次被丢弃，不计入
+    assert conversation_row.summary_tokens > 0
+    # 台账里只有一条（丢弃的那次不留账）
+    assert len(service.costs) == 1
+    await service.close()
+
+
+async def test_cost_since_only_counts_new_entries(store):
+    """`cost_since` 是"从这往后算"的增量口径——增量是任务窗口记账的基础。"""
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="第一轮内容"))
+    service = SummaryService(Settings(), store, model=SummaryModel())
+    mark = service.ledger_index()
+    assert service.cost_since(mark)["calls"] == 0
+    service.schedule(conversation.id)
+    await finish(service)
+    delta = service.cost_since(mark)
+    assert delta["calls"] == 1 and delta["tokens"] > 0 and delta["events"] == 1
+    # 再取一次同样的区间仍是同一条（幂等读取，不会消费掉台账）
+    assert service.cost_since(mark)["tokens"] == delta["tokens"]
+    await service.close()
+
+
+async def test_summary_cost_is_recorded_as_an_event(store):
+    """开销要落成事件：这样任务的事件流里能查到"这次还花了摘要的钱"。"""
+    from sqlalchemy import select
+
+    from app.storage import Task, TaskEvent
+
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="随便聊聊"))
+    await store.save(Message(conversation_id=conversation.id, role="user", content="聊点什么"))
+    service = SummaryService(Settings(), store, model=SummaryModel())
+    service.schedule(conversation.id)
+    await finish(service)
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    costs = [row for row in events if row.event_type == "summary_cost"]
+    assert costs and costs[0].payload["tokens"] > 0
+    await service.close()
+
+
+# ── M5：摘要开销入账（此前这部分花费完全在预算之外） ─────────────────────────

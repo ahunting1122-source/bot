@@ -8,17 +8,28 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app import profile as profile_module
 from app.agent import AgentRunner
 from app.browser import BROWSER_TOOLS, BrowserController, BrowserSessionError
 from app.config import GRANTABLE_TOOLS, ROOT, Settings, load_grants
 from app.connectors import GITHUB_TOOLS, ConnectorConfig, GitHubConnector
 from app.mcp import MCPManager
-from app.storage import Artifact, Conversation, Memory, Message, Store, Task, TaskEvent, serialize
+from app.storage import (
+    Artifact,
+    Conversation,
+    Memory,
+    Message,
+    Skill,
+    Store,
+    Task,
+    TaskEvent,
+    serialize,
+)
 from app.summaries import SummaryService, list_conversations
 from app.tools import ToolRegistry
 from app.vault import Vault
@@ -31,6 +42,14 @@ class TextInput(BaseModel):
 class MemoryInput(BaseModel):
     key: str = Field(min_length=1, max_length=160)
     value: str = Field(min_length=1, max_length=4000)
+
+
+class ProfileInput(BaseModel):
+    body: str = Field(default="", max_length=20000)
+
+
+class ProfileEntryInput(BaseModel):
+    entry: str = Field(min_length=1, max_length=1000)
 
 
 class ResumeInput(BaseModel):
@@ -56,6 +75,18 @@ class SiteSecretInput(BaseModel):
 
 class BrowserInput(BaseModel):
     url: str | None = None
+
+
+class SkillInput(BaseModel):
+    """人工编辑技能：正文 + 可选 scope/triggers。PUT 时不指定则沿用现有值。"""
+
+    body: str = Field(min_length=1, max_length=40000)
+    scope: str = Field(default="", max_length=20)
+    triggers: list[str] = Field(default_factory=list)
+
+
+class SkillStatusInput(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
 
 
 def migrate(settings: Settings) -> None:
@@ -105,13 +136,20 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         registry.register(BROWSER_TOOLS, app.state.browser.execute)
         registry.browser = app.state.browser
         app.state.registry = registry
-        app.state.mcp = MCPManager(settings)
+        # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。
+        from app.indexing import build_indexer
+
+        app.state.mcp = MCPManager(settings, indexer=build_indexer(settings, app.state.store))
         await app.state.mcp.start(registry)
+        # 多源技能：MCP prompts 成为技能层的第二来源（只读）。
+        registry.mcp = app.state.mcp
         app.state.runner = None
         if run_agent:
             app.state.runner = AgentRunner(
                 settings, app.state.store, registry, summaries=app.state.summaries
             )
+            # 注入装配层把 MCP prompts 挂到技能目录的第二来源上，注入择优对两路一视同仁。
+            app.state.runner.policies.skills.prompt_source = app.state.mcp.prompt_skills
             await app.state.runner.start()
         try:
             yield
@@ -252,6 +290,9 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
 
         async def stream():
             nonlocal cursor
+            # heartbeat 是前端 3.5s 看门狗的判活信号，限频到 1s：
+            # 事件轮询保持 0.1s（低延迟），空闲时不再每 100ms 刷一帧心跳。
+            last_beat = 0.0
             while not await request.is_disconnected():
                 # shield: a browser closing the stream must not cancel a query mid-flight,
                 # which would kill the SQLite connection without a clean rollback.
@@ -264,6 +305,7 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
                 )
                 for event in rows:
                     cursor = event.id
+                    last_beat = asyncio.get_running_loop().time()
                     yield f"id: {event.id}\ndata: {json.dumps(serialize(event), ensure_ascii=False)}\n\n"
                 current = await asyncio.shield(require(Task, task_id))
                 if not rows and current.status in {
@@ -274,7 +316,10 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
                 }:
                     yield "event: settled\ndata: {}\n\n"
                     break
-                yield "event: heartbeat\ndata: {}\n\n"
+                now = asyncio.get_running_loop().time()
+                if now - last_beat >= 1.0:
+                    last_beat = now
+                    yield "event: heartbeat\ndata: {}\n\n"
                 await asyncio.sleep(0.1)
 
         return StreamingResponse(
@@ -352,14 +397,16 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
 
     @app.post("/api/memories")
     async def remember(body: MemoryInput):
-        return serialize(await app.state.store.set_memory(body.key, body.value))
+        memory, _ = await app.state.store.set_memory(body.key, body.value)
+        return serialize(memory)
 
     @app.patch("/api/memories/{memory_id}")
     async def edit_memory(memory_id: str, body: MemoryInput):
         memory = await require(Memory, memory_id)
         if memory.key != body.key:
             raise HTTPException(422, "请保持记忆名称不变，或删除后新建")
-        return serialize(await app.state.store.set_memory(body.key, body.value))
+        updated, _ = await app.state.store.set_memory(body.key, body.value)
+        return serialize(updated)
 
     @app.delete("/api/memories/{memory_id}", status_code=204)
     async def forget(memory_id: str):
@@ -368,6 +415,29 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             memory = await db.get(Memory, memory_id)
             await db.delete(memory)
             await db.commit()
+
+    @app.get("/api/profile")
+    async def get_profile():
+        """用户画像：整段文档，不是 key-value 列表（与 /api/memories 分工不同）。"""
+        return await asyncio.to_thread(profile_module.load, settings)
+
+    @app.put("/api/profile")
+    async def put_profile(body: ProfileInput):
+        return await asyncio.to_thread(profile_module.save, settings, body.body)
+
+    @app.post("/api/profile/entries")
+    async def add_profile_entry(body: ProfileEntryInput):
+        result = await asyncio.to_thread(profile_module.append, settings, body.entry)
+        if not result.get("added"):
+            result["notice"] = "这条画像已经存在，没有重复添加。"
+        return result
+
+    @app.delete("/api/profile/entries")
+    async def drop_profile_entry(entry: str):
+        result = await asyncio.to_thread(profile_module.remove, settings, entry)
+        if not result.get("removed"):
+            result["notice"] = f"没有找到匹配「{entry}」的画像条目。"
+        return result
 
     @app.get("/api/artifacts/{artifact_id}")
     async def artifact(artifact_id: str):
@@ -447,6 +517,219 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             {"name": tool.name, "source": tool.source, "confirmation": tool.confirmation}
             for tool in app.state.registry.tools.values()
         ]
+
+    # --- 技能操作面 ---------------------------------------------------------
+    # 文件是真值（`data/skills/<name>/SKILL.md`），`skills` 表是索引+统计。这套端点
+    # 给技能一个"操作面"：此前它是全项目唯一没有任何 API / 前端的能力，只能手工编辑 md。
+
+    def _skill_root():
+        return settings.data_dir / "skills"
+
+    def _clean_skill_name(name: str) -> str:
+        from app.skills import _validate_name
+
+        try:
+            return _validate_name(name)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    async def _skill_row(name: str):
+        return await app.state.store.rows(select(Skill).where(Skill.name == name))
+
+    @app.get("/api/skills")
+    async def list_skills():
+        """技能列表：文件元数据 + 表统计合并（治理态 + 用量 + 成功率），并含 MCP prompts。"""
+        from app.skills import catalog, sync_to_store
+
+        root = _skill_root()
+        await sync_to_store(app.state.store, root)
+        rows = {r.name: r for r in await app.state.store.rows(select(Skill))}
+        result = []
+        for skill in catalog(root, limit=10_000):
+            row = rows.get(skill["name"])
+            result.append(
+                {
+                    "name": skill["name"],
+                    "scope": skill["scope"],
+                    "version": skill["version"],
+                    "triggers": skill["triggers"],
+                    "status": str(getattr(row, "status", "active") or "active"),
+                    "usage_count": int(getattr(row, "usage_count", 0) or 0),
+                    "success_rate": float(getattr(row, "success_rate", 0.0) or 0.0),
+                    "consecutive_failures": int(getattr(row, "consecutive_failures", 0) or 0),
+                    "last_used_at": str(getattr(row, "last_used_at", "") or ""),
+                    "updated_at": str(getattr(row, "updated_at", "") or ""),
+                    "source": str(getattr(row, "source", "local") or "local"),
+                }
+            )
+        # 第二来源：MCP prompts（只读，随连接生灭）。
+        mcp = getattr(app.state, "mcp", None)
+        if mcp is not None:
+            for prompt in mcp.prompt_skills():
+                result.append(
+                    {
+                        "name": prompt["name"],
+                        "scope": prompt.get("scope", "global"),
+                        "version": 0,
+                        "triggers": prompt.get("triggers") or [],
+                        "status": prompt.get("status", "active"),
+                        "usage_count": 0,
+                        "success_rate": 0.0,
+                        "consecutive_failures": 0,
+                        "last_used_at": "",
+                        "updated_at": "",
+                        "source": prompt.get("source", "mcp"),
+                    }
+                )
+        return result
+
+    @app.get("/api/skills/{name}")
+    async def get_skill(name: str):
+        """单个技能：正文 + 元数据 + 治理统计。"""
+        from app.skills import load_skill, sync_to_store
+
+        root = _skill_root()
+        clean = _clean_skill_name(name)
+        await sync_to_store(app.state.store, root)
+        skill = load_skill(root, clean)
+        if not skill["body"]:
+            raise HTTPException(404, "技能不存在")
+        rows = await _skill_row(clean)
+        row = rows[0] if rows else None
+        return {
+            "name": skill["name"],
+            "scope": skill["scope"],
+            "version": skill["version"],
+            "triggers": skill["triggers"],
+            "body": skill["body"],
+            "status": str(getattr(row, "status", "active") or "active"),
+            "usage_count": int(getattr(row, "usage_count", 0) or 0),
+            "success_rate": float(getattr(row, "success_rate", 0.0) or 0.0),
+            "consecutive_failures": int(getattr(row, "consecutive_failures", 0) or 0),
+            "last_used_at": str(getattr(row, "last_used_at", "") or ""),
+        }
+
+    @app.put("/api/skills/{name}")
+    async def put_skill(name: str, body: SkillInput):
+        """保存/更新技能正文（原样写文件，更新时 version+1）。不做治理决策。
+
+        - 新建 → 状态 `unreviewed`（待确认，确认前不注入）
+        - 更新 → 状态 `active`（人工编辑即确认；stale/archived 因 version 递增而复活）
+        """
+        from app.skills import load_skill, save_skill, sync_to_store
+
+        root = _skill_root()
+        clean = _clean_skill_name(name)
+        existing = load_skill(root, clean)
+
+        if existing["body"]:
+            scope = body.scope or existing["scope"]
+            triggers = body.triggers if body.triggers else existing["triggers"]
+            version = existing["version"] + 1
+            status = "active"
+            notice = f"已更新到 v{version}"
+        else:
+            scope = body.scope or "global"
+            triggers = body.triggers
+            version = 1
+            status = "unreviewed"
+            notice = "新建（待确认启用）"
+
+        try:
+            skill = save_skill(root, clean, scope, triggers, body.body, status=status, version=version)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        await sync_to_store(app.state.store, root)
+        return {**skill, "status": status, "notice": notice}
+
+    @app.delete("/api/skills/{name}")
+    async def delete_skill(name: str):
+        """删文件 + 标 archived（保留统计，可恢复）。不做真删（`?purge=1` 无此功能）。"""
+        import shutil
+
+        from app.skills import sync_to_store
+        from app.storage import now
+
+        root = _skill_root()
+        clean = _clean_skill_name(name)
+        target = root / clean
+        removed = False
+        if target.is_dir():
+            shutil.rmtree(target)
+            removed = True
+        await sync_to_store(app.state.store, root)  # 文件没了 → 行标 archived
+        async with app.state.store.lock, app.state.store.sessions() as session:
+            row = await session.scalar(select(Skill).where(Skill.name == clean))
+            if row is not None:
+                row.status = "archived"
+                row.updated_at = now()
+                await session.commit()
+        return {"name": clean, "status": "archived", "removed": removed, "notice": "已移除（保留统计，可恢复）"}
+
+    @app.post("/api/skills/{name}/status")
+    async def set_skill_status(name: str, body: SkillStatusInput):
+        """治理态转移。
+
+        文件是 truth：对 `active`/`unreviewed` 这类文件态，同时重写文件 frontmatter 的
+        status 让文件与表一致；`stale`/`archived` 是治理态，只动表（文件保持，下次
+        同步靠"version 未递增则保留治理态"的规则不再复活）。
+
+        恢复（archived → active 且文件已删）：用表里保留的正文重建文件。
+        这里**不能**在末尾再 `sync_to_store`——文件里若是旧 status，同步会把刚改的表
+        状态又覆盖回去（unreviewed → 表标 active 又被 sync 拽回 unreviewed）。
+        """
+        from app.skills import load_skill, save_skill
+        from app.storage import now
+
+        root = _skill_root()
+        clean = _clean_skill_name(name)
+        new_status = body.status
+        if new_status not in ("active", "unreviewed", "stale", "archived"):
+            raise HTTPException(422, "非法状态（active/unreviewed/stale/archived）")
+
+        file_skill = load_skill(root, clean)
+
+        # 恢复：文件已删 → 用表里保留的正文重建（先读表拿 body）
+        if new_status == "active" and not file_skill["body"]:
+            rows = await _skill_row(clean)
+            if not rows:
+                raise HTTPException(404, "技能不存在")
+            row = rows[0]
+            restored_body = str(row.body or "").strip()
+            if not restored_body:
+                raise HTTPException(422, "技能正文已丢失，无法恢复")
+            save_skill(
+                root,
+                clean,
+                str(row.scope or "global"),
+                list(row.triggers or []),
+                restored_body,
+                status="active",
+                version=int(row.version or 0) + 1,
+            )
+        # 文件态：确认/降级到 unreviewed 时，让文件 frontmatter 与目标一致
+        elif new_status in ("active", "unreviewed") and file_skill["body"]:
+            save_skill(
+                root,
+                clean,
+                file_skill["scope"],
+                file_skill["triggers"],
+                file_skill["body"],
+                status=new_status,
+                version=file_skill["version"],
+            )
+
+        async with app.state.store.lock, app.state.store.sessions() as session:
+            row = await session.scalar(select(Skill).where(Skill.name == clean))
+            if row is None:
+                raise HTTPException(404, "技能不存在")
+            row.status = new_status
+            row.updated_at = now()
+            if new_status == "active":
+                # 确认/复活即视为一次有效使用，记录时间锚点，防止"刚启用就被超期归档"
+                row.last_used_at = now()
+            await session.commit()
+        return {"name": clean, "status": new_status}
 
     @app.get("/api/secrets")
     async def list_secrets():

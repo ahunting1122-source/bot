@@ -252,6 +252,56 @@ async def test_click_reports_the_page_it_navigated_to(tmp_path, monkeypatch):
     await browser.close()
 
 
+async def test_click_follows_a_new_tab_that_opens_after_the_url_already_changed(
+    tmp_path, monkeypatch
+):
+    """B 站搜索结果：点击先在当前页挂上 vt= 跟踪参数，真正的视频页在稍后打开的新标签里。
+
+    如果 wait_for_change 一看到同页签名变化就收工，交回去的就是那张搜索结果页，
+    模型会据此判定"点了不跳转"并反复重试。宽限期内出现的新标签页必须被跟随。
+    """
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    browser.store = FakeStore()
+    page = await browser.start()
+    context = browser.context
+    browser.version = 1
+    browser.observed_url = page.url
+    browser.refs = {"e1": {}}
+    popup_url = "https://www.bilibili.com/video/BV1UftJ6rE4o/?spm_id_from=333.337.search-card"
+
+    class Locator:
+        async def click(self):
+            # 当前页先变（跟踪参数），新标签页稍后才出现——竞态就在这里。
+            page.url = "https://search.bilibili.com/all?vt=62128072&keyword=k"
+
+            async def changed():
+                return "搜索结果列表" * 30
+
+            page._body_text = changed
+
+            async def open_popup_later():
+                await asyncio.sleep(0.3)
+                popup = FakePage()
+                popup.url = popup_url
+                context.pages.append(popup)
+                context.handlers["page"](popup)
+
+            asyncio.create_task(open_popup_later())
+
+        async def count(self):
+            return 1
+
+    monkeypatch.setattr(page, "locator", lambda selector: Locator(), raising=False)
+    result = await browser.execute(
+        "browser_click", {"ref": "e1", "version": 1}, "task-1", "op-1"
+    )
+    # 旧页面确实已经变了（证明竞态场景被复现），但交回去的必须是新标签页。
+    assert "vt=62128072" in page.url
+    assert result["status"] == "ok"
+    assert result["data"]["url"] == popup_url
+    await browser.close()
+
+
 async def test_observe_does_not_wait_for_a_change(tmp_path, monkeypatch):
     browser, _launches, _ = make_browser(tmp_path, monkeypatch)
     browser.store = FakeStore()
@@ -326,3 +376,133 @@ async def test_bilibili_cannot_use_notion_specific_tools(tmp_path, monkeypatch):
     result = await browser.execute("notion_read_page", {}, "task", "operation")
     assert result["status"] == "error"
     assert launches == []
+
+
+# ── 视觉兜底：V1 坐标 / V2 坐标点击 / V3 降级重匹配 / V4 截图喂模型 ──────────
+
+
+async def test_observe_js_collects_element_coordinates():
+    # V1：OBSERVE_JS 必须为每个元素附带 x/y/width/height（坐标点击与几何定位的基础）。
+    assert "x:" in browser_module.OBSERVE_JS
+    assert "getBoundingClientRect" in browser_module.OBSERVE_JS
+    assert "width" in browser_module.OBSERVE_JS
+    assert "height" in browser_module.OBSERVE_JS
+
+
+async def test_click_at_calls_mouse_with_coordinates(tmp_path, monkeypatch):
+    # V2：browser_click_at 直接按视口坐标点击，绕过 ref 定位。
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    browser.store = FakeStore()
+    page = await browser.start()
+    browser.version = 2
+    browser.observed_url = page.url
+    browser.refs = {}
+    clicks = []
+    page.mouse = SimpleNamespace(click=lambda x, y: _record(clicks, x, y))
+    result = await browser.execute(
+        "browser_click_at", {"x": 320, "y": 450, "version": 2}, "task-1", "op-1"
+    )
+    assert result["status"] == "ok"
+    assert clicks == [(320, 450)]
+    await browser.close()
+
+
+async def _record(clicks, x, y):
+    clicks.append((x, y))
+
+
+async def test_click_at_rejects_stale_version(tmp_path, monkeypatch):
+    # V2：坐标点击也必须受版本约束，页面已变时拒绝，避免点到错误位置。
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    browser.store = FakeStore()
+    page = await browser.start()
+    browser.version = 3
+    browser.observed_url = page.url
+    page.mouse = SimpleNamespace(click=lambda x, y: _record([], x, y))
+    with pytest.raises(ValueError, match="重新观察"):
+        await browser.execute(
+            "browser_click_at", {"x": 10, "y": 10, "version": 1}, "task-1", "op-1"
+        )
+    await browser.close()
+
+
+async def test_locate_recovers_ref_by_name_when_dom_shifts(tmp_path, monkeypatch):
+    # V3：ref 失效但元素还在，用 name 在最新观察里重匹配找回新 ref，不再直接断。
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    browser.store = FakeStore()
+    page = await browser.start()
+    browser.version = 1
+    browser.observed_url = page.url
+    browser.refs = {"e0": {"name": "登录", "tag": "button"}}
+
+    # 第一次 count==0（元素"已变化"），重观察后元素以新 ref e5 重新出现。
+    refreshed = [{"ref": "e5", "name": "登录", "tag": "button", "x": 100, "y": 200}]
+    calls = {"evaluate": 0}
+
+    async def evaluate(script):
+        calls["evaluate"] += 1
+        return refreshed
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    class Locator:
+        def __init__(self, selector):
+            self.selector = selector
+
+        async def count(self):
+            # ref 过期：e0 找不到了
+            return 0
+
+    monkeypatch.setattr(page, "locator", lambda sel: Locator(sel), raising=False)
+    locator = await browser.locate({"ref": "e0", "version": 1})
+    # 降级后找回新 ref e5，且 refs/version 已刷新
+    assert locator.selector == '[data-orbit-ref="e5"]'
+    assert "e5" in browser.refs
+    await browser.close()
+
+
+async def test_locate_still_fails_when_name_not_found(tmp_path, monkeypatch):
+    # V3：name 也匹配不到时，仍抛「元素已变化」。
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    browser.store = FakeStore()
+    page = await browser.start()
+    browser.version = 1
+    browser.observed_url = page.url
+    browser.refs = {"e0": {"name": "登录", "tag": "button"}}
+
+    async def evaluate(script):
+        return [{"ref": "e9", "name": "注册", "tag": "button", "x": 1, "y": 1}]
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    class Locator:
+        async def count(self):
+            return 0
+
+    monkeypatch.setattr(page, "locator", lambda sel: Locator(), raising=False)
+    with pytest.raises(ValueError, match="元素已变化"):
+        await browser.locate({"ref": "e0", "version": 1})
+    await browser.close()
+
+
+async def test_last_screenshot_data_url_reads_artifact(tmp_path, monkeypatch):
+    # V4：last_screenshot_data_url 把最新截图读成 base64 data URL。
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    png = tmp_path / "artifacts" / "shot.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
+    png.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    browser._last_screenshot = str(png)
+    url = browser.last_screenshot_data_url()
+    assert url is not None
+    assert url.startswith("data:image/png;base64,")
+    import base64
+
+    decoded = base64.b64decode(url.split(",", 1)[1])
+    assert decoded == b"\x89PNG\r\n\x1a\nfake"
+    await browser.close()
+
+
+async def test_last_screenshot_data_url_none_when_never_observed(tmp_path, monkeypatch):
+    browser, _launches, _ = make_browser(tmp_path, monkeypatch)
+    assert browser.last_screenshot_data_url() is None
+    await browser.close()

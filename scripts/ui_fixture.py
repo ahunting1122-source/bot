@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.browser import BrowserSessionError
 from app.config import Settings
+from app.graph.nodes import MODEL_ATTEMPTS
 from app.main import create_app
 from app.storage import Conversation, Message, now
 
@@ -48,7 +49,7 @@ class ScriptedModel:
     """Drive actual LangGraph states without an external model request."""
 
     def __init__(self):
-        self.retry_failed = False
+        self.retry_failed = 0
         self.stream_release = asyncio.Event()
         self.stream_release.set()
         self.stream_finish_release = asyncio.Event()
@@ -71,9 +72,13 @@ class ScriptedModel:
             yield AIMessageChunk(content=text)
             return
         human = next((str(m.content) for m in reversed(messages) if m.type == "human"), "")
-        if "UI_RETRY" in human and not self.retry_failed:
-            self.retry_failed = True
-            raise RuntimeError("isolated fixture's intentional first-attempt failure")
+        if "UI_RETRY" in human:
+            # 单次抖动会被 think 节点的重试自己吃掉（用户看不到失败态），
+            # 所以要**连续失败满 MODEL_ATTEMPTS 次**才能让"失败 + 重试这次回复"这条
+            # 用户可见路径继续被测到；点重试后的下一次调用成功，返回 RETRY_DONE。
+            if self.retry_failed < MODEL_ATTEMPTS:
+                self.retry_failed += 1
+                raise RuntimeError("isolated fixture's intentional failure")
         if "UI_STOP" in human:
             self.stop_calls += 1
             if self.stop_calls > 1:
@@ -85,14 +90,17 @@ class ScriptedModel:
                     self.stop_started.set()
                 await asyncio.sleep(0.08)
             return
-        if "UI_ACCEPT" in human or "UI_DENY" in human:
-            token = "UI_ACCEPT" if "UI_ACCEPT" in human else "UI_DENY"
+        if "UI_ACCEPT" in human:
             yield AIMessageChunk(
-                content="我会先征求确认，再保存这个偏好。",
-                tool_call_chunks=[{
-                    "index": 0, "id": token, "name": "memory_save",
-                    "args": json.dumps({"key": token, "value": "测试偏好"}),
-                }],
+                content="我直接保存这个偏好。",
+                tool_call_chunks=[
+                    {
+                        "index": 0,
+                        "id": "UI_ACCEPT",
+                        "name": "memory_save",
+                        "args": json.dumps({"key": "UI_ACCEPT", "value": "测试偏好"}),
+                    }
+                ],
             )
             return
         if "UI_ASK" in human:
@@ -163,6 +171,11 @@ class UIFixture:
             model_base_url=base_url + "/fixture-model", github_token=SecretStr(""),
             github_repo="", notion_url="", browser_url="", headless=True,
             allowed_origins=(base_url,),
+            # 冒烟测试必须自洽、离线、可重复：向量与重排默认要用真模型，
+            # 首次运行会去网上拉权重（沙箱里直接 502），光是加载失败就要 10s，
+            # 会把浏览器端 7s 超时顶爆。这里显式关掉，只留 FTS5 双路。
+            vector_enabled=False,
+            rerank_enabled=False,
         )
         self.app = create_app(self.settings)
         fixture = self

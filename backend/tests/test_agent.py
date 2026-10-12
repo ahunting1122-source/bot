@@ -8,26 +8,28 @@ from sqlalchemy import select
 from app.agent import AgentRunner
 from app.config import Settings
 from app.main import migrate
-from app.storage import Conversation, Memory, Message, Store, Task, TaskEvent
+from app.storage import Conversation, Message, Store, Task, TaskEvent
 from app.tools import ToolRegistry
 
 
-class ScriptModel:
+class AskModel:
+    """先请求澄清挂起，恢复后继续；用于验证 checkpoint 与恢复语义。"""
+
     def __init__(self):
         self.outputs = iter(
             [
                 AIMessage(
-                    content="我会记住你的报告格式。",
+                    content="我需要先确认格式。",
                     tool_calls=[
                         {
-                            "name": "memory_save",
-                            "args": {"key": "format", "value": "中文 Markdown"},
-                            "id": "call1",
+                            "name": "ask_user",
+                            "args": {"question": "报告用什么格式？", "reason": "clarification"},
+                            "id": "ask1",
                             "type": "tool_call",
                         }
                     ],
                 ),
-                AIMessage(content="已保存报告格式偏好。"),
+                AIMessage(content="好的，按中文 Markdown 处理。"),
             ]
         )
 
@@ -58,17 +60,18 @@ async def test_graph_pause_restart_resume(tmp_path):
         Message(conversation_id=conversation.id, role="user", content="记住报告使用中文 Markdown")
     )
     task = await store.save(Task(conversation_id=conversation.id, goal="记住报告使用中文 Markdown"))
-    model = ScriptModel()
+    model = AskModel()
     runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=model)
     await runner.start()
     paused = await wait_status(store, task.id, "WAITING_USER")
-    assert paused.waiting["reason"] == "approval"
+    assert paused.waiting["question"] == "报告用什么格式？"
     await runner.close()
     runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=model)
     await runner.start()
-    await runner.enqueue(task.id, {"approved": True, "answer": "确认"})
+    await runner.enqueue(task.id, {"approved": True, "answer": "中文 Markdown"})
     await wait_status(store, task.id, "SUCCEEDED")
-    assert (await store.rows(select(Memory)))[0].value == "中文 Markdown"
+    reply = await store.get(Message, f"answer-{task.id}")
+    assert reply.content == "好的，按中文 Markdown 处理。"
     await runner.close()
     await store.engine.dispose()
 

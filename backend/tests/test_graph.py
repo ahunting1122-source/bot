@@ -1,0 +1,636 @@
+"""链骨架：默认值兼容、预算收尾、引用回填校验、plan/reflect 纯函数。"""
+
+import asyncio
+
+from langchain_core.messages import AIMessage
+from sqlalchemy import select
+
+from app.agent import AgentRunner
+from app.config import Settings
+from app.context import PROMPT_VERSION
+from app.graph.nodes import MODEL_ATTEMPTS, Nodes
+from app.graph.state import with_defaults
+from app.main import migrate
+from app.policies import DefaultBudgetPolicy, DefaultPlanner, DefaultReflector
+from app.storage import Conversation, Message, Store, Task, TaskEvent
+from app.tools import ToolRegistry
+
+
+def test_with_defaults_fills_fields_missing_from_old_checkpoints():
+    legacy = {
+        "task_id": "t1",
+        "messages": [],
+        "calls": [],
+        "actions": 2,
+        "answer": {},
+        "waiting": {},
+    }
+    state = with_defaults(legacy)
+    assert state["actions"] == 2
+    for key in ("plan", "budget", "refs", "context_meta", "last_result", "final"):
+        assert state[key] == {}
+
+
+def test_planner_derives_steps_from_the_tool_trace():
+    plan = DefaultPlanner().derive(
+        "搜键盘",
+        [
+            {"name": "browser_navigate", "status": "ok", "host": "www.bilibili.com"},
+            {"name": "browser_click", "status": "error", "host": "www.bilibili.com"},
+        ],
+    )
+    assert plan["source"] == "tool_trace"
+    assert [step["status"] for step in plan["steps"]] == ["done", "failed"]
+
+
+def test_reflector_triggers_on_interval_then_stops_after_two_runs():
+    reflector = DefaultReflector()
+    refs = {str(index): {"tool": "browser_click", "status": "ok"} for index in range(6)}
+    assert reflector.should_reflect({"refs": refs}) is True
+    assert reflector.should_reflect({"refs": refs, "reflections": ["a", "b"]}) is False
+
+
+def test_reflector_triggers_on_two_errors_from_the_same_tool():
+    reflector = DefaultReflector()
+    refs = {
+        "1": {"tool": "browser_click", "status": "error"},
+        "2": {"tool": "browser_click", "status": "error"},
+    }
+    assert reflector.should_reflect({"refs": refs}) is True
+    refs["2"]["tool"] = "browser_fill"
+    assert reflector.should_reflect({"refs": refs}) is False
+
+
+def test_reflector_writes_notes_that_match_the_trigger():
+    """reflection 提示由轨迹推导，不调模型：三类触发各给一条可执行纠偏。"""
+    reflector = DefaultReflector()
+    repeated = {
+        "1": {"tool": "browser_click", "status": "error"},
+        "2": {"tool": "browser_click", "status": "error"},
+    }
+    notes = reflector.reflect({"refs": repeated})
+    assert len(notes) == 1 and "browser_click" in notes[0] and "不要用同样的参数重试" in notes[0]
+    six = {str(i): {"tool": "browser_click", "status": "ok"} for i in range(6)}
+    assert "不要重复做" in reflector.reflect({"refs": six})[0]
+    half = {"refs": {}, "budget": {"max_tokens": 1000, "token_estimate": 500}}
+    assert "收窄范围" in reflector.reflect(half)[0]
+    assert reflector.reflect({"refs": {}, "budget": {}}) == []
+
+
+def test_budget_target_is_reachable_after_the_reflection_warning():
+    """预算满量与自省半量是两个不同阈值：半量时必须还没被拦停。"""
+    policy, reflector = DefaultBudgetPolicy(), DefaultReflector()
+    half = budget_state(token_estimate=500)
+    assert policy.check(half) == "" and reflector.should_reflect(half) is True
+    assert policy.check(budget_state(token_estimate=1000)) == "max_tokens"
+
+
+def budget_state(**budget):
+    base = {
+        "max_actions": 20,
+        "max_tokens": 1000,
+        "max_seconds": 100,
+        "token_estimate": 0,
+        "elapsed": 0.0,
+    }
+    base.update(budget)
+    return {"actions": 0, "budget": base}
+
+
+def test_budget_policy_stops_on_every_one_of_the_three_limits():
+    policy = DefaultBudgetPolicy()
+    assert policy.check(budget_state()) == ""
+    assert policy.check({**budget_state(), "actions": 20}) == "max_actions"
+    # token 判满量（半量预警交给 Reflector，两者同阈值会互相遮蔽）
+    assert policy.check(budget_state(token_estimate=1000)) == "max_tokens"
+    assert policy.check(budget_state(token_estimate=999)) == ""
+    assert policy.check(budget_state(elapsed=100)) == "max_seconds"
+    assert policy.check(budget_state(elapsed=99.9)) == ""
+
+
+def test_budget_policy_ignores_zero_limits():
+    """max_* 为 0 表示不设限，不能把任务立即拦死。"""
+    policy = DefaultBudgetPolicy()
+    assert policy.check(budget_state(max_tokens=0, max_seconds=0)) == ""
+
+
+def answer_state(messages):
+    return {"messages": messages, "context_meta": {"retrieved": []}}
+
+
+def test_citation_check_is_skipped_when_nothing_was_injected():
+    nodes = Nodes(None)
+    result = nodes.citation_check(answer_state([AIMessage(content="1+1 等于 2")]), "1+1 等于 2")
+    assert result["checked"] is False
+
+
+def test_citation_check_accepts_a_shortened_url():
+    nodes = Nodes(None)
+    state = {
+        "messages": [],
+        "context_meta": {"retrieved": [{"origin": "https://search.bilibili.com/all?keyword=x"}]},
+    }
+    answer = "按最多播放排序，来源：search.bilibili.com/all"
+    assert nodes.citation_check(state, answer)["matched"]
+    other = "我看了下，就是那几首。"
+    assert nodes.citation_check(state, other)["missing"]
+
+
+# ── 视觉兜底：execute 节点在元素失效时把截图喂给多模态模型 ──────────────
+
+
+class _FakeBrowser:
+    def __init__(self, image=None):
+        self._image = image
+
+    def last_screenshot_data_url(self):
+        return self._image
+
+    def current_host(self):
+        return "www.example.com"
+
+
+class _FakeRegistry:
+    def __init__(self, browser):
+        self.browser = browser
+        self.tools = {"browser_click": object()}
+
+    async def execute(self, task_id, operation_id, name, args, messages=None):
+        return {"status": "error", "error": "ValueError: 元素已变化，请重新观察"}
+
+
+class _FakePolicies:
+    class _ToolResults:
+        def project(self, name, result):
+            return result
+
+    tool_results = _ToolResults()
+
+
+class _FakeRunner:
+    def __init__(self, registry, policies):
+        self.registry = registry
+        self.policies = policies
+        self.settings = None
+
+
+async def test_execute_injects_screenshot_when_element_stale():
+    image = "data:image/png;base64,ZmFrZQ=="
+    nodes = Nodes(
+        _FakeRunner(_FakeRegistry(_FakeBrowser(image=image)), _FakePolicies())
+    )
+    state = with_defaults(
+        {
+            "calls": [{"name": "browser_click", "args": {"ref": "e0", "version": 1}, "id": "c1"}],
+        }
+    )
+    state["task_id"] = "task-1"
+    result = await nodes.execute(state)
+    messages = result["messages"]
+    assert len(messages) == 2  # ToolMessage + HumanMessage(图)
+    assert messages[0].type == "tool"
+    assert messages[1].type == "human"
+    content = messages[1].content
+    assert isinstance(content, list)
+    assert any(block.get("type") == "image_url" for block in content)
+    image_block = next(block for block in content if block.get("type") == "image_url")
+    assert image_block["image_url"]["url"] == image
+
+
+async def test_execute_does_not_inject_screenshot_on_success():
+    class _OkRegistry(_FakeRegistry):
+        async def execute(self, task_id, operation_id, name, args, messages=None):
+            return {"status": "ok", "data": {"url": "https://www.example.com/"}}
+
+    nodes = Nodes(_FakeRunner(_OkRegistry(_FakeBrowser(image=None)), _FakePolicies()))
+    state = with_defaults(
+        {
+            "calls": [{"name": "browser_click", "args": {"ref": "e0", "version": 1}, "id": "c1"}],
+        }
+    )
+    state["task_id"] = "task-1"
+    result = await nodes.execute(state)
+    assert len(result["messages"]) == 1  # 只有 ToolMessage
+    assert result["messages"][0].type == "tool"
+
+
+async def test_execute_does_not_inject_when_no_screenshot_available():
+    nodes = Nodes(
+        _FakeRunner(_FakeRegistry(_FakeBrowser(image=None)), _FakePolicies())
+    )
+    state = with_defaults(
+        {
+            "calls": [{"name": "browser_click", "args": {"ref": "e0", "version": 1}, "id": "c1"}],
+        }
+    )
+    state["task_id"] = "task-1"
+    result = await nodes.execute(state)
+    assert len(result["messages"]) == 1  # 无图可用则退回纯文本错误
+
+
+class TwoStepModel:
+    """连续两次工具调用；动作上限设为 1 时必须由预算收尾而不是抛错。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def bind_tools(self, *args, **kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls <= 2:
+            return AIMessage(
+                content="我先看看目录。",
+                tool_calls=[
+                    {
+                        "name": "local_list_files",
+                        "args": {"path": "."},
+                        "id": f"call{self.calls}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(content="做完了。")
+
+
+async def wait_status(store, task_id, target, *, ceiling=60.0, stall=15.0):
+    """等任务进入目标状态。
+
+    这里**不能**用一个固定的 15s 墙钟上限：本仓的 graph 用例是纯本地活（假模型 + SQLite），
+    单跑不到 1s，但整包串行跑到它时已经做过 ~200 次真实迁移/DB 操作，CPU-only 机器上
+    worker 线程会被饿到十几秒（2026-10-08 实测：整包跑偶尔 TimeoutError，单跑/复跑必过）。
+    固定墙钟就把"机器忙"误判成"逻辑坏了"。
+
+    改成两层判据：
+    - `stall`：**没有进展**才失败（任务一直没到目标态、也没换过 `updated_at`）——
+      真卡死仍会被抓到，这是测试真正要防的东西；
+    - `ceiling`：兜底总上限，防止某些错误路径下状态永远在推进却永不达标。
+    """
+    started = asyncio.get_running_loop().time()
+    last_progress = started
+    last_seen = None
+    while True:
+        task = await store.get(Task, task_id)
+        if task.status == target:
+            return task
+        assert task.status != "FAILED", task.error
+        marker = (task.status, getattr(task, "updated_at", None))
+        now = asyncio.get_running_loop().time()
+        if marker != last_seen:
+            last_seen = marker
+            last_progress = now
+        assert now - last_progress < stall, (
+            f"任务 {task_id} 在 {stall:.0f}s 内毫无进展（当前 {task.status}，目标 {target}）"
+        )
+        assert now - started < ceiling, (
+            f"任务 {task_id} 超过 {ceiling:.0f}s 仍未到 {target}（当前 {task.status}）"
+        )
+        await asyncio.sleep(0.05)
+
+
+async def test_budget_stop_ends_with_a_readable_progress_summary(tmp_path):
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files", max_actions=1)
+    settings.prepare()
+    migrate(settings)
+    (settings.workspace / "notes.md").write_text("项目使用 FastAPI。", encoding="utf-8")
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="看看目录"))
+    task = await store.save(Task(conversation_id=conversation.id, goal="看看目录"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=TwoStepModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    reply = (await store.get(Message, f"answer-{task.id}")).content
+    assert "任务在这里暂停" in reply
+    assert "**已完成**" in reply and "**未完成 / 下一步建议**" in reply
+    assert "**对外动作清单**" in reply
+    assert "已达到最大工具动作数" not in reply
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    kinds = [row.event_type for row in events]
+    assert "budget_stopped" in kinds and "finalize_completed" in kinds
+    assert "tool_result_stored" in kinds
+    # 成本聚合：收尾事件带上量级数据，回答里之后才有"这次花了多少"可查。
+    summary = next(row for row in events if row.event_type == "finalize_completed")
+    assert summary.payload["actions"] == 1
+    assert summary.payload["tokens"] > 0 and summary.payload["bytes"] > 0
+    assert summary.payload["refs"] == 1  # 首个动作已进 digest 落库
+    assert "elapsed" in summary.payload and "citations" in summary.payload
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_model_call_is_retried_then_succeeds(tmp_path):
+    """流式尚未产出正文时的失败可以安全重试；重试过程留下 model_retry 事件。"""
+
+    class FlakyModel:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("connection reset")
+            return AIMessage(content="这次成功了。")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="随便聊聊"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=FlakyModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    assert (await store.get(Message, f"answer-{task.id}")).content == "这次成功了。"
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    retries = [row for row in events if row.event_type == "model_retry"]
+    assert len(retries) == 2 and retries[0].payload["error"] == "RuntimeError"
+    assert len([row for row in events if row.event_type == "message_started"]) == 1
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_model_failure_after_all_attempts_reports_a_readable_error(tmp_path):
+    class DeadModel:
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            raise RuntimeError("connection reset")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="随便聊聊"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=DeadModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    failed = await wait_status(store, task.id, "FAILED")
+    assert f"模型连续 {MODEL_ATTEMPTS} 次调用失败" in failed.error
+    assert "检查连接设置" in failed.error
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_events_record_prompt_version_and_model(tmp_path):
+    """提示词版本与模型名随事件落库：回看历史任务能分清"当时用的是哪版"。"""
+
+    class PlainModel:
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            return AIMessage(content="1+1 等于 2。")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files", model="test-model")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="1+1 等于几"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=PlainModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    started = next(row for row in events if row.event_type == "task_started")
+    assert started.payload["model"] == "test-model"
+    first = next(row for row in events if row.event_type == "message_started")
+    assert first.payload["prompt_version"] == PROMPT_VERSION
+    assert first.payload["response_id"]
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_reflection_fires_in_the_graph_after_six_steps(tmp_path):
+    """reflect 真的接进了图：第 6 步后落一条 reflection 事件，任务照常收尾。"""
+
+    class SixStepModel:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls <= 6:
+                return AIMessage(
+                    content="继续。",
+                    tool_calls=[
+                        {
+                            "name": "local_list_files",
+                            "args": {"path": "."},
+                            "id": f"call{self.calls}",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            return AIMessage(content="做完了。")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="走六步看看"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=SixStepModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    reflections = [row for row in events if row.event_type == "reflection"]
+    assert len(reflections) == 1, [row.event_type for row in events]
+    assert reflections[0].payload["step"] == 6
+    assert "已经执行 6 步" in reflections[0].payload["notes"][0]
+    assert (await store.get(Message, f"answer-{task.id}")).content == "做完了。"
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_ask_user_still_interrupts_and_resumes(tmp_path):
+    class AskModel:
+        def __init__(self):
+            self.step = 0
+
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            self.step += 1
+            if self.step == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "ask_user",
+                            "args": {"question": "整理哪个月份？", "reason": "clarification"},
+                            "id": "ask",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            assert any(message.type == "tool" for message in messages)
+            return AIMessage(content="好的，整理上个月。")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="整理资料"))
+    task = await store.save(Task(conversation_id=conversation.id, goal="整理资料"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=AskModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    paused = await wait_status(store, task.id, "WAITING_USER")
+    assert paused.waiting["reason"] == "clarification"
+    await runner.enqueue(task.id, {"approved": True, "answer": "上个月"})
+    await wait_status(store, task.id, "SUCCEEDED")
+    assert (await store.get(Message, f"answer-{task.id}")).content == "好的，整理上个月。"
+    await runner.close()
+    await store.engine.dispose()
+
+
+# ── M4：系统提示前缀在任务内冻结（保住提示缓存 + 任务内部自洽） ──────────────
+
+
+class PrefixRecordingModel:
+    """记录每次调用收到的系统提示，供"前缀是否逐字不变"的断言使用。"""
+
+    def __init__(self):
+        self.prefixes = []
+        self.calls = 0
+
+    def bind_tools(self, *args, **kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        system = next((m for m in messages if m.type == "system"), None)
+        self.prefixes.append(str(getattr(system, "content", "")))
+        if self.calls <= 2:
+            return AIMessage(
+                content="先看看目录。",
+                tool_calls=[
+                    {
+                        "name": "local_list_files",
+                        "args": {"path": "."},
+                        "id": f"call{self.calls}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(content="看完了。")
+
+
+async def test_system_prefix_is_frozen_across_steps_of_one_task(tmp_path):
+    """同一任务内多次模型调用必须看到**逐字节相同**的系统提示。
+
+    以前 think 每轮重装上下文：记忆排序、摘要、画像任意一处变动都会改写前缀，
+    既打掉提示缓存，也让"任务中途改记忆"意外地影响正在跑的任务。
+    """
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="看看目录"))
+    model = PrefixRecordingModel()
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=model)
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    assert len(model.prefixes) >= 3, "两步工具调用 + 一次收尾，至少 3 次模型调用"
+    assert len(set(model.prefixes)) == 1, "同一任务内系统提示必须完全一致"
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_mid_task_memory_change_does_not_alter_the_frozen_prefix(tmp_path):
+    """任务跑到一半有人改了记忆：当前任务的前缀不变（下次任务才生效）。"""
+
+    class MutatingModel(PrefixRecordingModel):
+        def __init__(self, store, task):
+            super().__init__()
+            self.store, self.task = store, task
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            system = next((m for m in messages if m.type == "system"), None)
+            self.prefixes.append(str(getattr(system, "content", "")))
+            if self.calls == 1:
+                # 第一步：中途写入一条新记忆
+                await self.store.set_memory("中途新增", "这条不该出现在本次任务的前缀里")
+                return AIMessage(
+                    content="先看看目录。",
+                    tool_calls=[
+                        {
+                            "name": "local_list_files",
+                            "args": {"path": "."},
+                            "id": "call1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            return AIMessage(content="看完了。")
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="看看目录"))
+    model = MutatingModel(store, task)
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=model)
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    assert len(set(model.prefixes)) == 1
+    assert all("中途新增" not in prefix for prefix in model.prefixes)
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_one_task_counts_each_memory_hit_once(tmp_path):
+    """一个任务只该给记忆记一次命中，不能因为 prepare 装配了两次上下文就翻倍。
+
+    回归：M4 引入 `build_prefix` 后，prepare 先用 `context.build` 装配 messages、
+    又调 `build_prefix`（内部再跑一次 `build_context`）。而 `build_context` 每次都累加
+    `hit_count`（M1 的死数据判据），于是新任务的命中数被凭空翻倍——
+    "用了 2 次"和"用了 1 次"会让"哪条记忆从没被用过"的结论失真。
+    """
+    from app.storage import Memory
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    memory, _ = await store.set_memory("报告格式", "中文 Markdown")
+    conversation = await store.save(Conversation())
+    task = await store.save(Task(conversation_id=conversation.id, goal="随便看看"))
+
+    class QuietModel:
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+        async def ainvoke(self, messages):
+            return AIMessage(content="好的。")
+
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=QuietModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+
+    row = await store.get(Memory, memory.id)
+    assert row.hit_count == 1, f"一个任务应只记一次命中，实际 {row.hit_count}"
+    await runner.close()
+    await store.engine.dispose()

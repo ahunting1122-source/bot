@@ -20,6 +20,19 @@ import urllib.request
 BASE = "http://127.0.0.1:6185"
 
 
+def local_opener(jar=None):
+    """Build an opener for the local API that never goes through a system proxy.
+
+    urllib 会读 HTTP_PROXY/系统代理设置；在有代理的机器上，127.0.0.1:6185 会被
+    代理接管并返回 502 Bad Gateway，看起来像后端挂了。显式装一个空 ProxyHandler
+    把这个变量消掉：本地回环地址不需要也不该走代理。
+    """
+    handlers = [urllib.request.ProxyHandler({})]
+    if jar is not None:
+        handlers.append(urllib.request.HTTPCookieProcessor(jar))
+    return urllib.request.build_opener(*handlers)
+
+
 def call(opener, path, method="GET", payload=None, timeout=30):
     body = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(
@@ -71,7 +84,7 @@ def main():
     args = parser.parse_args()
 
     jar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    opener = local_opener(jar)
     call(opener, "/api/session")
 
     conversation = call(opener, "/api/conversations", "POST")

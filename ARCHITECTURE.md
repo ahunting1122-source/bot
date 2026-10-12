@@ -59,10 +59,10 @@
 | 流式 | `astream` | ✅ 已用（外加自建 SSE 事件层） |
 | 长期记忆 / 技能 | LangGraph `BaseStore` | ⬜ 可选用，先落 SQLite 表 |
 | 文档与出处 | `Document(page_content, metadata)` | ⬜ metadata 就是 origin |
-| 分块 | `RecursiveCharacterTextSplitter` 一类 | ⬜ 新增 |
-| 检索器 | `BaseRetriever` 接口 | ⬜ 新增 |
-| 向量库 | `VectorStore` 接口 → `sqlite-vec` 薄封装 | ⬜ 新增 |
-| Embedding | `Embeddings` 接口（可替换实现） | ⬜ 新增 |
+| 分块 | `RecursiveCharacterTextSplitter` 一类 | ✅ 已用（自建 `indexing.chunk_text`，结构切分→300–500 合并） |
+| 检索器 | `BaseRetriever` 接口 | ✅ 已用（自建 `FtsRetriever`，形状一致） |
+| 向量库 | `VectorStore` 接口 → `sqlite-vec` 薄封装 | ✅ 已用（`app/vectors.py::SQLiteVecStore`，vec0 虚表） |
+| Embedding | `Embeddings` 接口（可替换实现） | ✅ 已用（`FastEmbedEmbeddings`，bge-small-zh-v1.5） |
 
 **不引入**：LangGraph 的预置 ReAct agent（我们的 gate/digest/budget 是自定义的）、LangServe、多 Agent supervisor。
 
@@ -73,25 +73,24 @@
 ```
              ┌────────── plan（预留节点）──────────┐
              │                                    │
-START → 装载 → 思考 ⇄ 确认 → 执行 → 治理 → 预算 ──继续──→ 思考
+START → 装载 → 思考 ⇄ 确认 → 执行 → 治理 → 预算 ──继续──→ 自省 → 思考
               │                       │      │
               │                       │      └─超限─→ 收尾
               │                       └─原文入库 / 索引写入
               └─无工具调用─→ 收尾
-                                ↑
-                     reflect（预留节点）─→ 思考
 ```
 
 | 节点 | 职责 | 关键点 |
 |---|---|---|
 | 装载 `prepare` | 装配上下文 | 记忆 + 摘要 + 技能简述 + **RAG 按任务预取**；初始化预算 |
-| 思考 `think` | 决定下一步 | 绑定工具、流式输出、**写下当前计划判断** |
+| 思考 `think` | 决定下一步 | 绑定工具、流式输出、**写下当前计划判断**；模型调用有限重试（流式已出正文则不重试） |
 | 确认 `gate` | 人工介入判定 | **v1：只处理 `ask_user` 与工具返回的 `needs_user`**（真登录墙）；逐项确认分支已移除 |
 | 执行 `execute` | 唯一分发点 | 校验 → 幂等 → 分发 → 结果归一 |
 | 治理 `digest` | 结果治理 + 索引写入 | 原文入库、引用登记、大小估算、**切块写索引** |
-| 预算 `budget` | 三类预算判定 | 动作 / token / 时间；超限走收尾 |
-| 收尾 `finalize` | 带进度收尾 | 已完成 / 未完成清单 + 下一步建议 |
-| `plan` / `reflect` | 结构化计划、周期性自省 | **只留接口与 state 字段，不进图** |
+| 自省 `reflect` | 周期性纠偏 | **已接进图**（预算之后、思考之前）；产出的是轨迹推导的确定性提示，不调模型；每任务最多 2 次 |
+| 预算 `budget` | 三类预算判定 | 动作 / token / **时间都硬拦**（半量预警归 `reflect`，满量拦截归这里）；超限走收尾 |
+| 收尾 `finalize` | 带进度收尾 | 已完成 / 未完成清单 + 下一步建议 + 对外动作清单 + 引用回填校验 + **成本聚合 `final.cost`** |
+| `plan` | 结构化计划 | **只留接口与 state 字段，不进图**（计划由 harness 从工具轨迹派生，零模型调用） |
 
 **终止条件（全部要能优雅收尾）**：模型不再调用工具 / 动作数上限 / token 预算 / 时间预算 / 用户取消 / 连续同类失败。
 **恢复**：checkpoint 每步落盘；`operation_id` 保证重放不重复副作用；`uncertain` 结果重启后**先回读核对**。
@@ -136,50 +135,26 @@ START → 装载 → 思考 ⇄ 确认 → 执行 → 治理 → 预算 ──�
 
 ## 6. Skill（经验链路）
 
-**Tool 回答"能做什么"，Skill 回答"该怎么做"。** 现在完全没有这一层，导致每次任务从零开始试。
+**状态：二期治理四道闸已落地（2026-09-30 终版）。** 已实现全链路：`app/skills.py` 加载器 + `sync_to_store` 镜像、`skill_load` / `skill_list` / `skill_save`、`prepare` 注入择优、四道闸治理（写入查重 / 矛盾转备选 / 注入择优 / 降级淘汰）、`skills` 表（迁移 `0006` + `0007`，治理字段 `consecutive_failures` / `last_used_at`）。剩余仅「与 MCP 的关系」一项未做（依赖外部 prompts 源，非本地闭环）。方案终版：`handoff/skill-layer-phase2-plan.md`。
 
-| 项 | 设计 |
-|---|---|
-| 形态 | `data/skills/<name>/SKILL.md`：触发条件 + 步骤 + 坑 + 可选脚本 |
-| 表 | `skills(name, scope, triggers, body, version, usage_count, success_rate)` |
-| 注入 | 系统提示只放"有哪些技能 + 一句话"；模型判断相关时调 `skill_load(name)` 取正文 |
-| 作用域 | `scope` = global / project / **site**（站点操作技能就是 site 作用域） |
-| 沉淀 | 任务成功后模型可提议"把这次的做法存成技能"，用户确认后落库 |
-| 与 MCP 的关系 | MCP prompts 是外部来源，本地 SKILL.md 是内部来源，同一个加载器 |
+**Tool 回答"能做什么"，Skill 回答"该怎么做"。** 站点技能让同类型任务第二次做时更快、更少踩坑。
 
-### 6.1 首个技能：`web_search`（已落盘）
+| 项 | 设计 | 状态 |
+|---|---|---|
+| 形态 | `data/skills/<name>/SKILL.md`：触发条件 + 步骤 + 坑 + 可选脚本 | ✅ 已做（文件是真值，改完即生效） |
+| 加载器 | `app/skills.py` 解析 frontmatter + 正文；每次读磁盘不缓存 | ✅ 已做 |
+| 读取工具 | `skill_load(name)`（只读、免确认）、`skill_list()`（列技能） | ✅ 已做 |
+| 注入 | `prepare` 按触发词字面匹配召回 + **注入择优**（过滤 unreviewed/archived → scope→success_rate→usage_count 排序 → 同簇只出冠军），上限 5 | ✅ 已做 |
+| 表 | `skills(...)` + 治理字段 `consecutive_failures` / `last_used_at` | ✅ 已做（迁移 `0006`+`0007`；文件是真值、表是索引，`sync_to_store` 单向镜像） |
+| 沉淀 | `skill_save`：同名更新（version+1 合并差异）、触发词重叠互标备选、无冲突新建 | ✅ 已做 |
+| 治理 | 写入查重 / 矛盾转备选 / 注入择优 / 降级淘汰（连续失败标 stale、超期/低成功率归档） | ✅ 已做 |
+| 与 MCP 的关系 | MCP prompts 是外部来源，本地 SKILL.md 是内部来源，同一个加载器 | ⬜ 待做（依赖外部 prompts 源） |
 
-文件：`data/skills/web_search/SKILL.md`。
+### 6.1 技能（3 个已落盘并被加载）
 
-这是计划里"先手工写 3 个"的第一个，内容直接沉淀自前几天的真实实测（SPA 渲染、分页截断、点击后旧页面三个坑都在里面）：
+`web_search`、`bili_video_detail`、`form_fill_login`。其中 `web_search` 内容沉淀自前几天的真实实测（SPA 渲染、分页截断、点击后旧页面三个坑），`bili_video_detail` 沉淀了「点击开新标签页」这个坑（对应 `browser.py` 的 grace 宽限期修复）。技能原文见各自 `SKILL.md`，这里不复制（文件是真值，避免两处漂移）。
 
-```markdown
----
-name: web_search
-scope: site
-triggers: 用户要在某个网站内搜索内容 / 找某类条目 / 按条件筛选
-version: 1
----
-
-# 网页站内搜索
-
-## 步骤
-1. 能构造搜索 URL 就不要点搜索框：
-   https://<host>/search?keyword=<词>   （B 站可带 &order=click 排序参数）
-2. 打开后先确认「真的进来了」：标题非空、正文 > 200 字，否则换入口网址。
-3. 要排序时优先点页面上的排序按钮（URL 会带 order 参数），不要凭空拼参数。
-4. 抽取列表：观察结果里 a 元素的 name 即条目标题；数字（播放量/价格）通常
-   在标题后的兄弟元素里。
-5. 要更多结果时用底部页码按钮翻页，不要反复改 URL。
-6. 回答时每条给出来源 URL。
-
-## 坑
-- Vue/React 站点加载后要等页面稳定才有元素，刚打开就观察可能拿到空壳。
-- 分页控件在 DOM 底部，容易被截断——观察结果里找不到就先滚动到底再观察。
-- 点击后若返回的观察还是旧页面，说明跳转没完成，重新 observe 一次再判断。
-```
-
-**验证标准**：写好这个技能后，用「在某个新站点搜索某关键词」类任务对比——加载技能后，步骤数应少于 16.7 首次摸索时的次数。这正是 Skill 价值的第一份量化证据。
+**验证标准**：用「在某个新站点搜索某关键词」类任务对比——加载技能后，步骤数应少于 16.7 首次摸索时的次数。这正是 Skill 价值的第一份量化证据（一期已具备观测条件：`skills_injected` 事件 + 工具步数可直接对照）。
 
 ### 6.3 沉淀流程：把某次协作的操作流程存成技能
 
@@ -290,16 +265,36 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 ### 7.1 写入侧
 
 ```
-网页正文 / 工具结果原文 ─→ 结构切块（标题、段落、表格按行）
-                        ─→ 归一化去重（hash）
-                        ─→ 估算 tokens（目标 300–800，带 overlap）
-                        ─→ 写 FTS5(trigram) + 向量
+browser.py 结构化正文（structured）／工具结果原文
+                        ─→ 结构切块（标题、段落、表格按行）
+                        ─→ 归一化去重（hash ＋ 相邻相似度 >0.9 合并）
+                        ─→ 估算 tokens（目标 300–500 中文字，带 overlap）
+                        ─→ 写 FTS5(trigram) ＋ FTS5(chars) ＋ 向量（占位）
                         ─→ chunks 表
 ```
 
-`chunks(id, source_type, source_id, host, ordinal, text, tokens, hash, origin, created_at)`
+`chunks(row_id INTEGER PK AUTOINCREMENT, id, source_type, source_id, conversation_id, task_id, host, ordinal, text, char_text, tokens, hash, origin, title_path, created_at)`
 
-**`origin` 是硬要求**：URL / 文件路径 / 消息 id。没有出处的片段不进索引。
+**`origin` 是硬要求**：只认 URL（`web_page`）与文件路径（`local_file`）。没有真实出处的工具结果不进索引——编出来的 origin 无法被引用，写进去只会让 finalize 的引用核对失败。
+
+**三个容易踩的点**
+
+- **标题本身就是内容**：`split_blocks` 若把 `###` 只当 title_path 用掉，**标题之间没有正文**的页面会整页落不下来——SPA 结果列表页每个条目就是一个 `### 标题`（B 站搜索页实测 2238 字只索引成 34 字导航残渣，检索必然 0 召回）。所以没等到正文的标题必须自己成为一块。回归测试见 `tests/test_indexing.py::test_heading_only_pages_keep_their_headings`。
+- **`row_id` 用自增整数而非 TEXT 主键**：TEXT 主键在 REPLACE 语义下 rowid 会变，会让 FTS 行变孤儿。
+- **`conversation_id` / `task_id` 必须建在表里**：读取侧「默认按会话收窄」靠这两列；表建好再补列要写迁移并回填（`source_id` 反查会话要 join 两跳）。
+
+### 7.1.1 为什么是两张 FTS 表，不是一个索引
+
+FTS5 的 tokenizer 是**表级**选项，没法在同一张表上同时用 trigram 和 unicode61，所以建两张：
+
+| 表 | 索引列 | tokenizer | 作用 |
+|---|---|---|---|
+| `chunks_fts_trigram` | `text` | `trigram` | 主路径，但**只匹配 ≥3 字符**——中文最常见的 2 字词（键盘／显卡／B站）全部 0 召回 |
+| `chunks_fts_chars` | `char_text` | `unicode61` | 补齐短查询：CJK 逐字空格切分（`机械键盘` → `机 械 键 盘`） |
+
+两张表都挂 `AI`/`AD`/`AU` 三个同步触发器。**external content 表的行标识列恒为 `rowid`**，`content_rowid='row_id'` 只是把它映射到 `chunks.row_id`；触发器里写成 `row_id` 会直接报 `no column named row_id`。漏触发器则索引与主表**静默失同步**（查询慢慢变错却不报任何错）。
+
+**查询侧必须按窗口拆词**：整句当短语查询必然 0 召回（预取用的就是整句任务目标）。因此 trigram 路按 3 字滑窗、字符级路按相邻两词滑窗，各候选短语用 `OR` 连接；短查询（≤12 字）额外保留整串以维持精确短语语义。
 
 ### 7.2.1 切块规则：结构优先、定长兜底（不是纯定长，也不是让模型判断语义）
 
@@ -315,11 +310,13 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 
 **三条特殊规则**
 
-- **表格**：整表 ≤500 字作为一块；大表按行组切，**每块重复表头**——否则行数据没有列名，检索命中也无意义。
+- **表格**：**一条数据行 + 表头独立成一块**（表头必带，否则行数据没有列名，检索命中也无意义）；只有表头、没有数据行的表整表一块。原「整表 ≤500 字一块 / 大表按 400 字行组切」**已废除**（2026-10-09）——实测目标单元格信号被同表其他行稀释到 3–8%，是 A 集门 2 的缺池根因。四档粒度实测（`scripts/diag_table_split.py`）：整表 A 0.625 / 行组400 0.625 / 行组250 0.562 / **行级 0.688**，B 集行级最高 1.000——行级双优，故定稿。
 - **块首带路径**：把所属标题路径（`H1 > H2`）拼进块首。检索命中的是片段，带上路径片段才自明。
 - **去重**：hash 相同不入库；相邻块相似度 > 0.9 合并。
 
 **为什么目标定 300–500 中文字**：太小（<100）缺上下文，命中了也读不出含义；太大（>512 token）超出 bge 窗口被截断，尾部语义丢失；注入预算也划算——top-K≤5 × 500 字 ≈ 2500 字。
+
+**补注（2026-09-30，实测）**：`scripts/eval_chunk_sweep.py` 用仓库 6 篇真实中文文档（184 块）跑过 300-500 / 600-800 / 1000-1200 / 零重叠四档，关键词路（当前唯一在跑的路）**大块反而略好**：融合 recall@5 0.667 → 0.667 → 0.750，MRR 0.301 → 0.333 → 0.361；零重叠比现状低（MRR 0.308 vs 0.301 基本持平，说明 overlap 在当前语料上不构成增益）。这不构成"改成大块"的理由：① 12 条查询样本太小，标记是长片段，天然偏爱大块；② 真正的约束是**向量路的 bge 512 token 窗口**——1000–1200 中文字已明显越窗，向量上线后必然吃亏。**结论：维持 300–500，等向量路上线（阶段 6）后用同一脚本复测再定**；参数都在 `indexing.py` 顶部，改一行即可复现。
 
 ### 7.2.2 一个 chunk 到底长什么样（真实示例）
 
@@ -349,30 +346,74 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 ### 7.2 读取侧
 
 ```
-查询构造（目标 + 当前计划步骤 + 上步结果摘要）
-  → 混合检索：FTS5 BM25 ‖ 向量余弦 → RRF 融合
-  → top-K（K ≤ 5）
+查询构造（窗口拆词）→ 查询路由（lexical / short / semantic，决定哪几路参与、要不要过词面覆盖门）
+  → 三路候选：FTS5 trigram ‖ FTS5 字符级 ‖ 向量（sqlite-vec vec0 KNN）
+  → RRF 融合（k=60；只用排名，避免两路分数不可比）
+  → cross-encoder 重排（第三档，`rerank_enabled` 默认**开**；池 = top-20）
+  → top-K（K ≤ 5，单次注入 ≤2500 字）
   → 注入 prepare：片段 + origin
-  → 记 context_meta（注入了什么，便于回放与评估）
+  → 记 context_meta.retrieved ＋ 落 retrieval_injected 事件（便于回放与评估）
 ```
 
 **检索范围按任务**（已定）：默认在当前任务上下文（会话、站点、来源类型）内检索，需要全局时显式指定——避免检索噪声把上下文重新撑爆。
 
-**引用回填是硬约束**（已定）：检索类任务的回答必须标注用了哪几个 chunk（`origin` 可见），否则不算完成。这既是质量门槛，也是评估检索效果的唯一依据。
+**预取保守 gating**：命中分数不过阈值（`1/(k+5)`，即至少进过某一路的 top5）就不注入。这样 `1+1` 这类无检索任务零注入，不会被误标「未引用来源」。
 
-### 7.3 向量选型（已定：上）
+**查询路由 + 词面覆盖门（2026-10-08 第三轮）**：`route_query()` 把查询分三类——**lexical**（含引号 / ASCII 标识符 / 路径扩展名）→ 三路全开 + 要求候选覆盖查询的 ≥50% 词窗；**short**（≤2 字中文）→ 关掉 trigram（trigram 只匹配 ≥3 字符，2 字必零召回）、只留字符级 + 向量；**semantic**（其余）→ 三路全开、不设覆盖门。覆盖门只对词面路生效，因为自然语言的正确块**经常只覆盖查询的一部分词**，对语义路加门会误杀。这是对「两路 FTS 用 OR 词组几乎总能凑满噪声候选」的直接对症。
+
+**第三档重排（2026-10-08，默认开）**：`app/rerank.py` 的 `FastEmbedReranker`（cross-encoder，默认 `BAAI/bge-reranker-base`）在融合后对候选池（默认 top-20）逐对打分重排。**动机有实测背书**：换 gemma 后 B 集向量单路 0.917 被三路融合压回 0.750，而**调权重是 wash**（见下），所以正解是「RRF 只召回、排序交重排」。`rerank_hits()` 是模块级纯函数（评测离线复用）；`NullReranker` 在模型缺失时空转、如实降级。**效果**：B 集 0.750 → **0.917（过门）**，A 集 0.562 → 0.625。代价：模型 1.04 GB、常驻 1.42 GB、~20 ms/对（`pool=20` 即 +0.4 s/查询）。**`rerank_enabled` 默认 `True`（2026-10-08 收口）**：证据是 B 过门，回退只需 `ORBIT_RERANK_ENABLED=0`。详见 `handoff/vector-path-plan.md` 第三轮。
+
+**融合与排序的实测结论（2026-10-08 汇总）**：
+1. **B 集的门槛曾被 RRF 挡死**——向量单路 0.917（高于 0.85）被三路等权融合压回 0.750。重排上线后恢复到 0.917。
+2. **给向量路加权已被实测证伪**（(1,1,1)/(1,1,2)/(1,1,3) 三档差异不超过 1 条查询，只是把损失在 A/B 之间搬家），`rrf()` 保留 `weights` 参数但默认仍等权。
+3. **A 集门槛（≥0.70）的阻塞点是「表格块召回」，不是排序**——A 集 16 条里 3 条目标块压根不在候选池；追到根因是**表格被整表切块、目标单元格信号被稀释**（目标短语仅占块 3–8%，词面两路全空、向量路排 22/58/12 位）。量化：A 集目标块 62.5% 是表格块（语料里只占 32%），表格块命中率 50% vs 正文 83%。对症手段是**表格行级切块**（属切块策略变更，需单独一轮，见 §10）。**→ 已于 2026-10-09 实施**（`split_table` 改行级）：A 集 0.625 → **0.688**、B 集 0.917 → **1.000**；但门 2（≥0.70）仍差 1 条。行级切块抬的是**可达池内的排序命中**，没抬**候选池天花板**（四档粒度实测天花板恒为 0.812）——余下 3 条缺池是**嵌入模型对极短功能性短语的判别力上限**，不是切块粒度问题（详见 `handoff/vector-path-plan.md` 第四轮）。
+4. 候选池天花板（`recall@rerank_pool`）：A **0.812** / B **1.000**；深扫 `LIST_DEPTH` 10/20/30 对 A 重排无影响——**A 的残差是召回上限，不是池深**。
+
+**引用回填是硬约束**（已定）：检索类任务的回答必须标注用了哪几个 chunk（`origin` 可见），否则不算完成。这既是质量门槛，也是评估检索效果的唯一依据。两条守卫防止误伤：
+
+1. **只在本次注入过片段时才校验**（`context_meta.retrieved` 非空），否则无检索任务会被误标「部分完成」。
+2. **origin 用归一化匹配**：去 scheme / `www.` / query，比对 host+path 前缀——模型常把 `search.bilibili.com/all?…` 引用成 `bilibili.com`，严格全等会把正常引用判成未引用。
+
+**评估口径**：服务端落 `retrieval_injected`（注入了哪些 origins ＋ 分数）与 `citation_checked`（matched / missing）两个事件，`eval_run.py` 据此在报告里出 **recall@5** 与**引用覆盖率**两列。按计划先出数、不定 KPI（有真实数据再设阈值）。
+
+### 7.3 向量选型（已实现：sqlite-vec vec0 + embeddinggemma-300m）
 
 | 项 | 选择 | 理由 |
 |---|---|---|
-| 向量存储 | `sqlite-vec` | 单文件、与现有 SQLite 同进程、零运维；用 `VectorStore` 形状封装，以后可换 |
+| 向量存储 | `sqlite-vec`（`chunk_vectors`，vec0，当前 768 维，迁移 `0005`） | 单文件、与现有 SQLite 同进程、零运维；用 `VectorStore` 形状封装，以后可换 |
 | 备选 | LanceDB / Chroma | 功能更全，但多一个依赖或进程 |
-| Embedding | **本地模型（已定）**：`fastembed` + `BAAI/bge-small-zh-v1.5` | 中文优化、ONNX 推理**不依赖 torch**（省 2GB 依赖）、内容不出本机；实现走 `Embeddings` 接口，可替换 |
+| Embedding | **本地模型（已实现）**：`fastembed` + `google/embeddinggemma-300m` | 中文/多语言、ONNX 推理**不依赖 torch**、内容不出本机；实现走 `Embeddings` 接口，可替换 |
+| 重排 | **本地 cross-encoder（已实现，默认开）**：`fastembed` + `BAAI/bge-reranker-base` | 融合后排序的第三档；`Reranker` 是第 12 个 policy，可替换 |
 
-**本地 embedding 的三个实现要点**
+**实现要点**
 
-1. 模型约 100 MB，首次运行自动下载到本地缓存，之后离线。
-2. bge 系列最大输入 512 token——**切块长度必须与之对齐**（写入侧的目标 300–800 字要按中文字符≈token 折算，控制在 512 内）。
-3. CPU 推理单条几十毫秒、批量可接受；索引写入放后台任务（挂 digest 之后异步），不阻塞工具返回。
+1. 模型 1.24 GB，首次运行下载到 `<data_dir>/fastembed_cache`（`Settings.embedding_cache_dir`，并把 `FASTEMBED_CACHE_PATH` 一并导出），之后离线。**不要用 fastembed 的默认缓存**——那是 `%TEMP%/fastembed_cache`，落系统盘且可能被清理。
+2. 输入窗口 2048 token，现有 300–500 字切块远在窗口内，不构成约束（`bge` 系列才是 512 的紧约束）。
+3. 嵌入与切块放在**同一个 `to_thread`** 里（`graph/nodes.py::digest.index`）。**实测 173 ms/块、一次网页观察（28 块）4.84 s**——比旧模型 bge-small-zh（31 ms / 0.86 s）慢 5.6 倍，已超过方案 D4 定的「digest > 1.5 s 就上后台队列」触发线，队列化列为后续项。
+4. **两侧前缀都要配**（这是最容易配错的一处，三种模型的组合都不一样）：gemma 要 `task: search result | query: ` / `title: none | text: `；bge v1.5 两侧都空（v1.0 才需要前缀，加上反而掉分）；Qwen3-Embedding 只在查询侧加 `Instruct: {任务}\nQuery:`。`Settings.vector_query_prefix` / `vector_doc_prefix` 分开承载。
+5. **扩展加载必须自持连接**：aiosqlite 把真实 `sqlite3.Connection` 放在独立 worker 线程，无法用 SQLAlchemy 的 `connect` 事件加载 sqlite-vec（同线程守卫报错）。`SQLiteVecStore` 每次公开方法开一条短 aiosqlite 连接，`enable_load_extension` → `load_extension` → 立刻关掉。迁移侧是同步引擎，直接用 `op.get_bind().connection.dbapi_connection`，加载失败硬失败（不做静默降级）。
+6. **onnxruntime 的 CPU memory arena 必须关**（`Settings.embedding_cpu_mem_arena` 默认 `False`）：实测开着时 1.24 GB 的模型把进程工作集顶到 5.29 GB，整机只剩 0.42 GB 可用而卡死；关掉后加载 2.4 s、加载后 891 MB。**重排模型也吃这条**（`build_reranker` 把 `embedding_cpu_mem_arena` 一并传进 `TextCrossEncoder`）。
+7. **向量表的维度跟随配置，不跟随迁移**：vec0 的维度建表时钉死在 `float[N]`，而 `embedding_dim` 是可配置的，所以校准放在运行时——`SQLiteVecStore.ensure_schema()` 比对 `vector_meta` 与当前配置，维度或模型不一致就 DROP 重建并留可读 warning，`AgentRunner.start()` 会调一次。换模型后必须重跑 `scripts/backfill_vectors.py`。
+8. **本环境的 bulk-delete 守卫会打断多文件 HF 下载**（`bge-reranker-base` 两次 exit 1）。单文件大 blob 能下完，所以遇到时**手工收尾 HF 缓存**（`.incomplete` blob 改 commit-hash 名 + 建 snapshot + 硬链接 + size 断言），不必重下。
+
+**选型实测（195 块真实仓库语料 + A/B 双集 recall@5，详见 `handoff/vector-path-plan.md` 第二轮）**
+
+| 模型 | 维度 | 体积 | 每段 | A 向量 | B 向量 |
+|---|---|---|---|---|---|
+| `BAAI/bge-small-zh-v1.5` | 512 | 0.09 GB | 31 ms | 0.438 | 0.583 |
+| `jinaai/jina-embeddings-v2-base-zh` | 768 | 0.64 GB | 164 ms | 0.562 | 0.500 |
+| **`google/embeddinggemma-300m`（现默认）** | 768 | 1.24 GB | 173 ms | 0.562 | **0.917** |
+
+（`bge-base-zh-v1.5` / `bge-large-zh-v1.5` / `bge-m3` **不在 fastembed 支持列表里**，用不了。`Qwen3-Embedding-0.6B` 质量更高但是 0.6B 解码器，纯 CPU 代价过大，未采纳。）
+
+**管道端到端（含重排，2026-10-08 第三轮）**
+
+| 查询集 | 三路融合 | 路由门控 | **重排** | 门槛 |
+|---|---|---|---|---|
+| A · 改写（16 条） | 0.562 | 0.562 | **0.625** | 0.70 ❌ |
+| B · 词面（12 条） | 0.750 | 0.750 | **0.917** | 0.85 ✅ |
+
+**切块侧（2026-10-09 已实施）**：A 集的差距定性为**表格块召回**——表格被整表切块（`0004` 切块规则 §7.2.1 的「整表 ≤500 字作为一块」），目标单元格信号被同表其他行稀释。已落地**表格行级切块**（一条表行 = 一个语义单元，仍重复表头，`split_table`）：A 集 0.625 → 0.688、B 集 0.917 → 1.000，`pytest` 248 passed。**未完成**：① 门 2（≥0.70）仍差 1 条，残差 = 候选池天花板 0.812（三路召回上限，与切块粒度、`LIST_DEPTH`、FTS 门控、路径权重全部无关，均已实测否掉）；② 扩大查询集（≥50 条）重估难度分布；③ 生产库 524 块仍是旧切块，需重切才吃得上本次改动（新入库内容自动生效）。
 
 ---
 
@@ -382,7 +423,7 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 |---|---|
 | `app.sqlite` | conversations / messages / tasks / task_events / memories / tool_calls / artifacts **+ 新增**：chunks / tool_results / skills / grants / mcp_servers |
 | `checkpoints.sqlite` | LangGraph 图状态 |
-| 索引 | FTS5 虚表 + sqlite-vec 虚表 |
+| 索引 | FTS5 双虚表（`chunks_fts_trigram` / `chunks_fts_chars`）＋ sqlite-vec 虚表 `chunk_vectors`（迁移 `0005`，维度跟随 `Settings.embedding_dim`，当前 768）＋ 元信息表 `vector_meta` |
 | keyring | 唯一放真值的地方 |
 | `vault.json` / `mcp.json` / `settings.json` | 逐步收回 DB，只留启动必需 |
 
@@ -420,8 +461,25 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 | 6 | 向量：本地 Embedding（fastembed + bge-small-zh-v1.5）+ sqlite-vec + 混合检索 | "用词不同语义相同"的查询能召回 |
 | 7 | MCP 补齐：重连、心跳、resources 隔离接入 | 服务崩了能自愈 |
 | 8 | 存储收敛（配置入 DB、表结构调整） | 配置只剩一份真值 |
+| 6.5 | **检索质量专项**（~~表格行级切块~~ 已完成 + 查询集扩容 ≥50 条 待做） | A 集 ≥0.70（切块已落地 → 0.688，仍差 1 条；残差 = 候选池天花板 0.812） |
 
 前 4 步做完，"网页内容可检索 + 来源可追溯"这条链就通了——这是 RAG 真正开始产生价值的地方。
+
+**实施状态（2026-09-30）**：阶段 1–4 已落地，迁移为 `0003_tool_results` / `0004_chunks`（`0005` 后由阶段 6 占用，见下条）；阶段 5（Skill 层）已建 `0006_skills` + `0007_skill_governance`，二期四道闸治理已落地。阶段 1 的出口标准按**新基线**执行：后端 pytest **129 passed**、ruff / mypy / 前端 lint＋build 全绿、界面交互 **13/13** 通过；评估集 14 用例 + 离线检索评测 `eval_rag`（门槛 0.8，PASS）＋切块参数扫描 `eval_chunk_sweep`（结论见 §7.2.1 补注）。阶段 5 已完整落地（§6）。
+
+**护栏收口（2026-09-30，目标模式执行）**：三类预算此前只有动作数真正拦截，token / 时间只记录不拦截；`Reflector` 有实现没接线。本轮补齐——预算三类都硬拦（半量预警归 reflect、满量归 budget）、`reflect` 节点接进图（budget 之后、think 之前，产出确定性纠偏提示）、`retriever_search` 每任务上限 4 次、工具执行加全局并发闸、`finalize` 输出成本聚合、模型调用有限重试（流式已出正文不重试）。过程与证据：`handoff/2026-09-30-goal-mode-report.md`。
+
+**Skill 层读取侧（2026-09-30）**：阶段 5（Skill 层）的「读」这一半已落地——`app/skills.py` 加载器 + `skill_load` 工具 + `prepare` 按触发词注入简述（上限 5）。沉淀（`skill_save`）与四道闸留待二期。详见 §6。
+
+**阶段 6 向量路（2026-10-08，已实现未达标）**：`0005_vector_table` 建 `chunk_vectors`（vec0）+ `vector_meta`；`app/vectors.py`（`SQLiteVecStore` / `FastEmbedEmbeddings` / 两个 `Null*` 降级 / `vec_available()` 探测）；`policies.py` 加第 10、11 个 Protocol（`Embeddings` / `VectorStore`）并在 `Policies.default` 注入；`retrieval.py::vector_candidates` 真实现进 RRF 第 3 路；`graph/nodes.py::digest.index` 把切块与嵌入合并进同一个 `to_thread`。**门禁**：pytest **158 passed**、ruff / mypy clean、`eval_chunk_sweep` / `eval_run` 仍可跑。**验收门槛：门 1（结构）过；门 2 / 门 3（数字）未过**——A 改写查询集融合 recall@5 **0.562**（门槛 0.70）、B 词面查询集 **0.750**（门槛 0.85）。
+
+**第二轮换模型（2026-10-08 同日）**：默认嵌入模型 `BAAI/bge-small-zh-v1.5`(512) → **`google/embeddinggemma-300m`(768)**（选型实测见 §7.3）。融合数字 **A 0.375 → 0.562（+18.7）、B 0.667 → 0.750（+8.3）**，向量单路 B 达 **0.917**。同轮落地：两侧前缀分离（`vector_doc_prefix`）、模型缓存移出 `%TEMP%`（`embedding_cache_dir`）、关闭 onnxruntime CPU arena（`embedding_cpu_mem_arena`）、`ensure_schema()` 维度/模型感知 + 启动校准（`AgentRunner._calibrate_vectors`）。代价：嵌入慢 5.6×（31 ms → 173 ms/块），**已破方案 D4 的 1.5 s 触发线**，后台嵌入队列成为后续必要项。**门槛未过的原因已定位为融合公式而非模型**——详见 `handoff/vector-path-plan.md` 第二轮 · 发现 1 / 2。
+
+**第三轮重排 + 路由（2026-10-08 同日）**：新增 `app/rerank.py`（`NullReranker` / `FastEmbedReranker`）作为融合后的**第三档**，`retrieval.py` 加 `route_query` / `gate_candidates` / `rerank_hits`，`policies.py` 加第 12 个 Protocol `Reranker`。**门 3 首次通过**：B 集 0.750 → **0.917**；A 集 0.562 → **0.625**（仍差 0.075）。**门禁**：pytest **177 passed**（+19）、ruff / mypy clean。代价：重排模型 1.04 GB、常驻 1.42 GB、+0.4 s/查询。**A 集残差已定性为「表格块召回」**（目标块 62.5% 是表格块、命中率 50% vs 正文 83%）→ 立 **阶段 6.5「检索质量专项」**。详见 `handoff/vector-path-plan.md` 第三轮。
+
+**阶段 6 收口（2026-10-08 · 话题终结）**：`vector_enabled` 与 `rerank_enabled` **默认双双翻为 `True`**——依据是 Hermes 经验（向量按需 + cross-encoder 是唯一真见效的第三档）与本项目的 B 集证据（0.750 → 0.917 过门）；回退一句话 = `ORBIT_VECTOR_ENABLED=0` / `ORBIT_RERANK_ENABLED=0`，全关即纯 FTS5 双路。新增 `tests/conftest.py` 在测试期关掉重模型加载（**179 passed**、mypy 23 文件 clean）。**门 2（A ≥0.70）维持未过、不再追**——根因是表格切块粒度，移交阶段 6.5。**RAG 方向至此收口。**
+
+**阶段 7–8 仍未开始**：MCP 补齐（重连 / 心跳 / resources 接入）、存储收敛（配置入 DB、`Artifact` 加 `checksum`、`Message` 加 `tool_call_id`，依赖迁移 `0008`——`0008` 未被向量路占用）。
 
 ---
 
@@ -430,4 +488,4 @@ API 结果同样入 RAG 索引（`origin` = 结果 URL），所以两条路径�
 1. **Embedding 走本地**（用户已定）：`fastembed` + `BAAI/bge-small-zh-v1.5`，ONNX 推理、不依赖 torch、内容不出本机；实现走 `Embeddings` 接口，后续可替换。
 2. **首个 Skill = `web_search`**（用户已定）：站内搜索流程，草稿见 6.1，内容沉淀自 16.7 实测的三个坑。
 
-至此本设计稿的决策全部闭环，无待定项。**计划就绪，等用户确认后从阶段 1（拆包搬家）开始实施。**
+至此本设计稿的决策全部闭环，无待定项。**阶段 1–4 已实施完毕**（状态见 §10）；下一批从阶段 5（Skill 层）开始。

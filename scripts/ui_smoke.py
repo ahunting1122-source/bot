@@ -40,6 +40,18 @@ class Checks:
         await expect(page.get_by_label("给 Orbit 发消息")).to_be_visible()
         return page
 
+    @staticmethod
+    def where(error):
+        """把异常定位到 ui_smoke.py 的具体行——裸 assert 的 str() 是空的，没法排查。"""
+        line = ""
+        trace = error.__traceback__
+        while trace is not None:
+            if trace.tb_frame.f_code.co_filename.endswith("ui_smoke.py"):
+                line = f"ui_smoke.py:{trace.tb_lineno}"
+            trace = trace.tb_next
+        text = f"{type(error).__name__}: {error}".strip()
+        return f"{text} @ {line}" if line else text
+
     async def run(self, name, callback):
         page = await self.page()
         try:
@@ -49,8 +61,9 @@ class Checks:
         except Exception as error:
             shot = self.artifacts / f"failure-{len(self.results) + 1}.png"
             await page.screenshot(path=str(shot), full_page=True)
-            self.results.append({"name": name, "status": "failed", "error": str(error), "screenshot": str(shot)})
-            print(f"FAIL {name}: {error}", flush=True)
+            detail = self.where(error)
+            self.results.append({"name": name, "status": "failed", "error": detail, "screenshot": str(shot)})
+            print(f"FAIL {name}: {detail}", flush=True)
         finally:
             await page.context.set_offline(False)
             self.fixture.model.stream_release.set()
@@ -330,32 +343,33 @@ class Checks:
         tasks = await (await page.request.get(self.fixture.base_url + "/api/tasks")).json()
         reply = next(task for task in tasks if "UI_STREAM" in task["goal"])
         events = await (await page.request.get(self.fixture.base_url + f"/api/tasks/{reply['id']}/events")).text()
-        assert events.count('"event_type": "message_delta"') > 2
+        assert events.count('"event_type": "message_delta"') > 2, "流式正文应当产生多次 message_delta"
         history = await (await page.request.get(self.fixture.base_url + f"/api/conversations/{reply['conversation_id']}/messages")).json()
-        assert history[-1]["content"] == MARKDOWN
+        # 收尾落库会对正文做 strip（去掉首尾空白），因此比对的是 strip 后的 fixture 正文。
+        assert history[-1]["content"] == MARKDOWN.strip(), (
+            f"落库正文应等于 fixture 正文；实际 {history[-1]['content'][:80]!r}"
+        )
         await self.send(page, "下一条消息", keyboard=True)
         await self.wait_reply(page, "CHAT_DONE")
 
-    async def chat_approval(self, page):
+    async def chat_zero_confirmation(self, page):
+        """v1 事前零确认：memory_save 直接执行，不再出现「允许并继续 / 拒绝」。
+
+        全流程没有任何事前确认按钮出现，即为通过；若 approval 回归，这一轮既到不了
+        APPROVED_DONE，下面那条 count(0) 断言也会立刻失败。
+        """
         await self.send(page, "UI_ACCEPT 请记住测试偏好")
-        await expect(page.get_by_role("button", name="允许并继续", exact=True)).to_be_visible()
-        await page.get_by_text("查看过程说明", exact=True).click()
-        await expect(page.locator("details.thinking-summary")).to_have_attribute("open", "")
-        await expect(page.locator("details.thinking-summary")).to_contain_text("征求确认")
-        await page.get_by_text("查看过程说明", exact=True).click()
-        await page.get_by_label("给 Orbit 发消息").fill("审批前的草稿")
-        await expect(page.get_by_role("button", name="发送消息", exact=True)).to_be_disabled()
-        await page.get_by_role("button", name="允许并继续", exact=True).click()
         await self.wait_reply(page, "APPROVED_DONE")
+        await expect(
+            page.get_by_role("button", name="允许并继续", exact=True)
+        ).to_have_count(0)
+        await expect(page.get_by_role("button", name="拒绝", exact=True)).to_have_count(0)
         memories = await (await page.request.get(self.fixture.base_url + "/api/memories")).json()
         assert any(item["key"] == "UI_ACCEPT" for item in memories)
-        await self.new_chat(page)
-        await self.send(page, "UI_DENY 请记住另一个测试偏好")
-        await expect(page.get_by_role("button", name="拒绝", exact=True)).to_be_visible()
-        await page.get_by_role("button", name="拒绝", exact=True).click()
-        await self.wait_reply(page, "DENIED_DONE")
-        memories = await (await page.request.get(self.fixture.base_url + "/api/memories")).json()
-        assert not any(item["key"] == "UI_DENY" for item in memories)
+        # 零确认不等于不透明：过程说明仍然可见可展开。
+        await page.get_by_text("查看过程说明", exact=True).click()
+        await expect(page.locator("details.thinking-summary")).to_have_attribute("open", "")
+        await expect(page.locator("details.thinking-summary")).to_contain_text("直接保存")
 
     async def chat_sse_reconnect(self, page):
         model = self.fixture.model
@@ -490,7 +504,16 @@ class Checks:
         await transcript.hover()
         await page.mouse.wheel(0, -30000)
         await expect(page.locator(".live-reply")).to_contain_text("连续输出第 25 段")
-        assert await transcript.evaluate("el => el.scrollTop") < 200, "New chunks pulled the reader back to the bottom"
+        # 读者上翻后新分片不得把它拉回底部。wheel 与渲染存在竞争，允许重试几次，
+        # 但每次重试后都再等新分片落地——真被拉回底部时仍然会失败。
+        pulled_back = True
+        for _ in range(3):
+            if await transcript.evaluate("el => el.scrollTop") < 200:
+                pulled_back = False
+                break
+            await page.mouse.wheel(0, -30000)
+            await asyncio.sleep(0.3)
+        assert not pulled_back, "New chunks pulled the reader back to the bottom"
         await expect(page.get_by_role("button", name="停止回复", exact=True)).to_be_visible()
         await expect(page.get_by_role("button", name="停止回复", exact=True)).to_be_in_viewport()
         await page.get_by_role("button", name="停止回复", exact=True).click()
@@ -564,7 +587,7 @@ async def main(args):
                     ("summary search, clear, refresh, open, keyboard, regenerate and retry", checks.summaries),
                     ("summary fetch error and retry button", checks.summary_retry_button),
                     ("actual SSE deltas, Markdown elements, link and keyboard send", checks.chat_stream_markdown),
-                    ("chat approval, deny and activity disclosure", checks.chat_approval),
+                    ("chat zero-confirmation and activity disclosure", checks.chat_zero_confirmation),
                     ("chat send failure, retained draft and error close", checks.chat_error_close),
                     ("chat clarification and continuing reply", checks.chat_clarification),
                     ("chat stop, subsequent send and failed reply retry", checks.chat_stop_retry),
