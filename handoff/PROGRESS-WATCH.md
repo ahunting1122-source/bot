@@ -335,3 +335,28 @@ A 集 16 条精确分解 = **10 OK / 3 池内未进 top5 / 3 缺池**。
 4. 存储收敛缺 `messages.tool_call_id` / `artifacts.checksum`，与审计时间线共用未创建的 `0008`（已空缺 4 个编号周期，编号空洞有堆积风险）。
 5. 视觉兜底依赖多模态模型（`deepseek-flash`），需确认运行配置。
 6. 测试 flake：`test_ask_user_still_interrupts_and_resumes` 的 15s stall 断言在全包串行下偶发超时，建议后续收紧等待判据或隔离该用例（不影响功能）。
+
+---
+
+## 2026-10-13（每日自动巡检 · 第八次）
+
+- **Skill 层（阶段 5）**：**已完成（无变化）**——`app/skills.py`(14.6KB, mtime 10-08)；工具表 `tools.py:372 skill_load` / `:378 skill_list` / `:383 skill_save`，分派 `:1015/1042/1054`；消费方 3 处：`graph/nodes.py:227 catalog_with_stats`、`agent.py:119 record_outcome`、`main.py:152 prompt_source=mcp.prompt_skills`；迁移 `0006/0007/0011`。`tools.py` 今日 +424 行改动**全部属权限级别（file_scope）**，技能三工具注册/分派未动。
+- **向量路（阶段 6）**：**部分实现（无变化）**——`retrieval.py:198 vector_candidates()` 真实现（非占位 `return []`），迁移 `0005_vector_table` 在位；门槛仍 **B 1.000 ✅ / A 0.688 未过（差 1 条）**。`scripts/diag_table_split.py` 于 10-12 仅修一处 ruff B023 闭包，非推进。
+- **子 Agent**：**骨架已建（占位，无变化）**——全仓 `subagents` 仍 4 处：协议 `policies.py:209` + 实现 `:584` + 声明 `:601` + 注入 `:625`，**无第三处消费方**（`available=False` + `NotImplementedError`）。
+- **多模态（OCR/图像/ASR）**：**部分实现（无变化）**——仍仅图像侧视觉兜底（`browser.py:65 browser_click_at`、`:428 last_screenshot_data_url()`、`nodes.py:515/530` 截图 base64→`image_url`）。OCR/ASR 在 `backend/app` grep `ocr|tesseract|whisper|asr|transcrib` **零命中**。10-12 的 `agent.md`/`context.py` 改动只涉系统提示与文件权限，与多模态无关。
+- **MCP 补齐 / 存储收敛**：**部分实现（无变化）**——MCP 三项仍完整（`mcp.py` `_supports_listen:113` / `_fetch_prompts:379` / `_index_resources:445`）。**存储收敛仍未做**：`storage.py:101 Message` 无 `tool_call_id`、`:216 Artifact` 无 `checksum`（`:228` 仅 `ToolResult` docstring 提及）；无 `0008` 迁移。
+
+**本次变化（对照 10-12 第七次）：五个方向全部无代码变化；但仓库在「五方向之外」有实质推进。**
+- 方向级证据：五方向核心文件 mtime 全 ≤ 10-09（`skills.py`/`retrieval.py`/`vectors.py`/`rerank.py`/`mcp.py`）；`policies.py` 仅 budget 段改动（时间上限改软闸、`max_actions` 20→40），**协议声明与注入未动**。
+- 五方向外的新推进（10-12 18:14 → 10-13 00:38）：① **权限级别 `Settings.file_scope`**（`workspace` 默认 / `machine`）成为文件+命令统一安全面——`tools.py` +424 行（`resolve_path(...,machine)`、`dangerous_command()`、`terminate_tree()`、`overwrite` 门、`run_command` 真实现），`config.py:49 FILE_SCOPES` / `:101 file_scope` / `:205 machine_wide`，前端 `Settings.tsx`/`Composer.tsx` 可切档；② **预算时间上限改软闸**（`policies.py` 到点转后台，硬停只剩动作/token）；③ 系统提示词外置到 `agent.md`（`context.py` 加载 + 兜底）；④ 新增 `tests/test_file_scope.py`(18KB) + `scripts/e2e_file_scope.py`/`e2e_agent_command.py`。
+- 迁移链不变：`0001 → 0002 → 0003 → 0004 → 0005_vector_table → 0006_skills → 0007_skill_governance → 0009_memory_hygiene → 0010_user_profile → 0011_skill_source`；**`0008` 仍空缺、仍预留给审计时间线；下一个可用 = `0012`**。
+- git：`log --oneline` 由 3 → **6 commits**（`035f04f/f269824/965be7a/3f571ab/d35edc1/4770000`，含为发布做的整历史改写）；工作区仍有 20 个已改 + 4 个未跟踪文件未提交。
+- 验证：`cd backend && uv run pytest -q` → **279 passed / 0 failed**（上轮 248，**+31**，增量来自 `test_file_scope.py` 与 `test_graph.py` 权限相关用例）。README 已同步声明 277 基线。
+
+风险 / 阻塞（延续，无新增）：
+1. `subagents` 仍是全项目唯一「协议已声明、零消费方」的扩展点。
+2. 门 2（A 集 ≥0.70）仍差 1 条（0.688）；残差已定性为嵌入模型判别力上限，四杠杆实测全部否掉。
+3. 生产库 `data/app.sqlite` 的 524 块仍是旧切块，需重切才吃得到行级收益。
+4. 存储收敛缺 `messages.tool_call_id` / `artifacts.checksum`，与审计时间线共用未创建的 `0008`（已空缺 5 个编号周期）。
+5. 视觉兜底依赖多模态模型（`deepseek-flash`），需确认运行配置。
+6. 上轮 flake 本轮消失：`test_ask_user_still_interrupts_and_resumes` 全包通过（279 passed）。

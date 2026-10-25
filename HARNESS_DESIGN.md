@@ -11,7 +11,7 @@
 | 上下文装配 | `build_context()`：系统提示 + 记忆 + 摘要 + 最近消息 +（新）技能 +（新）检索片段 |
 | 能力声明 | `ToolRegistry.specs()`：把工具定义交给模型 |
 | 调用分发 | `ToolRegistry.execute()`：校验 → 幂等 → 分发 → 结果契约 |
-| 权限与确认 | `gate()`：需确认 / 接管 / 拒绝 |
+| 权限与确认 | **权限级别**（`workspace` / `machine`，约束文件范围与命令执行）+ `gate()`：接管 / 拒绝（v1 事前零确认） |
 | 结果治理 | 结果契约、大小限制、(新) 原文入库与引用、压缩 |
 | 生命周期与恢复 | 队列、checkpoint、`operation_id` 幂等、取消 |
 
@@ -75,9 +75,9 @@
    └────┬─────────┘
         ▼
    ┌──────────────┐
-   │ 确认判定      │  gate：需要确认 → interrupt 挂起 → 用户允许/拒绝
+   │ 权限 + 接管判定│  gate：v1 事前零确认（直接放行）；仅 ask_user / needs_user 会 interrupt 挂起
    └────┬─────────┘
-        ▼ 允许
+        ▼ 放行
    ┌──────────────────────────────────────┐
    │ 分发（唯一分发点）                      │
    │  内置  → 本地函数 / browser.controller │
@@ -230,9 +230,11 @@ RAG 不是"一个检索函数"，是**两条流水线**：写入侧建索引，�
 | **能力声明** | Pydantic schema | JSON Schema | 检索工具的参数 | 都进 `ToolRegistry`，都进模型的工具列表 |
 | **调用分发** | `store.local()` | `MCPManager.execute` | `Retriever.search` | 都走同一个 `registry.execute()`，共享幂等与事件 |
 | **结果契约** | `{status,data}` | `{content,structured,is_error}`→归一 | `[{text,origin,score}]`→归一 | 四种 status + 大小上限 + 原文入库 |
-| **确认策略** | 按工具标记 | 按服务 `auto_approve` | 只读，默认免确认 | 全部由 gate 统一判定，**规则可以不同，入口必须唯一** |
+| **确认策略** | 事前零确认（v1） | 事前零确认（v1） | 只读 | 由 gate 统一判定；v1 全放行，**入口必须唯一**（`tool.confirmation` 只用于展示） |
+| **权限边界** | 权限级别（`workspace`/`machine`） | 不受级别约束 | 只读 | 文件类与 `run_command` 走 `resolve_path`；其余工具不受级别约束 |
 
 **唯一分发点、唯一结果契约、唯一确认入口**——这三条是 harness 不被三条链路扯散的关键。
+**权限级别是第四根**：它不在 gate 里，而在工具层的唯一落地点（`resolve_path`）与命令分发处，所以"注册 vs 暴露"分离之后仍然只有一处能放权。
 
 ---
 
