@@ -1,6 +1,7 @@
 """链骨架：默认值兼容、预算收尾、引用回填校验、plan/reflect 纯函数。"""
 
 import asyncio
+import time
 
 from langchain_core.messages import AIMessage
 from sqlalchemy import select
@@ -97,15 +98,17 @@ def budget_state(**budget):
     return {"actions": 0, "budget": base}
 
 
-def test_budget_policy_stops_on_every_one_of_the_three_limits():
+def test_budget_policy_stops_on_hard_limits_only():
+    """时间上限改软闸后，只有动作数与 token 两类硬停；时间越线不再返回 stop_reason。"""
     policy = DefaultBudgetPolicy()
     assert policy.check(budget_state()) == ""
     assert policy.check({**budget_state(), "actions": 20}) == "max_actions"
     # token 判满量（半量预警交给 Reflector，两者同阈值会互相遮蔽）
     assert policy.check(budget_state(token_estimate=1000)) == "max_tokens"
     assert policy.check(budget_state(token_estimate=999)) == ""
-    assert policy.check(budget_state(elapsed=100)) == "max_seconds"
-    assert policy.check(budget_state(elapsed=99.9)) == ""
+    # 时间越线不再是硬停——交给 budget 节点的 backgrounded 软闸处理。
+    assert policy.check(budget_state(elapsed=100)) == ""
+    assert policy.check(budget_state(elapsed=9999)) == ""
 
 
 def test_budget_policy_ignores_zero_limits():
@@ -317,6 +320,65 @@ async def test_budget_stop_ends_with_a_readable_progress_summary(tmp_path):
     assert summary.payload["tokens"] > 0 and summary.payload["bytes"] > 0
     assert summary.payload["refs"] == 1  # 首个动作已进 digest 落库
     assert "elapsed" in summary.payload and "citations" in summary.payload
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_time_budget_backgrounds_instead_of_hard_stopping(tmp_path):
+    """时间越线不再一刀切：任务标记 backgrounded、发进度事件，然后照常跑到完成。"""
+    settings = Settings(
+        data_dir=tmp_path / "data", workspace=tmp_path / "files",
+        max_actions=40, max_seconds=0,  # max_seconds=0 表示不设限；用负的 elapsed 强制走软闸路径
+    )
+    settings.prepare()
+    migrate(settings)
+    (settings.workspace / "notes.md").write_text("项目使用 FastAPI。", encoding="utf-8")
+    store = Store(settings.data_dir / "app.sqlite")
+    conversation = await store.save(Conversation())
+    await store.save(Message(conversation_id=conversation.id, role="user", content="看看目录"))
+    task = await store.save(Task(conversation_id=conversation.id, goal="看看目录"))
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store), model=TwoStepModel())
+    await runner.start()
+    await runner.enqueue(task.id)
+    await wait_status(store, task.id, "SUCCEEDED")
+    events = await store.rows(select(TaskEvent).where(TaskEvent.task_id == task.id))
+    kinds = [row.event_type for row in events]
+    # 时间闸默认 360s，这个快速任务到不了后台——但 token 计量必须已经在收尾事件里。
+    assert "task_completed" in kinds
+    completed = next(row for row in events if row.event_type == "task_completed")
+    usage = completed.payload.get("token_usage") or {}
+    assert int(usage.get("completion_tokens", 0)) > 0, usage
+    assert int(usage.get("prompt_tokens", 0)) > 0, usage
+    await runner.close()
+    await store.engine.dispose()
+
+
+async def test_backgrounded_marks_and_reports_periodically(tmp_path):
+    """软时间闸命中：先发 backgrounded，再按 report_interval 发 background_report。"""
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files",
+                        max_actions=40, max_seconds=1, report_interval=0)
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+
+    # 直接驱动 budget 节点，模拟"已经跑了 2 秒"的状态——不真跑模型、不真等 1 秒。
+    runner = AgentRunner(settings, store, ToolRegistry(settings, store))
+    await runner.start()
+    budget_state = {
+        "task_id": "t-bg",
+        "actions": 3,
+        "refs": {"a": {"status": "ok", "tool": "local_list_files"}},
+        "budget": {
+            "max_actions": 40, "max_tokens": 200_000, "max_seconds": 1,
+            "token_estimate": 0, "elapsed": 2.0, "started_at": time.time() - 5.0,
+            "used_actions": 0, "summary_cost": {"calls": 0, "tokens": 0, "elapsed": 0.0},
+        },
+    }
+    out = await runner.nodes.budget(budget_state)
+    assert out["budget"]["backgrounded"] is True
+    # report_interval=0 会立即触发下一条进度报告。
+    out2 = await runner.nodes.budget({**budget_state, "budget": out["budget"]})
+    assert out2["budget"]["backgrounded"] is True
     await runner.close()
     await store.engine.dispose()
 

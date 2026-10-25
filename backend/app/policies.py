@@ -318,11 +318,12 @@ class DefaultBudgetPolicy:
 
     def start(self, settings) -> dict:
         return {
-            "max_actions": int(getattr(settings, "max_actions", 20) or 20),
+            "max_actions": int(getattr(settings, "max_actions", 40) or 40),
             "used_actions": 0,
             "max_tokens": self.default_max_tokens,
             "token_estimate": 0,
-            "max_seconds": self.default_seconds,
+            # 时间上限从 settings 读：默认 360s（6 分钟），ORBIT_MAX_SECONDS 可覆盖。
+            "max_seconds": int(getattr(settings, "max_seconds", 360) or 360),
             "elapsed": 0.0,
             "started_at": time.time(),
             "stop_reason": "",
@@ -344,10 +345,9 @@ class DefaultBudgetPolicy:
         max_tokens = int(budget.get("max_tokens") or 0)
         if max_tokens and self.total_tokens(budget) >= max_tokens:
             return "max_tokens"
-        max_seconds = float(budget.get("max_seconds") or 0)
-        elapsed = float(budget.get("elapsed") or 0)
-        if max_seconds and elapsed >= max_seconds:
-            return "max_seconds"
+        # 时间上限是**软闸**：到点不硬停，而是标记"转入后台"继续跑（见 `budget` 节点）。
+        # 硬停只剩动作数与 token 两类——时间交给 `backgrounded` 标志与 `background_report`
+        # 定时进度事件去处理，长线任务不再被一个墙钟一刀切。
         return ""
 
 

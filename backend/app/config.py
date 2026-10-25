@@ -110,7 +110,12 @@ class Settings(BaseSettings):
     notion_url: str = ""
     browser_url: str = ""
     granted_actions: str = ""
-    max_actions: int = 20
+    max_actions: int = 40
+    # 单轮回复的时间上限（秒）。到点后**任务转后台继续**、先给用户一份中间结论，
+    # 而不是直接把任务掐断（`agent.py` 的预算兜底仍会硬停，这里只是默认档位）。
+    max_seconds: int = 360
+    # 任务转入后台后，每隔多少秒发一条进度报告（`background_report` 事件）。
+    report_interval: int = 60
     # 技能治理阈值（默认值定死，ORBIT_ 环境变量 / .env 可覆盖以保留调参能力）
     skill_stale_failures: int = 2  # 连续失败满此数标 stale 降权
     skill_archive_days: int = 90  # 距上次使用超过此天数归档

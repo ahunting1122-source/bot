@@ -26,6 +26,9 @@ class AgentRunner:
         self.policies = policies or Policies.default(settings, store)
         self.nodes = Nodes(self)
         self.partial: dict[str, str] = {}
+        #: 每步模型调用的 token 计量（估算值）：{task_id: {prompt_tokens, completion_tokens, elapsed}}。
+        #: 只在收尾时汇总进 task_completed 事件，流式途中不落库（避免每帧一次写盘）。
+        self._token_usage: dict[str, dict] = {}
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.queued: set[str] = set()
         self.current: dict[str, asyncio.Task] = {}
@@ -190,7 +193,8 @@ class AgentRunner:
                 )
             )
             await self.store.transition(task.id, "SUCCEEDED")
-            await self.store.event(task.id, "task_completed", text=text)
+            usage = self._token_usage.pop(task.id, {})
+            await self.store.event(task.id, "task_completed", text=text, token_usage=usage)
             await self._record_skill_outcome(task, "SUCCEEDED")
         except asyncio.CancelledError:
             await self.save_partial(task)
@@ -214,6 +218,7 @@ class AgentRunner:
             await self._record_skill_outcome(task, "FAILED")
         finally:
             self.partial.pop(task.id, None)
+            self._token_usage.pop(task.id, None)
             if self.summaries:
                 current = await self.store.get(Task, task.id)
                 if current and current.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:

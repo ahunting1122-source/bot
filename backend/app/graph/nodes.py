@@ -25,7 +25,7 @@ from sqlalchemy import select
 
 from app.context import FROZEN_PREFIX_KEY, PROMPT_VERSION, frozen_prefix, prefix_of
 from app.indexing import chunks_for_tool_result
-from app.policies import normalized_origin
+from app.policies import estimate_tokens, normalized_origin
 from app.retrieval import PREFETCH_MIN_SCORE
 from app.storage import Task, ToolResult
 from app.tools import Args, Tool, as_tool_text
@@ -42,7 +42,6 @@ SKILL_INJECT_LIMIT = 5
 STOP_LABELS = {
     "max_actions": "达到工具动作上限",
     "max_tokens": "达到 token 预算上限",
-    "max_seconds": "达到时间预算上限",
 }
 
 
@@ -381,6 +380,8 @@ class Nodes:
             full = None
             pending = ""
             last_sent = time.monotonic()
+            started = time.monotonic()
+            total_chars = 0
             async for chunk in model.astream(messages):
                 full = chunk if full is None else full + chunk
                 # Only outward answer text is transmitted; raw model reasoning is not a summary.
@@ -388,21 +389,66 @@ class Nodes:
                 if delta:
                     self.runner.partial[task_id] += delta
                     pending += delta
+                    total_chars += len(delta)
                 if pending and (time.monotonic() - last_sent >= 0.06 or len(pending) >= 80):
-                    await self.store.event(task_id, "message_delta", **identity, text=pending)
+                    await self.store.event(
+                        task_id,
+                        "message_delta",
+                        **identity,
+                        text=pending,
+                        # 速率与消耗：字符数是流式途中的真实计量，token 按 estimate_tokens 折算。
+                        chars=total_chars,
+                        tokens=estimate_tokens(self.runner.partial.get(task_id, "")),
+                        tokens_per_second=round(
+                            estimate_tokens(self.runner.partial.get(task_id, ""))
+                            / max(time.monotonic() - started, 0.05),
+                            1,
+                        ),
+                    )
                     pending = ""
                     last_sent = time.monotonic()
             if pending:
-                await self.store.event(task_id, "message_delta", **identity, text=pending)
+                await self.store.event(
+                    task_id,
+                    "message_delta",
+                    **identity,
+                    text=pending,
+                    chars=total_chars,
+                    tokens=estimate_tokens(self.runner.partial.get(task_id, "")),
+                    tokens_per_second=round(
+                        estimate_tokens(self.runner.partial.get(task_id, ""))
+                        / max(time.monotonic() - started, 0.05),
+                        1,
+                    ),
+                )
             if full is None:
                 raise RuntimeError("模型返回了空响应")
             response = message_chunk_to_message(full)
+            # 输入 token 用本步发送的 messages 估算（系统提示 + 历史 + 工具结果），
+            # 输出 token 用累计字符折算——两者都是"量级"不是账单，与 cost_summary 口径一致。
+            # 累计到任务级：一个任务可能多次进入 think（工具调用→再思考），总量才是真实消耗。
+            prior = self.runner._token_usage.get(task_id, {"prompt_tokens": 0, "completion_tokens": 0, "elapsed": 0.0})
+            self.runner._token_usage[task_id] = {
+                "prompt_tokens": int(prior.get("prompt_tokens", 0))
+                + estimate_tokens("".join(getattr(m, "content", "") or "" for m in messages)),
+                "completion_tokens": int(prior.get("completion_tokens", 0))
+                + estimate_tokens(self.runner.partial.get(task_id, "")),
+                "elapsed": round(float(prior.get("elapsed", 0.0)) + (time.monotonic() - started), 2),
+            }
         else:
             # Scripted test models may provide only ainvoke; production models use astream.
             response = await model.ainvoke(messages)
             self.runner.partial[task_id] = response.text
             if response.text:
                 await self.store.event(task_id, "message_delta", **identity, text=response.text)
+            prior = self.runner._token_usage.get(task_id, {"prompt_tokens": 0, "completion_tokens": 0, "elapsed": 0.0})
+            self.runner._token_usage[task_id] = {
+                "prompt_tokens": int(prior.get("prompt_tokens", 0))
+                + estimate_tokens("".join(getattr(m, "content", "") or "" for m in messages)),
+                "completion_tokens": int(prior.get("completion_tokens", 0))
+                + estimate_tokens(response.text or ""),
+                "elapsed": float(prior.get("elapsed", 0.0)),
+            }
         if not response.text and not response.tool_calls:
             raise RuntimeError("模型没有返回正文或工具调用")
         return response
@@ -686,6 +732,39 @@ class Nodes:
                     budget["summary_cost"] = delta
             except Exception:  # 台账读失败只影响归因，不拦任务
                 pass
+        # 软时间闸：到点转入后台继续，而不是硬停。只在第一次越线时发一次事件，
+        # 之后按 report_interval 定期发进度报告——报告由同一条 budget 边驱动，
+        # 只要任务还在推进，它就会按节奏触发，不需要另起定时线程。
+        max_seconds = int(budget.get("max_seconds") or 0)
+        report_interval = int(getattr(self.settings, "report_interval", 60) or 60)
+        if max_seconds and not budget.get("backgrounded") and budget["elapsed"] >= max_seconds:
+            budget["backgrounded"] = True
+            budget["last_report_at"] = 0.0
+            await self.store.event(
+                state["task_id"],
+                "backgrounded",
+                elapsed=budget["elapsed"],
+                max_seconds=max_seconds,
+            )
+            await self.store.event(
+                state["task_id"],
+                "activity_summary",
+                text=(
+                    f"任务已运行 {int(budget['elapsed'])} 秒、超过 {max_seconds} 秒上限，"
+                    f"转入后台继续执行，期间会定期汇报进度。当前已执行 {budget['used_actions']} 个动作。"
+                ),
+            )
+        elif budget.get("backgrounded"):
+            last_report = float(budget.get("last_report_at") or 0.0)
+            if budget["elapsed"] - last_report >= report_interval:
+                budget["last_report_at"] = budget["elapsed"]
+                await self.store.event(
+                    state["task_id"],
+                    "background_report",
+                    elapsed=budget["elapsed"],
+                    actions=budget["used_actions"],
+                    refs=len(state.get("refs") or {}),
+                )
         decision = self.policies.budget.check({**state, "budget": budget})
         budget["stop_reason"] = decision
         if decision:
