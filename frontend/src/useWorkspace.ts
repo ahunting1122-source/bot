@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ensureSession, type Config, type Conversation, type Message, type Task, type TaskEvent } from "./api";
+import { api, ensureSession, type Config, type Conversation, type FileScope, type Message, type Task, type TaskEvent } from "./api";
 
 export type LiveReply = { id: string; responseId: string; content: string };
+export type TokenMeter = {
+  tokensPerSecond: number;
+  completionTokens: number;
+  promptTokens: number;
+  totalTokens: number;
+};
 const activeStatuses = ["PENDING", "RUNNING"];
 
 export function useWorkspace() {
@@ -12,6 +18,8 @@ export function useWorkspace() {
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [liveReply, setLiveReply] = useState<LiveReply | null>(null);
+  const [tokenMeter, setTokenMeter] = useState<TokenMeter | null>(null);
+  const [background, setBackground] = useState<{ report: string } | null>(null);
   const [error, setError] = useState("");
   const [connectionNote, setConnectionNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,6 +36,8 @@ export function useWorkspace() {
     setTask(null);
     setEvents([]);
     setLiveReply(null);
+    setTokenMeter(null);
+    setBackground(null);
     setLoading(!!id);
     setError("");
     setConnectionNote("");
@@ -80,6 +90,8 @@ export function useWorkspace() {
       cursor.current = { task: taskId, id: 0 };
       setEvents([]);
       setLiveReply(null);
+      setTokenMeter(null);
+      setBackground(null);
     }
     const conversationId = selectedRef.current;
     let source: EventSource | null = null;
@@ -120,8 +132,32 @@ export function useWorkspace() {
         } else if (receiving && item.event_type === "message_delta") {
           setLiveReply((previous) => previous && previous.responseId === payload.response_id
             ? { id: previous.id, responseId: previous.responseId, content: previous.content + String(payload.text ?? "") } : previous);
+          if (payload.tokens_per_second != null || payload.tokens != null) {
+            setTokenMeter({
+              tokensPerSecond: Number(payload.tokens_per_second ?? 0),
+              completionTokens: Number(payload.tokens ?? 0),
+              promptTokens: 0,
+              totalTokens: Number(payload.tokens ?? 0),
+            });
+          }
         } else if (item.event_type === "message_finished" && payload.response_kind === "activity") {
           setLiveReply(null);
+        } else if (item.event_type === "backgrounded") {
+          setBackground({ report: `后台运行中（已 ${payload.elapsed ?? 0} 秒），会定期汇报进度` });
+        } else if (item.event_type === "background_report") {
+          setBackground({ report: `后台进度：${payload.actions ?? 0} 个动作 · ${payload.elapsed ?? 0} 秒` });
+        } else if (item.event_type === "task_completed") {
+          const usage = payload.token_usage as Record<string, unknown> | undefined;
+          if (usage) {
+            const prompt = Number(usage.prompt_tokens ?? 0);
+            const completion = Number(usage.completion_tokens ?? 0);
+            setTokenMeter({
+              tokensPerSecond: Number(usage.elapsed ?? 0) > 0 ? Math.round((completion / Number(usage.elapsed)) * 10) / 10 : 0,
+              completionTokens: completion,
+              promptTokens: prompt,
+              totalTokens: prompt + completion,
+            });
+          }
         }
         if (!item.event_type.startsWith("message_")) setEvents((previous) => [...previous, item]);
         if (["task_completed", "task_failed", "waiting_user", "task_cancelled", "artifact_created"].includes(item.event_type)) {
@@ -190,6 +226,13 @@ export function useWorkspace() {
     });
   }
 
+  /** 切换文件访问级别。后端在回复进行中会拒绝（409），这里把原因原样抛给用户。 */
+  async function setFileScope(scope: FileScope) {
+    return operate(async () => {
+      setConfig(await api<Config>("/connectors", "PUT", { file_scope: scope }));
+    });
+  }
+
   async function submit(content: string) {
     if (!content.trim()) return false;
     if (task?.status === "WAITING_USER") {
@@ -223,7 +266,7 @@ export function useWorkspace() {
     await operate(async () => { await api(`/tasks/${task.id}/retry`, "POST"); await refresh(); });
   }
 
-  return { config, setConfig, conversations, selected, setSelected, messages, task, events, liveReply,
+  return { config, setConfig, conversations, selected, setSelected, messages, task, events, liveReply, tokenMeter, background,
     error, setError, busy, loading, connectionNote, submit, resume, stop, retry, refresh, refreshConversations,
-    revokeGrant };
+    revokeGrant, setFileScope };
 }

@@ -74,6 +74,8 @@ export function App() {
     busy,
     loading,
     connectionNote,
+    tokenMeter,
+    background,
     refreshConversations,
     setError,
   } = workspace;
@@ -175,6 +177,9 @@ export function App() {
       onDraft={setDraft}
       onSend={send}
       disabled={busy || loading || replyActive || waitingApproval}
+      scope={config?.file_scope ?? "workspace"}
+      fileRoot={config?.file_root ?? config?.workspace ?? ""}
+      onScope={(next) => void workspace.setFileScope(next)}
     />
   );
 
@@ -375,7 +380,9 @@ export function App() {
                       {composer}
                     </Welcome>
                     <div className="workspace-footer">
-                      <span>已接入工作目录</span>
+                      <span>
+                        {config.file_scope === "machine" ? "完全访问权限" : "仅工作文件夹"}
+                      </span>
                       <span className="footer-divider" />
                       <button onClick={() => switchView("settings")}>
                         {config.github_repo ? "GitHub 已配置" : "连接 GitHub"}
@@ -544,6 +551,26 @@ export function App() {
                         </details>
                       )}
                     </section>
+                    {background && (
+                      <p className="background-note" role="status" aria-live="polite">
+                        {background.report}
+                      </p>
+                    )}
+                    {tokenMeter && (
+                      <div className="token-meter" role="status" aria-live="off">
+                        <span>
+                          {tokenMeter.tokensPerSecond > 0
+                            ? `${tokenMeter.tokensPerSecond} tok/s`
+                            : "— tok/s"}
+                        </span>
+                        <span className="token-meter-divider" />
+                        <span>
+                          {tokenMeter.totalTokens > 0
+                            ? `输出 ${tokenMeter.completionTokens} · 总计 ${tokenMeter.totalTokens} token`
+                            : `输出 ${tokenMeter.completionTokens} token`}
+                        </span>
+                      </div>
+                    )}
                     <div className="composer-row">
                       {composer}
                       {(replyActive || task?.status === "WAITING_USER") && (

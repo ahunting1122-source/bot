@@ -108,6 +108,7 @@ export type Skill = {
 export type SkillDetail = Skill & {
   body: string;
 };
+export type FileScope = "workspace" | "machine";
 export type Config = {
   model: string;
   model_base_url: string;
@@ -116,6 +117,10 @@ export type Config = {
   browser_url: string;
   grants: Record<string, string[]>;
   workspace: string;
+  /** 文件访问级别：workspace=仅工作文件夹，machine=完全访问权限。 */
+  file_scope: FileScope;
+  /** 这一档实际能落到哪个根目录；完全访问档没有单一根目录，后端给空串。 */
+  file_root: string;
   model_key_set: boolean;
   github_token_set: boolean;
   model_status: "unconfigured" | "configured" | "verified" | "failed";

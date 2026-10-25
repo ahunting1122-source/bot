@@ -6,6 +6,7 @@ import {
   FolderOpen,
   Globe2,
   MessagesSquare,
+  Unlock,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Config } from "./api";
@@ -104,12 +105,20 @@ export function Welcome({
         <div className="glance-grid">
           <div className="glance-card">
             <span className="glance-icon">
-              <FolderOpen size={17} />
+              {config?.file_scope === "machine" ? (
+                <Unlock size={17} />
+              ) : (
+                <FolderOpen size={17} />
+              )}
             </span>
             <div>
-              <strong>本地工作目录</strong>
+              <strong>
+                {config?.file_scope === "machine" ? "完全访问权限" : "本地工作目录"}
+              </strong>
               <small className="glance-path" title={config?.workspace}>
-                {config?.workspace || "正在读取配置…"}
+                {config?.file_scope === "machine"
+                  ? "可读写任意文件、执行任意命令"
+                  : config?.workspace || "正在读取配置…"}
               </small>
             </div>
           </div>

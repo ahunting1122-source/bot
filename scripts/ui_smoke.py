@@ -371,6 +371,34 @@ class Checks:
         await expect(page.locator("details.thinking-summary")).to_have_attribute("open", "")
         await expect(page.locator("details.thinking-summary")).to_contain_text("直接保存")
 
+    async def chat_file_scope(self, page):
+        """对话页的文件访问级别开关：切换 → 提示联动 → 落库 → 刷新后仍在 → 切回。"""
+        button = page.locator(".scope-button")
+        await expect(button).to_contain_text("仅工作文件夹")
+        await button.click()
+        menu = page.get_by_role("listbox", name="文件访问级别")
+        await expect(menu).to_be_visible()
+        await expect(
+            menu.get_by_role("option", name=re.compile("仅工作文件夹"))
+        ).to_have_attribute("aria-selected", "true")
+        await menu.get_by_role("option", name=re.compile("完全访问权限")).click()
+        await expect(menu).to_have_count(0)
+        await expect(button).to_contain_text("完全访问权限")
+        await expect(page.locator("p.composer-hint.warn")).to_contain_text("完全访问权限已开启")
+        config = await (await page.request.get(self.fixture.base_url + "/api/connectors")).json()
+        assert config["file_scope"] == "machine", config
+        assert config["file_root"] == "", config
+        await page.reload()
+        await expect(page.locator(".scope-button")).to_contain_text("完全访问权限")
+        await page.locator(".scope-button").click()
+        await page.get_by_role("listbox", name="文件访问级别").get_by_role(
+            "option", name=re.compile("仅工作文件夹")
+        ).click()
+        await expect(page.locator(".scope-button")).to_contain_text("仅工作文件夹")
+        config = await (await page.request.get(self.fixture.base_url + "/api/connectors")).json()
+        assert config["file_scope"] == "workspace", config
+        return {"scope_round_trip": True}
+
     async def chat_sse_reconnect(self, page):
         model = self.fixture.model
         model.stream_release.clear()
@@ -594,6 +622,7 @@ async def main(args):
                     ("all pages at four widths and mobile navigation/send", checks.responsive),
                     ("SSE reconnect resumes by cursor without missing or duplicate text", checks.chat_sse_reconnect),
                     ("expired session refresh restores cookie and reloads list", checks.session_recovery),
+                    ("chat file-scope picker switches, persists and restores", checks.chat_file_scope),
                 ]:
                     if args.only and method.__name__ not in args.only:
                         continue

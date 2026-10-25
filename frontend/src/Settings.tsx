@@ -576,12 +576,24 @@ export function Settings({
       <section className="settings-section">
         <h2>
           <Folder size={18} />
-          本地工作目录
+          文件访问权限
         </h2>
+        <p className="settings-scope">
+          当前级别：
+          <strong
+            className={
+              config.file_scope === "machine" ? "scope-tag machine" : "scope-tag"
+            }
+          >
+            {config.file_scope === "machine" ? "完全访问权限" : "仅工作文件夹"}
+          </strong>
+          <span>在对话页输入框左下角随时切换。</span>
+        </p>
         <code className="workspace-path">{config.workspace}</code>
         <p className="hint">
-          将 TXT、Markdown 或文本型 PDF
-          放入此目录，即可在对话中让助手阅读和整理。
+          {config.file_scope === "machine"
+            ? "完全访问权限下，助手可以读写这台电脑上的任意文件，并通过系统 shell 执行任意命令——不受路径或命令限制。"
+            : "这个目录既是文件读写范围，也是命令执行的工作目录；越界访问与不可逆命令（格式化、关机、递归删根目录等）会被拒绝。"}
         </p>
       </section>
     </main>

@@ -478,6 +478,201 @@ pre {
   padding: var(--space-3) var(--space-1) 0;
   line-height: 1.8;
 }
+.token-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  color: var(--color-muted);
+  padding: var(--space-2) var(--space-1) 0;
+  font-variant-numeric: tabular-nums;
+}
+.token-meter .token-meter-divider {
+  width: 1px;
+  height: 10px;
+  background: var(--color-rule-strong);
+}
+.token-meter span:first-child {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+.background-note {
+  font-size: 11px;
+  color: var(--color-warning);
+  padding: var(--space-2) var(--space-1) 0;
+  line-height: 1.7;
+}
+.composer-hint.warn {
+  color: var(--color-warning);
+}
+/* --- 文件访问级别选择器（对话页） --- */
+.scope-picker {
+  position: relative;
+  display: inline-flex;
+}
+.scope-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+  background: var(--color-paper-2);
+  border: var(--rule-width) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--dur-short) var(--ease-out),
+    background var(--dur-short) var(--ease-out),
+    color var(--dur-short) var(--ease-out);
+}
+.scope-button:hover:not(:disabled) {
+  border-color: var(--color-rule-strong);
+  background: var(--color-paper-3);
+}
+.scope-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.scope-button svg {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+}
+.scope-button .flip {
+  transform: rotate(180deg);
+}
+.scope-button.machine {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning);
+}
+.scope-button.machine svg {
+  color: var(--color-warning);
+}
+.scope-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: 40;
+  width: 304px;
+  max-width: calc(100vw - 2 * var(--space-4));
+  padding: var(--space-2);
+  background: var(--color-paper);
+  border: var(--rule-width) solid var(--color-rule-strong);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 4px 8px var(--color-shadow),
+    0 16px 40px var(--color-shadow);
+  animation: scope-in var(--dur-short) var(--ease-out);
+}
+@keyframes scope-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.scope-menu-title {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+.scope-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--color-transparent);
+  border: var(--rule-width) solid var(--color-transparent);
+  border-radius: var(--radius-sm);
+  transition:
+    background var(--dur-short) var(--ease-out),
+    border-color var(--dur-short) var(--ease-out);
+}
+.scope-option:hover {
+  background: var(--color-paper-2);
+}
+.scope-option.active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+.scope-option-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-body);
+}
+.scope-option-head svg:first-child {
+  color: var(--color-ink-2);
+}
+.scope-option.active .scope-option-head svg:first-child {
+  color: var(--color-accent);
+}
+.scope-option-head strong {
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.scope-check {
+  margin-left: auto;
+  color: var(--color-accent);
+}
+.scope-option small {
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--color-muted);
+}
+.scope-option code {
+  display: block;
+  margin-top: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-ink-2);
+  background: var(--color-paper-3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.scope-menu-note {
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--color-muted);
+  border-top: var(--rule-width) solid var(--color-rule);
+}
+.settings-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  margin-bottom: var(--space-4);
+}
+.settings-scope span {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.scope-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-sm);
+}
+.scope-tag.machine {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
 .suggestions {
   margin-top: var(--space-10);
 }
