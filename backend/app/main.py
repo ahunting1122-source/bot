@@ -204,6 +204,9 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             "model_configured": bool(settings.model and settings.model_api_key.get_secret_value()),
             "model": settings.model,
             "workspace": str(settings.workspace.resolve()),
+            "file_scope": settings.file_scope,
+            # 命令执行是常驻能力（两档都有），这里只是让前端/探针一眼看到它开着。
+            "command_execution": True,
         }
 
     @app.get("/api/conversations")

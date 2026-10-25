@@ -8,7 +8,15 @@ import httpx
 import keyring
 from pydantic import Field, SecretStr
 
-from app.config import GRANTABLE_TOOLS, dump_grants, http_url, is_notion_host, load_grants
+from app.config import (
+    FILE_SCOPES,
+    GRANTABLE_TOOLS,
+    dump_grants,
+    http_url,
+    is_notion_host,
+    load_grants,
+    normalize_file_scope,
+)
 from app.tools import Args, SearchArgs, Tool
 
 
@@ -43,12 +51,16 @@ class ConnectorConfig:
         "notion_url",
         "browser_url",
         "granted_actions",
+        "file_scope",
     )
 
     def load(self):
         if self.path.exists():
             for key, value in json.loads(self.path.read_text(encoding="utf-8")).items():
-                if key in self.public_fields:
+                if key == "file_scope":
+                    # 坏值即降级到更窄的那一档，绝不让损坏的配置把边界放开。
+                    self.settings.file_scope = normalize_file_scope(value)
+                elif key in self.public_fields:
                     setattr(self.settings, key, value)
         for key in ("model_api_key", "github_token"):
             try:
@@ -110,6 +122,7 @@ class ConnectorConfig:
         )
 
     def public(self):
+        scope = normalize_file_scope(self.settings.file_scope)
         return {
             "model": self.settings.model,
             "model_base_url": self.settings.model_base_url,
@@ -118,6 +131,10 @@ class ConnectorConfig:
             "browser_url": self.settings.browser_url,
             "grants": load_grants(self.settings.granted_actions),
             "workspace": str(self.settings.workspace.resolve()),
+            # 对话页的权限级别开关读的就是这两个字段：`file_scope` 是取值，
+            # `file_root` 是这一档实际能落到哪里（machine 档没有单一根目录，给空串）。
+            "file_scope": scope,
+            "file_root": "" if scope == "machine" else str(self.settings.workspace.resolve()),
             "model_key_set": bool(self.settings.model_api_key.get_secret_value()),
             "github_token_set": bool(self.settings.github_token.get_secret_value()),
             "model_status": (
@@ -136,12 +153,19 @@ class ConnectorConfig:
             "browser_url",
             "model_api_key",
             "github_token",
+            "file_scope",
         }
         if set(values) - allowed:
             raise ValueError("包含不支持的配置项")
         if any(not isinstance(value, str) for value in values.values()):
             raise ValueError("配置项必须为文本")
         values = {key: value.strip() for key, value in values.items()}
+        if "file_scope" in values:
+            if values["file_scope"] not in FILE_SCOPES:
+                # 显式改权限级别时不做静默降级：用户点错了要看得见，
+                # 而不是以为切到了完全访问、实际还停在旧档。
+                raise ValueError("权限级别只能是 workspace（仅工作文件夹）或 machine（完全访问）")
+            self.settings.file_scope = values.pop("file_scope")
         repo = values.get("github_repo", "")
         if repo and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
             raise ValueError("仓库格式为 owner/repo")

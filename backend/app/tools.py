@@ -2,6 +2,10 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
+import re
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -155,16 +159,69 @@ def latest_user_text(messages) -> str:
 
 
 class PathArgs(Args):
-    path: str = Field(default=".", description="授权工作目录下的相对路径")
+    path: str = Field(
+        default=".",
+        description=(
+            "路径。仅工作文件夹模式下是授权目录内的相对路径；"
+            "完全访问权限模式下可给绝对路径（例如 D:\\\\notes）。"
+        ),
+    )
 
 
 class SearchArgs(Args):
     query: str = Field(min_length=1, max_length=200)
 
 
+class FindArgs(Args):
+    query: str = Field(min_length=1, max_length=200, description="要搜索的关键词")
+    path: str = Field(
+        default="",
+        description=(
+            "搜索的起始目录。仅工作文件夹模式下留空即授权目录；"
+            "完全访问权限模式下必须给出（相对授权目录或绝对路径），否则会拒绝执行。"
+        ),
+    )
+
+
 class ReportArgs(Args):
     path: str = Field(description="以 .md 结尾的相对路径")
     content: str = Field(max_length=100000)
+
+
+class WriteFileArgs(Args):
+    path: str = Field(description="要写入的文件路径（完全访问权限下可为整机任意绝对路径）")
+    content: str = Field(max_length=1000000, description="要写入的完整文本内容")
+    overwrite: bool = Field(
+        default=False,
+        description=(
+            "目标已存在时是否覆盖。默认 false：已存在会拒绝并提示；"
+            "确认要改写既有文件时再传 true。"
+        ),
+    )
+
+
+class CommandArgs(Args):
+    command: str = Field(
+        min_length=1,
+        max_length=8000,
+        description=(
+            "要执行的系统命令，整条交给 shell（Windows 是 cmd.exe，Linux/macOS 是 sh）。"
+            "要串联多步用 shell 自己的连接符（如 && ），不要分多次调用。"
+        ),
+    )
+    cwd: str = Field(
+        default="",
+        description=(
+            "工作目录。留空＝授权目录（仅工作文件夹档）或用户主目录（完全访问档）；"
+            "完全访问档可给任意绝对路径。"
+        ),
+    )
+    timeout: int = Field(
+        default=120,
+        ge=1,
+        le=1800,
+        description="超时秒数，到点强制终止该进程。命令本就该很快结束，别用它等长任务。",
+    )
 
 
 class MemoryArgs(Args):
@@ -256,10 +313,39 @@ class Tool:
 
 
 LOCAL_TOOLS = [
-    Tool("local_list_files", "列出授权目录的文件。", PathArgs),
-    Tool("local_search_text", "在授权目录的 TXT/Markdown 中搜索关键词。", SearchArgs),
-    Tool("local_read_document", "读取 TXT、Markdown、文本型 PDF，最多返回 16000 字符。", PathArgs),
+    Tool(
+        "local_list_files",
+        "列出文件。仅工作文件夹模式下只看授权目录；完全访问权限模式下绝对路径可点任意目录，"
+        "路径留空会列出整机盘符。",
+        PathArgs,
+    ),
+    Tool(
+        "local_search_text",
+        "在文本文件里搜索关键词。仅工作文件夹模式下只搜授权目录的 TXT/Markdown；"
+        "完全访问权限模式下必须给出起始目录，可搜任意文本文件。",
+        FindArgs,
+    ),
+    Tool(
+        "local_read_document",
+        "读取文档，最多返回 16000 字符。仅工作文件夹模式下支持 TXT、Markdown、文本型 PDF；"
+        "完全访问权限模式下任意可解码为 UTF-8 文本的文件都能读。",
+        PathArgs,
+    ),
     Tool("local_write_report", "在授权目录创建 Markdown 报告，不覆盖不同内容。", ReportArgs),
+    Tool(
+        "local_write_file",
+        "写入或改写文本文件（新建、覆盖）。「仅工作文件夹」档只能落在授权目录内且不覆盖"
+        "工作台自身数据；「完全访问权限」档可写整机任意路径、不设限。",
+        WriteFileArgs,
+    ),
+    Tool(
+        "run_command",
+        "在本机执行系统命令，返回 stdout / stderr 与退出码。需要装依赖、跑构建、查进程、"
+        "调用命令行工具时用它。"
+        "「仅工作文件夹」档：工作目录固定在工作目录内，且不可逆命令（格式化、关机、递归删除"
+        "根目录等）会被拒绝；「完全访问权限」档：不限工作目录、不限命令。",
+        CommandArgs,
+    ),
     Tool("memory_search", "按关键词搜索跨对话长期记忆。", SearchArgs),
     Tool(
         "memory_save",
@@ -302,28 +388,228 @@ LOCAL_TOOLS = [
 ]
 
 
-def resolve_path(root: Path, relative: str) -> Path:
+def resolve_path(root: Path, relative: str, machine: bool = False) -> Path:
+    """把模型给的路径解析成真实路径。**权限级别的唯一落地点。**
+
+    - `machine=False`（仅工作文件夹）：一律相对授权目录解析，并校验结果仍在目录内。
+      这就是 `../outside.txt` 被拒的地方，也是历史行为。
+    - `machine=True`（完全访问权限）：绝对路径直接采用，相对路径仍相对授权目录解析，
+      **不做包含校验**，因此能落到整机任意位置。
+    """
+    if machine:
+        candidate = Path(relative).expanduser()
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (root / candidate).resolve()
     path = (root / relative).resolve()
     if not path.is_relative_to(root.resolve()):
         raise ValueError("路径超出授权工作目录")
     return path
 
 
-def read_document(root: Path, relative: str) -> dict:
-    path = resolve_path(root, relative)
-    if not path.is_file() or path.stat().st_size > 8 * 1024 * 1024:
-        raise ValueError("文件不存在或超过 8 MB")
+def display_path(path: Path, root: Path, machine: bool) -> str:
+    """回传给模型的路径表示。能相对授权目录说清楚就相对说（省 token、更好读）。"""
+    try:
+        return str(path.relative_to(root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def machine_roots() -> list[Path]:
+    """整机入口。Windows 枚举盘符；其他平台退回根目录。"""
+    listdrives = getattr(os, "listdrives", None)
+    if listdrives is not None:
+        try:
+            drives = [Path(drive + os.sep) for drive in listdrives()]
+            if drives:
+                return drives
+        except OSError:
+            pass
+    return [Path(os.sep)]
+
+
+#: 「不可逆命令」拦截表——**只在「仅工作文件夹」档生效**，切到完全访问档整表失效。
+#:
+#: 设计取舍（对齐 Hermes 的"固定黑名单"思路，但按用户要求降到窄档）：
+#: 这份表的职责**只有一件事**——"把机器搞坏且不可恢复"，不是通用的命令白名单，
+#: 也不是沙箱。它挡不住 `python -c "..."` 这类任意代码，那是切换档位才能解决的事，
+#: 硬堆正则只会制造漏斗式的安全感。宁可少而准，也不做覆盖不了的穷举。
+IRREVERSIBLE_COMMANDS: tuple[tuple[str, str], ...] = (
+    (r"\b(format|mkfs(\.\w+)?)\b", "格式化磁盘"),
+    (r"\bdiskpart\b", "磁盘分区操作"),
+    (r"\b(shutdown|reboot|halt|poweroff)\b", "关机 / 重启"),
+    (r"\bvssadmin\s+delete\s+shadows\b", "删除卷影副本（系统还原点）"),
+    (r"\bbcdedit\b", "改写启动配置"),
+    (r"\bcipher\s+/w\b", "擦除磁盘空闲空间"),
+    (r"\breg\s+delete\s+hklm\b", "删除系统注册表项"),
+    (r"dd\s+[^\n]*of=\s*/dev/", "裸写块设备"),
+    # 只拦"根 / 主目录本身"，不误伤 `rm -rf /tmp/foo` 这类正常路径：目标后面必须是空白或结尾。
+    (
+        r"rm\s+-[a-z]*[rf][a-z]*\s+(?:/\*?|~\*?|\$home\*?|\$\{home\}\*?)(?:\s|$)",
+        "递归删除根目录 / 主目录",
+    ),
+    (r"\b(rd|rmdir)\s+/s\b[^\n]*[a-z]:\\\s*($|[&|])", "递归删除盘根目录"),
+    (r"\b(del|erase)\s+/[a-z]*[fsq][a-z]*\s+[a-z]:\\\s*($|[&|])", "批量删除盘根目录"),
+    (r"remove-item[^\n]*-recurse[^\n]*-force[^\n]*[a-z]:\\\s*($|[;|])", "递归强删盘根目录"),
+    (r":\s*\(\s*\)\s*\{", "fork 炸弹"),
+)
+
+
+def dangerous_command(command: str) -> str:
+    """命中不可逆命令时返回它的中文名，放行返回空串。**只在窄档调用。**"""
+    text = (command or "").casefold()
+    for pattern, label in IRREVERSIBLE_COMMANDS:
+        if re.search(pattern, text):
+            return label
+    return ""
+
+
+def decode_output(raw: bytes | None) -> str:
+    """把子进程输出解成文本。Windows 的 cmd 常输出 GBK，所以 UTF-8 失败后退到 GBK。"""
+    if not raw:
+        return ""
+    for encoding in ("utf-8", "gbk"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def clip_text(text: str, limit: int = 8000) -> tuple[str, bool]:
+    """输出过长时保留**头 + 尾**：报错总结在尾部（构建日志），正文/列表在头部。"""
+    if len(text) <= limit:
+        return text, False
+    head = limit * 3 // 5
+    tail = limit - head
+    omitted = len(text) - limit
+    return f"{text[:head]}\n…（中间省略 {omitted} 字符）…\n{text[-tail:]}", True
+
+
+def terminate_tree(process: subprocess.Popen) -> None:
+    """终止整棵进程树。
+
+    `shell=True` 下 `process.pid` 只是外壳（Windows 的 cmd.exe / POSIX 的 sh），
+    **只杀外壳会把真正的子进程留成孤儿**——管道不关闭，`communicate()` 会一直阻塞到
+    子进程自己结束，超时形同虚设。所以必须按树杀：Windows 用 `taskkill /T`，POSIX 杀进程组。
+    """
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                timeout=15,
+            )
+        else:
+            import signal
+
+            # 非 Windows 才走到这里；mypy 按 win32 平台分析，故显式忽略。
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)  # type: ignore[attr-defined]
+    except Exception:  # 树杀失败也要继续兜底，不能把异常抛回给工具调用
+        log.debug("进程树终止失败，退回单进程 kill", exc_info=True)
+    finally:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def run_shell(command: str, cwd: Path, timeout: int) -> dict:
+    """同步执行一条 shell 命令并回收结果。`shell=True`：Windows 走 cmd.exe，其余走 sh。
+
+    用 `Popen` 而不是 `subprocess.run`：run 在超时时只杀直接子进程，随后仍会阻塞在
+    `communicate()` 上等孤儿进程关掉管道，实测把 1 秒超时拖成 30 秒。这里改成"杀整棵树 +
+    有界回收"，超时是真的超时。
+    """
+    started = time.time()
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=(os.name != "nt"),
+    )
+    timed_out = False
+    try:
+        raw_out, raw_err = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        terminate_tree(process)
+        try:
+            raw_out, raw_err = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            raw_out, raw_err = b"", b""
+    stdout, cut_out = clip_text(decode_output(raw_out))
+    stderr, cut_err = clip_text(decode_output(raw_err))
+    result = {
+        "command": command,
+        "cwd": str(cwd),
+        "exit_code": None if timed_out else process.returncode,
+        "timed_out": timed_out,
+        "stdout": stdout,
+        "stderr": stderr,
+        "truncated": cut_out or cut_err,
+        "seconds": round(time.time() - started, 2),
+    }
+    if timed_out:
+        result["notice"] = f"命令超过 {timeout} 秒仍未结束，已终止整棵进程树。"
+    return result
+
+
+def extract_text(path: Path) -> str:
+    """把一个文件读成文本：PDF 走 pypdf，其余按 UTF-8 解码。"""
     if path.suffix.lower() == ".pdf":
-        text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages[:50])
-    elif path.suffix.lower() in {".md", ".txt"}:
-        text = path.read_text(encoding="utf-8-sig")
-    else:
+        return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages[:50])
+    return path.read_text(encoding="utf-8-sig")
+
+
+def read_document(root: Path, relative: str, machine: bool = False) -> dict:
+    path = resolve_path(root, relative, machine)
+    if not path.is_file():
+        raise ValueError("文件不存在或超过 8 MB")
+    suffix = path.suffix.lower()
+    # 有限档只认三种文档类型；完全访问档不再按扩展名设限——能按 UTF-8 解码的
+    # 都算文本（配置文件、源码、日志都能读），解不出来的明确报错而不是塞乱码进上下文。
+    if not machine and suffix not in {".md", ".txt", ".pdf"}:
         raise ValueError("暂时支持 TXT、Markdown、文本型 PDF")
+    if path.stat().st_size > 8 * 1024 * 1024:
+        raise ValueError("文件不存在或超过 8 MB")
+    try:
+        text = extract_text(path)
+    except UnicodeDecodeError as exc:
+        raise ValueError("该文件不是 UTF-8 文本，无法作为文档读取") from exc
     return {
-        "path": str(path.relative_to(root.resolve())),
+        "path": display_path(path, root, machine),
         "text": text[:16000],
         "truncated": len(text) > 16000,
     }
+
+
+def walk_text_files(base: Path, machine: bool, root: Path, visit_limit: int = 20000):
+    """惰性遍历候选文本文件。`os.walk` + `onerror` 吞掉权限错误——完全访问档会走到
+    系统目录，那里 PermissionError 是常态，不能让它中断整次搜索。
+
+    两个上限保证有界：访问条数（visit_limit）与调用方自己的命中条数。
+    """
+    visited = 0
+    for directory, _subdirs, names in os.walk(base, onerror=lambda _error: None):
+        for name in names:
+            visited += 1
+            if visited > visit_limit:
+                return
+            path = Path(directory) / name
+            try:
+                if machine:
+                    if path.stat().st_size > 1024 * 1024:
+                        continue
+                elif path.suffix.lower() not in {".md", ".txt"} or not path.resolve().is_relative_to(
+                    root
+                ):
+                    continue
+            except OSError:
+                continue
+            yield path
 
 
 class ToolRegistry:
@@ -480,48 +766,57 @@ class ToolRegistry:
 
     async def local(self, name: str, args: dict, task_id: str, messages=None):
         root = self.settings.workspace.resolve()
+        machine = self.settings.machine_wide
         if name == "local_list_files":
-            path = resolve_path(root, args["path"])
+            if machine and str(args["path"]).strip() in {"", "."}:
+                # 完全访问档下 "." 的语义是"从整机开始看"。把盘符摆出来当入口，
+                # 否则模型只看得到工作目录，这个权限级别就形同虚设。
+                return [{"path": str(drive), "directory": True} for drive in machine_roots()]
+            path = resolve_path(root, args["path"], machine)
             entries = []
             for item in sorted(path.iterdir()):
-                if item.resolve().is_relative_to(root):
+                if machine or item.resolve().is_relative_to(root):
                     entries.append(
-                        {"path": str(item.relative_to(root)), "directory": item.is_dir()}
+                        {"path": display_path(item, root, machine), "directory": item.is_dir()}
                     )
                 if len(entries) >= 100:
                     break
             return entries
         if name == "local_read_document":
-            return await asyncio.to_thread(read_document, root, args["path"])
+            return await asyncio.to_thread(read_document, root, args["path"], machine)
         if name == "local_search_text":
+            start = str(args["path"]).strip()
+            if machine and not start:
+                # 不让它在整机上无目的地 rglob：系统目录动辄几十万文件，
+                # 还会一路吃 PermissionError。要搜哪里必须说清楚。
+                raise ValueError("完全访问权限下搜索需要指定起始目录（如 D:\\notes）")
+            base = resolve_path(root, start or ".", machine)
+            if not base.is_dir():
+                raise ValueError("搜索起点必须是目录")
+            query = args["query"].casefold()
 
             def search():
                 matches: list[dict] = []
-                for index, path in enumerate(root.rglob("*")):
+                for index, path in enumerate(walk_text_files(base, machine, root)):
                     if index > 1000 or len(matches) >= 30:
                         break
-                    if path.suffix.lower() not in {
-                        ".md",
-                        ".txt",
-                    } or not path.resolve().is_relative_to(root):
-                        continue
                     try:
-                        text = read_document(root, str(path.relative_to(root)))["text"]
-                        position = text.casefold().find(args["query"].casefold())
-                        if position >= 0:
-                            matches.append(
-                                {
-                                    "path": str(path.relative_to(root)),
-                                    "excerpt": text[max(0, position - 100) : position + 500],
-                                }
-                            )
-                    except (ValueError, OSError, UnicodeError):
+                        text = extract_text(path)[:16000]
+                    except (OSError, UnicodeError, ValueError):
                         continue
+                    position = text.casefold().find(query)
+                    if position >= 0:
+                        matches.append(
+                            {
+                                "path": display_path(path, root, machine),
+                                "excerpt": text[max(0, position - 100) : position + 500],
+                            }
+                        )
                 return matches
 
             return await asyncio.to_thread(search)
         if name == "local_write_report":
-            path = resolve_path(root, args["path"])
+            path = resolve_path(root, args["path"], machine)
             if path.suffix.lower() != ".md":
                 raise ValueError("报告必须为 .md 文件")
             content = args["content"]
@@ -550,6 +845,65 @@ class ToolRegistry:
                 "artifact_id": artifact_id,
                 "verified": path.read_text(encoding="utf-8") == content,
             }
+        if name == "local_write_file":
+            # 两档都可用，差别只在"能写到哪"与"要不要防误覆盖"：
+            #   窄档 = 授权目录内 + 不碰工作台自身文件 + 覆盖既有文件要显式确认；
+            #   完全访问档 = 整机任意路径、不加任何前置条件（用户要的就是"不设限制"）。
+            try:
+                path = resolve_path(root, args["path"], machine)
+            except ValueError as exc:
+                if machine:
+                    raise
+                # 拒绝信息要把"怎么才能做"讲清楚，否则模型会换个参数反复重试。
+                raise ValueError(
+                    f"{exc}。工作目录内可以直接写；要写工作目录之外，"
+                    "请在对话页把权限级别切到「完全访问权限」。"
+                ) from exc
+            if path.is_dir():
+                raise ValueError("目标是目录，不能作为文件写入")
+            content = args["content"]
+            existed = path.exists()
+            if not machine:
+                # 工作台自己的数据库与配置文件不交给工具改写：一次误写就能把会话历史、
+                # 记忆、技能和本机密钥索引一起打坏。**只保护窄档**——完全访问档刻意不设限。
+                protected = {
+                    (self.settings.data_dir / item).resolve()
+                    for item in ("app.sqlite", "checkpoints.sqlite", "settings.json")
+                }
+                if path in protected:
+                    raise ValueError("这是工作台自身的数据库或配置文件，不能由工具改写")
+                if existed and not args["overwrite"]:
+                    raise ValueError(
+                        "文件已存在；确认要改写既有内容请带 overwrite=true 再调用一次"
+                    )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            return {
+                "path": str(path),
+                "bytes": len(content.encode("utf-8")),
+                "overwritten": existed,
+                "verified": path.read_text(encoding="utf-8") == content,
+            }
+        if name == "run_command":
+            command = str(args["command"]).strip()
+            if not command:
+                raise ValueError("命令不能为空")
+            start = str(args.get("cwd") or "").strip()
+            if machine:
+                # 完全访问档：不限工作目录，默认落用户主目录（比工作目录更"像整机"）。
+                cwd = resolve_path(root, start or str(Path.home()), True)
+            else:
+                blocked = dangerous_command(command)
+                if blocked:
+                    raise ValueError(
+                        f"「仅工作文件夹」档拒绝执行可能不可逆的命令（{blocked}）。"
+                        "确认要在本机执行，请在对话页把权限级别切到「完全访问权限」。"
+                    )
+                cwd = resolve_path(root, start or ".", False)
+            if not cwd.is_dir():
+                raise ValueError(f"工作目录不存在：{cwd}")
+            timeout = int(args.get("timeout") or self.settings.command_timeout or 120)
+            return await asyncio.to_thread(run_shell, command, cwd, timeout)
         if name == "memory_search":
             memories = await self.store.rows(select(Memory).where(Memory.user_id == "local"))
             return [

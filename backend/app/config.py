@@ -38,6 +38,22 @@ GRANTABLE_TOOLS = frozenset(
     {"browser_click", "browser_fill", "browser_press", "browser_scroll"}
 )
 
+#: 文件访问级别的取值。对话页可切换，持久化在 `data/settings.json`。
+#:   它是**整个权限面的总开关**，同时约束文件工具与命令执行：
+#:   - `workspace`：**仅工作文件夹**（默认）。文件工具只能落在 `settings.workspace` 之内；
+#:     `run_command` 的工作目录也固定在此目录内，且"不可逆命令"（格式化 / 关机 /
+#:     递归删根目录等）会被拒绝——这是**默认档的兜底**，不是完整沙箱。
+#:   - `machine`：**完全访问权限**。文件工具可读写整机任意路径，`run_command` 不限工作
+#:     目录、不限命令，**不做任何拦截**（用户要的就是"完全控制这台电脑"）。
+#: 判据有意做成"白名单 + 坏值即降级"：配置损坏永远退回更窄的那一档，不会反向放开。
+FILE_SCOPES = ("workspace", "machine")
+FILE_SCOPE_LABELS = {"workspace": "仅工作文件夹", "machine": "完全访问权限"}
+
+
+def normalize_file_scope(value: object) -> str:
+    """把任意来源的值收敛到合法取值；不认识的一律退回 `workspace`。"""
+    return value if isinstance(value, str) and value in FILE_SCOPES else "workspace"
+
 
 def load_grants(raw: str) -> dict[str, list[str]]:
     """Stored as JSON: {"host": ["browser_click", ...]}. Broken data is ignored, never fatal."""
@@ -78,6 +94,14 @@ class Settings(BaseSettings):
     )
     data_dir: Path = ROOT / "data"
     workspace: Path = ROOT / "data" / "workspace"
+    #: 权限级别（**对话页可切换**，持久化在 `data/settings.json`）。
+    #: `workspace` = 仅工作文件夹（默认）；`machine` = 完全访问权限。
+    #: 同时约束**文件类工具**（list/search/read/write）的可达范围与 **`run_command`
+    #: 命令执行**（cwd 与拦截策略）；浏览器与网络类工具本来就不受目录限制，不在此开关之内。
+    file_scope: str = "workspace"
+    #: `run_command` 的默认超时（秒）。到点强制终止进程——**这是运行保护，不是权限限制**，
+    #: 它在两档都生效，避免一条挂住的命令把整轮任务钉死。
+    command_timeout: int = 120
     model: str = ""
     model_base_url: str = "https://api.openai.com/v1"
     model_api_key: SecretStr = SecretStr("")
@@ -166,3 +190,15 @@ class Settings(BaseSettings):
     def prepare(self) -> None:
         for directory in (self.data_dir, self.workspace, self.data_dir / "artifacts"):
             directory.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def machine_wide(self) -> bool:
+        """True = 完全访问权限：文件工具不再把路径夹在授权目录内。
+
+        静态配置里的坏值（含大小写错误、空串）都会被判成 False，即安全的那一档。
+        """
+        return self.file_scope == "machine"
+
+    @property
+    def file_scope_label(self) -> str:
+        return FILE_SCOPE_LABELS[normalize_file_scope(self.file_scope)]
