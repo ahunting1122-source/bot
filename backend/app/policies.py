@@ -302,7 +302,10 @@ class DefaultToolResultPolicy:
 
 
 class DefaultBudgetPolicy:
-    """三类预算：动作 / token / 时间，三类都硬拦。
+    """三类预算：动作 / token 硬拦，时间软闸。
+
+    时间到点不再硬停，而是由 `budget` 节点标记 `backgrounded` 转后台继续，
+    并按 `report_interval` 定期发进度报告——硬停只剩动作数与 token 两类。
 
     与 Reflector 的分工：**半量预警是 Reflector 的事（提前提醒模型收窄），
     满量拦截是预算的事**。两者用同一个阈值会互相遮蔽（预算先停，自省永远轮不到），
@@ -314,7 +317,6 @@ class DefaultBudgetPolicy:
     """
 
     default_max_tokens = 200_000
-    default_seconds = 600
 
     def start(self, settings) -> dict:
         return {

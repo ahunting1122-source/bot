@@ -25,3 +25,8 @@ interview-jianying-ai-agent-round1.html
 
 # WorkBuddy 本地记忆 / 工作日志 / 临时调试产物（项目数据，不入版本库）
 .workbuddy/
+
+# 外部 harness 的会话级技能目录（本地工具产物，不属于本仓库）
+.dsh/
+
+pytest-of-*/
