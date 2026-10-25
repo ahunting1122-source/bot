@@ -116,7 +116,9 @@ def main() -> int:
         conn, n = E.build_db(tmp, E.repo_corpus())
         E.build_vectors(conn, embeddings)
 
-        def r(cases, k):
+        def r(cases, k, conn=conn):
+            # `conn` 显式绑成默认参数：循环体里每轮都换新连接，闭包若靠外层作用域
+            # 取变量，语义依赖"立即调用"这个巧合（ruff B023 就是抓这个）。
             return E.score(
                 cases,
                 lambda c, q: E.fused_routed(c, q, embeddings, rk, settings=st, do_rerank=True),
