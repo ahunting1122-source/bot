@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **411**：已实现 82、部分 3、待实现 326
+命令条目合计 **411**：已实现 83、部分 3、待实现 325
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -17,6 +17,7 @@
 | `approvals allow remove` | `approvals allow remove` | ops | P0 | ✅ 已实现 | 从白名单移除一条规则 |
 | `approvals list-rules` | `approvals list-rules` | ops | P0 | ✅ 已实现 | 列出全部硬地板与危险模式规则 |
 | `approvals mode` | `approvals mode` | ops | P0 | ✅ 已实现 | 查看或切换审批模式（off / smart / manual） |
+| `chat` | `chat` | run | P0 | ✅ 已实现 | 在终端里与 agent 对话（不接 MCP；浏览器工具按需启动） |
 | `status` | `status` | core | P0 | ✅ 已实现 | 显示各组件状态（数据、模型、知识层、技能、记忆、MCP） |
 | `doctor` | `doctor` | core | P0 | ✅ 已实现 | 检查配置与依赖（Python、数据库、模型、向量、浏览器内核、密钥库、磁盘） |
 | `dump` | `dump` | ops | P0 | ✅ 已实现 | 导出一份排障用的完整设置快照（密钥打码） |
@@ -138,7 +139,6 @@
 | `project archive` | `project archive` | core | P1 | ⬜ 待实现 | 归档项目 |
 | `project restore` | `project restore` | core | P1 | ⬜ 待实现 | 恢复已归档项目 |
 | `project bind-board` | `project bind-board` | core | P1 | ⬜ 待实现 | 绑定看板到项目 |
-| `chat` | `chat` | run | P0 | ⬜ 待实现 | 与 Agent 交互对话 |
 | `gateway` | `gateway` | run | P0 | ⬜ 待实现 | 消息网关管理 |
 | `gateway run` | `gateway run` | core | P1 | ⬜ 待实现 | 前台运行网关 |
 | `gateway start` | `gateway start` | core | P1 | ⬜ 待实现 | 启动已安装的后台服务 |

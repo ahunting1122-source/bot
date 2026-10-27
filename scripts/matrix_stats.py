@@ -49,6 +49,23 @@ def count(text: str) -> dict[str, int]:
     return {"total": total, "done": done, "partial": partial, "todo": todo}
 
 
+def duplicate_ids(text: str) -> list[str]:
+    """重复的条目编号。
+
+    这是必须查的：编号重复会让"条目总数"虚高，而总数是完成度的分母——
+    分母错了，百分比就没有意义。实际踩过一次（1.7 被两条不同的行占用）。
+    """
+    ids = [match.group(0) for match in re.finditer(r"^\| (\d+\.\d+[a-z]?) \|", text, re.M)]
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for identifier in ids:
+        key = identifier.strip("| ")
+        if key in seen and key not in dupes:
+            dupes.append(key)
+        seen.add(key)
+    return dupes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="统计对标主清单")
     parser.add_argument("--check", action="store_true", help="与文件头部声明比对，不符则退出 1")
@@ -60,6 +77,11 @@ def main() -> int:
         f"条目 {actual['total']}：✅ {actual['done']} · 🟡 {actual['partial']} · ⬜ {actual['todo']}"
         f"（完成度 {actual['done'] / actual['total'] * 100:.1f}%）"
     )
+
+    dupes = duplicate_ids(text)
+    if dupes:
+        print(f"条目编号重复：{'、'.join(dupes)}", file=sys.stderr)
+        return 1
 
     match = HEADER.search(text)
     if match is None:

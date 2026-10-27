@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 43 · 🟡 13 · ⬜ 125（完成度 23.8%，截至 W4/W6/W9 收口）
+条目合计 **181**。当前：✅ 47 · 🟡 15 · ⬜ 119（完成度 26.0%，截至 W6/W11/W12 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -23,18 +23,18 @@
 | 1.4 | 顶层命令面**已登记**（**75** 个：Hermes 的 74 个 + Orbit 自有 `session-search`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 75；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
 | 1.5 | 二级子命令面**已登记**（**301** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 411；`undocumented_options(SPECS) == 0` |
 | 1.6 | 三级子命令面**已登记**（**35** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
-| 1.16 | 上述 411 条里**有真实现**的比例（当前 **82 / 411**，另有 3 条 `partial`、326 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
-| 1.17 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
-| 1.7 | 全局运行 flags 完整（23 个：`-z` / `-m` / `--provider` / `-t` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | ⬜ | — |
-| 1.7 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ⬜ | — |
-| 1.8 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ⬜ | — |
-| 1.9 | shell 补全脚本 | `hermes completion {bash,zsh,fish}` | W1 | ✅ | `core.py` `run_completion`（额外支持 powershell） |
-| 1.10 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ⬜ | — |
-| 1.11 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ⬜ | — |
-| 1.12 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | ⬜ | — |
-| 1.13 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | ⬜ | — |
-| 1.14 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
-| 1.15 | TUI（终端 UI） | `tui/dist` | W12 | ⬜ | — |
+| 1.7 | 全局运行 flags 完整（23 个：`-m` / `--provider` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | 🟡 | 已实现 `-z` / `-m` / `--provider` / `--continue` / `--in` / `--yolo`（在 `chat` 上，见 1.9）；其余 flag 未实现，被调用时报错并指向 MATRIX 条目 |
+| 1.8 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ✅ | 全局 flag（`main.py` 的 `_global_options`），`orbit -z "…"` 等价 `orbit chat -z "…"`；`tests/test_chat.py::test_oneshot_prints_only_the_final_answer` / `test_global_oneshot_flag_is_equivalent` |
+| 1.9 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ✅ | `app/cli/commands/chat.py`；`tests/test_chat.py` 9 条。**差异**：不接 MCP（避免一次性会话留孤儿进程）、浏览器工具按需启动 |
+| 1.10 | shell 补全脚本 | `hermes completion {bash,zsh,fish}` | W1 | ✅ | `core.py` `run_completion`（额外支持 powershell） |
+| 1.11 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ⬜ | — |
+| 1.12 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ⬜ | — |
+| 1.13 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | ⬜ | — |
+| 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | ⬜ | — |
+| 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
+| 1.16 | TUI（终端 UI） | `tui/dist` | W12 | ⬜ | — |
+| 1.17 | 上述 411 条里**有真实现**的比例（当前 **83 / 411**，另有 3 条 `partial`、325 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.18 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
 
 ## L2 Agent 核心循环层（Hermes: `run_agent.py` + `agent/*`，PYZ 内）
 
@@ -158,9 +158,9 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 9.1 | `MEMORY.md` 上限 2,200 字符（可配 1–8,000），按字符不按 token | 【实证】调研 07 §1（实测 2,171/98.7%） | W6 | ⬜ | — |
-| 9.2 | `USER.md` 上限 1,375 字符（实测 1,393/101.3% 已超顶） | 【实证】调研 07 §1 | W6 | ⬜ | — |
-| 9.3 | 冻结快照注入 + 头部自曝用量（`MEMORY (your personal notes) [99% — 2,181/2,200 chars]`） | 【实证】state.db `sessions.system_prompt` 反查 | W6 | ⬜ | — |
+| 9.1 | `MEMORY.md` 上限 2,200 字符，按字符不按 token | 【实证】调研 07 §1（实测 2,171/98.7%） | W6 | ✅ | `app/memory_prompt.py` 的 `MEMORY_MAX_CHARS` / `render`；`tests/test_memory_prompt.py`。按字符的理由：换模型不该让"记忆还能装多少"跟着变，且字符数是用户能自己判断的数字 |
+| 9.2 | `USER.md` 字符上限 | 【实证】调研 07 §1（Hermes 1,375，实测 1,393/101.3% 已超顶） | W6 | 🟡 | `app/profile.py` 的 `PROFILE_MAX_CHARS = 1600`（Orbit 取 1600，比 Hermes 宽；`trim` + `render_block` 已实现）。**未加用量自曝头** |
+| 9.3 | 冻结快照注入 + 头部自曝用量 | 【实证】state.db `sessions.system_prompt` 反查 | W6 | ✅ | 头部：`memory_prompt.HEADER`（`长期记忆（MEMORY）[99% — 2,181/2,200 字符]`）；冻结：`context.build_prefix` / `context_meta["system_prefix"]`（一个任务内前缀逐字节不变） |
 | 9.4 | 原子批处理 `operations[]`（按最终态校验，全有或全无） | 【实证】`memory_tool.py` `apply_batch` | W6 | ⬜ | — |
 | 9.5 | 一轮 3 次 consolidation 失败熔断（`_MAX_CONSOLIDATION_FAILURES_PER_TURN=3`） | 【实证】调研 07 §2 | W6 | ⬜ | — |
 | 9.6 | CJK 检索（unicode61 对中文命中 0，必须走子串/trigram） | 【实证】`messages_fts` + `messages_fts_trigram`；`MATCH '记忆'` = 0 | W6 | 🟡 | `app/session_search.py` 用 `LIKE` 子串匹配（中文可用），`%`/`_` 已转义、扫描上限 300。**缺 FTS 索引**：`messages` 表上加 FTS5 需要迁移，本轮没做——LIKE 是线性扫描，库到十万条量级会慢 |
