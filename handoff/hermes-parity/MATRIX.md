@@ -21,7 +21,7 @@
 | 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py` 的 `build_parser` / `_add_command` |
 | 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir` / `--no-color`） | `hermes --help` options 段 | W1 | ✅ | `main.py` 的 `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖父级解析） |
 | 1.4 | 顶层命令面**已登记**（**75** 个：Hermes 的 74 个 + Orbit 自有 `session-search`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 75；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
-| 1.5 | 二级子命令面**已登记**（**301** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 411；`undocumented_options(SPECS) == 0` |
+| 1.5 | 二级子命令面**已登记**（**307** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 417；`undocumented_options(SPECS) == 0` |
 | 1.6 | 三级子命令面**已登记**（**35** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
 | 1.7 | 全局运行 flags 完整（23 个：`-m` / `--provider` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | 🟡 | 已实现 `-z` / `-m` / `--provider` / `--continue` / `--in` / `--yolo`（在 `chat` 上，见 1.9）；其余 flag 未实现，被调用时报错并指向 MATRIX 条目 |
 | 1.8 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ✅ | 全局 flag（`main.py` 的 `_global_options`），`orbit -z "…"` 等价 `orbit chat -z "…"`；`tests/test_chat.py::test_oneshot_prints_only_the_final_answer` / `test_global_oneshot_flag_is_equivalent` |
@@ -33,7 +33,7 @@
 | 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | ⬜ | — |
 | 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
 | 1.16 | TUI（终端 UI） | `tui/dist` | W12 | ⬜ | — |
-| 1.17 | 上述 411 条里**有真实现**的比例（当前 **83 / 411**，另有 3 条 `partial`、325 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.17 | 上述 417 条里**有真实现**的比例（当前 **137 / 417**，另有 9 条 `partial`、271 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.18 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
 
 ## L2 Agent 核心循环层（Hermes: `run_agent.py` + `agent/*`，PYZ 内）
