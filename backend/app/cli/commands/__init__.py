@@ -15,6 +15,7 @@
 
 from app.cli.commands import (  # isort: split
     approvals,
+    chat,
     core,
     cron,
     model,
@@ -29,6 +30,7 @@ from app.cli.commands import hermes_parity  # noqa: F401
 
 __all__ = [
     "approvals",
+    "chat",
     "core",
     "cron",
     "model",

@@ -60,6 +60,15 @@ def _global_options() -> argparse.ArgumentParser:
         default=suppressed,
         help="禁用彩色输出（本实现默认无色）",
     )
+    # oneshot 是**全局** flag 而不是 `chat` 的子选项：对齐 `hermes -z "prompt"` 的用法，
+    # 脚本里不必记得先写命令名。
+    parser.add_argument(
+        "-z",
+        "--oneshot",
+        metavar="PROMPT",
+        default=suppressed,
+        help="单次提问：只把最终回答打到 stdout 后退出（脚本/管道友好）",
+    )
     return parser
 
 
@@ -150,6 +159,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     args = parser.parse_args(arguments)
     command: Command | None = getattr(args, "_command", None)
+    if command is None and getattr(args, "oneshot", None):
+        # `orbit -z "prompt"` 等价于 `orbit chat -z "prompt"`。
+        command = REGISTRY.get("chat")
+        if command is None:  # chat 模块没被导入（不该发生，防御一下）
+            print("orbit: oneshot 模式不可用（chat 命令未注册）", file=sys.stderr)
+            return 1
+        args._command = command
+        args._command_path = "chat"
     if command is None:
         parser.print_help()
         return 1
