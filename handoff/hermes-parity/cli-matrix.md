@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **407**：已实现 43、部分 2、待实现 362
+命令条目合计 **407**：已实现 54、部分 2、待实现 351
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -53,6 +53,17 @@
 | `moa list` | `moa list` | core | P0 | ✅ 已实现 | 查看当前 MoA 模型槽位 |
 | `moa configure` | `moa configure` | core | P0 | ✅ 已实现 | 创建或更新一个 MoA 预设 |
 | `moa delete` | `moa delete` | core | P0 | ✅ 已实现 | 删除一个 MoA 预设 |
+| `insights` | `insights` | ops | P0 | ✅ 已实现 | 分析会话历史：token 用量、工具使用模式、站点分布、活动趋势 |
+| `monitoring` | `monitoring` | ops | P0 | ✅ 已实现 | 监控状态：健康指标 + 导出配置 + 脱敏姿态（不采集任何内容） |
+| `monitoring status` | `monitoring status` | ops | P0 | ✅ 已实现 | 显示监控设置、导出状态与脱敏姿态 |
+| `backup` | `backup` | ops | P0 | ✅ 已实现 | 把数据目录打包成带清单的 zip（SQLite 走在线快照） |
+| `import` | `import` | ops | P0 | ✅ 已实现 | 从备份 zip 恢复数据目录（默认不覆盖，需 --force） |
+| `checkpoints` | `checkpoints` | ops | P0 | ✅ 已实现 | 管理会话检查点存储（LangGraph 的 checkpoints.sqlite） |
+| `checkpoints status` | `checkpoints status` | ops | P0 | ✅ 已实现 | 显示占用、线程数、检查点数与按线程的 Top 占用 |
+| `checkpoints prune` | `checkpoints prune` | ops | P0 | ✅ 已实现 | 按保留期与体积上限清理检查点（需 -f） |
+| `checkpoints clear` | `checkpoints clear` | ops | P0 | ✅ 已实现 | 清空整个检查点库（需 -f） |
+| `checkpoints clear-legacy` | `checkpoints clear-legacy` | ops | P0 | ✅ 已实现 | 删除 v1 legacy 归档（Orbit 没有这类归档，无操作） |
+| `setup` | `setup` | core | P0 | ✅ 已实现 | 交互式配置向导（模型 / 权限级别 / 审批模式） |
 | `portal` | `portal` | core | P1 | ⬜ 待实现 | Nous Portal 登录 / 选模型 / 工具网关 |
 | `portal login` | `portal login` | core | P1 | ⬜ 待实现 | 登录 Nous Portal 并完成设置 |
 | `portal info` | `portal info` | core | P1 | ⬜ 待实现 | 查看 Portal 鉴权与工具网关路由 |
@@ -104,7 +115,6 @@
 | `project archive` | `project archive` | core | P1 | ⬜ 待实现 | 归档项目 |
 | `project restore` | `project restore` | core | P1 | ⬜ 待实现 | 恢复已归档项目 |
 | `project bind-board` | `project bind-board` | core | P1 | ⬜ 待实现 | 绑定看板到项目 |
-| `setup` | `setup` | core | P1 | ⬜ 待实现 | 交互式初始化向导 |
 | `chat` | `chat` | run | P0 | ⬜ 待实现 | 与 Agent 交互对话 |
 | `gateway` | `gateway` | run | P0 | ⬜ 待实现 | 消息网关管理 |
 | `gateway run` | `gateway run` | core | P1 | ⬜ 待实现 | 前台运行网关 |
@@ -227,14 +237,7 @@
 | `sessions retitle-skills` | `sessions retitle-skills` | core | P1 | ⬜ 待实现 | 按技能重命名自动标题会话 |
 | `sessions browse` | `sessions browse` | core | P1 | ⬜ 待实现 | 交互式浏览 / 搜索会话 |
 | `sessions import` | `sessions import` | core | P1 | ⬜ 待实现 | 导入 Claude Code / Codex 会话 |
-| `backup` | `backup` | ops | P1 | ⬜ 待实现 | 把 Hermes home 备份成 zip |
-| `import` | `import` | ops | P1 | ⬜ 待实现 | 从 zip 备份恢复 |
 | `import-agent` | `import-agent` | ops | P1 | ⬜ 待实现 | 导入 Claude Code / Codex CLI 配置 |
-| `checkpoints` | `checkpoints` | ops | P1 | ⬜ 待实现 | 检查 / 清理文件系统检查点 |
-| `checkpoints status` | `checkpoints status` | core | P1 | ⬜ 待实现 | 查看总量、项目数与分项明细 |
-| `checkpoints prune` | `checkpoints prune` | core | P1 | ⬜ 待实现 | 删除孤儿 / 过期检查点并 GC |
-| `checkpoints clear` | `checkpoints clear` | core | P1 | ⬜ 待实现 | 删除全部检查点历史 |
-| `checkpoints clear-legacy` | `checkpoints clear-legacy` | core | P1 | ⬜ 待实现 | 只删旧版 legacy-<ts> 归档 |
 | `migrate` | `migrate` | ops | P1 | ⬜ 待实现 | 迁移已退役模型 / 弃用配置 |
 | `migrate xai` | `migrate xai` | core | P1 | ⬜ 待实现 | 迁移 2026-05-15 退役的 xAI 模型 |
 | `update` | `update` | ops | P1 | ⬜ 待实现 | 更新到最新版本 |
@@ -242,9 +245,6 @@
 | `debug` | `debug` | ops | P1 | ⬜ 待实现 | 上传日志与系统信息以求助 |
 | `debug share` | `debug share` | core | P1 | ⬜ 待实现 | 上传调试报告并给出分享链接 |
 | `debug delete` | `debug delete` | core | P1 | ⬜ 待实现 | 删除已上传的 paste |
-| `monitoring` | `monitoring` | ops | P1 | ⬜ 待实现 | 查看网关健康与诊断导出 |
-| `monitoring status` | `monitoring status` | core | P1 | ⬜ 待实现 | 查看监控设置、导出状态与脱敏策略 |
-| `insights` | `insights` | ops | P1 | ⬜ 待实现 | 用量洞察与分析 |
 | `security` | `security` | ops | P1 | ⬜ 待实现 | 供应链审计（OSV.dev） |
 | `security audit` | `security audit` | core | P1 | ⬜ 待实现 | 跑一次供应链审计 |
 | `hooks` | `hooks` | ops | P0 | ⬜ 待实现 | 查看与管理 shell 脚本钩子 |

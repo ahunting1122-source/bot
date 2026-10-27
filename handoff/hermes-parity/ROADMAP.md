@@ -33,7 +33,7 @@
 | --- | --- | --- | --- |
 | W0 | 调研：9 份逐层清单 + Orbit 现状矩阵 | 全部 | ✅ 完成 |
 | W1 | CLI 地基 + 核心命令（status/doctor/config/dump/logs/prompt-size/completion） | 入口/CLI 层 | ✅ 完成 |
-| W2 | CLI 命令面补齐：74 顶层 / 407 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 43/407（运维类待做） |
+| W2 | CLI 命令面补齐：74 顶层 / 407 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 54/407（backup / import / checkpoints / setup 等已落地） |
 | W3 | 配置与模型适配层：16 家 provider、3 种 transport、fallback 链、凭证池 | 模型适配层 | 🟡 provider/fallback/auth 已落地；per-model 路由、推理线翻译、auxiliary slots、MoA 运行时待做 |
 | W4 | 工具层：注册表遮蔽门禁、toolset 过滤、三层结果治理、危险命令两级、元工具 | 工具层 + 注册/toolset 层 | 🟡 危险命令两级 + web_search/web_extract 已落地；遮蔽门禁、toolset 过滤、结果治理、元工具待做 |
 | W5 | Skill 层：多根 tier、16 字段 frontmatter、渐进披露、写侧校验链、curator 状态机、hub/bundles/sync | Skill/curator 层 | ⬜ 待做 |

@@ -186,13 +186,13 @@
 | 10.6 | 幂等键 + 至少一次投递账本（`delivery_obligations` / `async_delegations` / `tasks.idempotency_key`） | 【实证】调研 03 §1（123 行） | W8 | ⬜ | — |
 | 10.7 | 孤儿回收（`startup_orphan_reap` 67 条 / `ws_orphan_reap` 3 条） | 【实证】调研 03 §3 | W8 | ⬜ | — |
 | 10.8 | 存活租约（`runtime/active_sessions.json` + `gateway_heartbeats` + `processes.json` 的 (pid, host_start_time)） | 【实证】调研 03 §3 | W8 | ⬜ | — |
-| 10.9 | checkpoint（影子 git 库 + prune 保留策略） | 【实证】`checkpoint_manager.py` 88KB；`hermes checkpoints --help` | W8 | ⬜ | — |
-| 10.10 | backup / import（zip 往返） | 【实证】`cmd-38/40` | W2 | ⬜ | — |
+| 10.9 | checkpoint 管理（status / prune / clear） | 【实证】`checkpoint_manager.py` 88KB；`hermes checkpoints --help` | W8 | 🟡 | `app/cli/commands/ops.py` 的 `orbit checkpoints {status,prune,clear,clear-legacy}` 管的是 Orbit 真实的 `checkpoints.sqlite`（LangGraph 的 `checkpoints`+`writes`）。**与 Hermes 不同**：Hermes 是工作目录的影子 git 仓库，Orbit 没有这一层（写文件前的快照）——那部分仍缺 |
+| 10.10 | backup / import（zip 往返 + 清单 + 校验和） | 【实证】`cmd-38/40` | W2 | ✅ | `app/backup.py`：SQLite 走在线备份 API（WAL 一致性）、manifest 带 sha256、恢复做 zip slip 防护与覆盖保护、`--dry-run` 只校验；`tests/test_backup.py` 19 条 |
 | 10.11 | `schema_version` 表 + 迁移器 | 【实证】调研 03 §1（v26） | W8 | ⬜ | — |
 | 10.12 | 双 FTS 索引（分词 + trigram） | 【实证】调研 03 §1 | W8 | ⬜ | — |
 | 10.13 | `orbit sessions`（19 子命令：list/browse/show/rename/export/import/prune/archive/pin/unpin/pinned/stats/recover/repair/repair-routing/optimize/optimize-storage/clean-markers/retitle-skills/delete） | 【实证】`_raw/sub/sessions__*.txt` | W8 | ⬜ | — |
 | 10.14 | 事件溯源（`hosted_room_*` 14 张表：seq + event_id UNIQUE + cursors + watermarks） | 【实证】调研 03 §5 | W8 | ⬜ | — |
-| 10.15 | `orbit checkpoints {status,prune,clear,clear-legacy}` | 【实证】`_raw/sub/checkpoints__*.txt` | W8 | ⬜ | — |
+| 10.15 | `orbit checkpoints {status,list,prune,clear,clear-legacy}` | 【实证】`_raw/sub/checkpoints__*.txt` | W8 | ✅ | `ops.py`（含"非交互环境必须显式 -f"与"clear-legacy 无操作"的诚实处理） |
 
 ## L11 cron / 自动化层（Hermes: `tools/cronjob_tools.py` 99KB + `cron/`）
 
