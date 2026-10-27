@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **180**。当前：✅ 22 · 🟡 4 · ⬜ 154（完成度 12.2%，截至 W3/W13 收口）
+条目合计 **180**。当前：✅ 20 · 🟡 6 · ⬜ 154（完成度 11.1%，截至 W3/W13 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -70,8 +70,8 @@
 | 4.2 | 多 transport（`chat_completions` / `anthropic_messages` / `codex_responses` / `bedrock_converse` / `copilot_acp`） | 【实证】调研 06 §3 | W3 | 🟡 | 已实现 3 种（`chat_completions` 走 langchain、`anthropic_messages` / `gemini` 走 httpx）；`bedrock_converse` 声明但**明确抛错**（无 boto3）；`codex_responses` / `copilot_acp` 未做 |
 | 4.3 | per-model 动态协议路由（Claude→Messages、GPT-5/Codex/Grok→Responses、其余→chat） | 【实证】调研 06 §3.3 | W3 | ⬜ | — |
 | 4.4 | 逐 provider 推理线格式翻译表（5 种落点 + 互斥/拒绝/强制规则） | 【实证】调研 06 §3.5（16 行差异） | W3 | ⬜ | — |
-| 4.5 | fallback 链（触发 429/529/503/连接失败；其它错误不切换） | 【实证】`hermes fallback --help`；调研 06 | W3 | ✅ | `app/fallback.py` `FallbackChain` / `FAILOVER_STATUS`；`tests/test_fallback.py` |
-| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | ✅ | `app/fallback.py` `CredentialPool` / `CredentialLease` / `CredentialPoolExhausted`；密钥走 keyring |
+| 4.5 | fallback 链（触发 429/529/503/连接失败；其它错误不切换） | 【实证】`hermes fallback --help`；调研 06 | W3 | 🟡 | `app/fallback.py` `FallbackChain` / `FAILOVER_STATUS`；`tests/test_fallback.py`。**未接线运行时**：`agent.get_model()` 仍是唯一出模型的地方，回退链只在库层 + CLI 管理面生效 |
+| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | 🟡 | `app/fallback.py` `CredentialPool` / `CredentialLease`；密钥走 keyring。**同样未接线运行时**，理由同上 |
 | 4.7 | `proxy` 本地 OpenAI 兼容代理（到 OAuth provider） | 【实证】`cmd-11-proxy.txt` | W3 | ⬜ | — |
 | 4.8 | `egress` 出口凭证注入防火墙（iron-proxy） | 【实证】`cmd-08-egress.txt` | W13 | ⬜ | — |
 | 4.9 | 辅助模型 slot 18 个（`auxiliary.*`，含 vision） | 【实证】调研 06 §4 | W3 | ⬜ | — |

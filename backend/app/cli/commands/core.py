@@ -477,9 +477,16 @@ def run_doctor(context: Context, args) -> int:
 
 #: 这些键写进 ``data/settings.json``（运行时可改，前端同源）；
 #: 其余键写进 ``backend/.env``（进程启动时读，改完要重启后端）。
+#:
+#: `model_provider` / `fallback_chain` / `moa_presets` 由 `orbit model` / `orbit fallback` /
+#: `orbit moa` 写入——它们是**别的命令的写入目标**，所以必须在这里算"已知键"，
+#: 否则 `orbit config check` 会把自己家写进去的键报成"未知键"（实测踩过）。
 RUNTIME_KEYS = (
     "model",
+    "model_provider",
     "model_base_url",
+    "fallback_chain",
+    "moa_presets",
     "github_repo",
     "notion_url",
     "browser_url",

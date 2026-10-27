@@ -1,0 +1,9 @@
+fix(cli)+docs(parity): 修正自己的一处虚报 + config check 误报新键
+
+- MATRIX 4.5/4.6 由「已实现」降为「部分」：fallback 链与凭证池只在库层 + CLI 管理面，
+  agent.get_model() 仍是唯一出模型的地方，运行时不会自动生效。
+  这是并行子agent 主动上报的，不是我自己发现的——如实记下。
+- core.py RUNTIME_KEYS 补 model_provider / fallback_chain / moa_presets：
+  orbit model / fallback / moa 写进去的键，原先被 orbit config check 报成未知键。
+- ROADMAP 波次状态回填：W2/W3/W4/W13 均为部分完成，并写明还差什么。
+- 当前：条目 180 · 已实现 20 · 部分 6 · 未开始 154（11.1%）
