@@ -1,0 +1,9 @@
+﻿### CMD: __compute-host
+### EXITCODE: 0
+usage: hermes __compute-host [-h]
+
+Internal: run the dashboard compute-host process (hidden).
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,9 @@
+﻿usage: hermes project remove-folder [-h] project path
+
+positional arguments:
+  project     Project id or slug
+  path        Folder path
+
+options:
+  -h, --help  show this help message and exit
+

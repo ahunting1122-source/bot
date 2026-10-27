@@ -1,0 +1,8 @@
+﻿usage: hermes bundles show [-h] name
+
+positional arguments:
+  name        Bundle name
+
+options:
+  -h, --help  show this help message and exit
+

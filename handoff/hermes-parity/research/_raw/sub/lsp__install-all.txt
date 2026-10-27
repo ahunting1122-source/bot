@@ -1,0 +1,6 @@
+﻿usage: hermes lsp install-all [-h] [--include-manual]
+
+options:
+  -h, --help        show this help message and exit
+  --include-manual  Even attempt servers marked manual-install (best effort)
+

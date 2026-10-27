@@ -1,0 +1,12 @@
+﻿usage: hermes cron notepad [-h] job_id [{get,set,delete,list}] [key] [value]
+
+positional arguments:
+  job_id                Job ID the notepad belongs to
+  {get,set,delete,list}
+                        Action (default: list)
+  key                   Notepad key (get/set/delete)
+  value                 Value to store (set)
+
+options:
+  -h, --help            show this help message and exit
+

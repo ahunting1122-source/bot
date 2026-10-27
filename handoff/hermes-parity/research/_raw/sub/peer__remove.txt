@@ -1,0 +1,8 @@
+﻿usage: hermes peer remove [-h] name
+
+positional arguments:
+  name        Peer name
+
+options:
+  -h, --help  show this help message and exit
+

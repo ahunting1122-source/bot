@@ -1,0 +1,9 @@
+﻿usage: hermes cron runs [-h] [--limit LIMIT] [job_id]
+
+positional arguments:
+  job_id         Optional job ID filter
+
+options:
+  -h, --help     show this help message and exit
+  --limit LIMIT  Rows to show (1-500)
+

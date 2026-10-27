@@ -1,0 +1,9 @@
+﻿usage: hermes memory reset [-h] [--yes] [--target {all,memory,user}]
+
+options:
+  -h, --help            show this help message and exit
+  --yes, -y             Skip confirmation prompt
+  --target {all,memory,user}
+                        Which store to reset: 'all' (default), 'memory', or
+                        'user'
+

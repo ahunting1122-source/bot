@@ -1,0 +1,34 @@
+﻿usage: hermes gateway run [-h] [-v] [-q] [--replace] [--force]
+                          [--no-supervise] [--external-supervisor]
+                          [--accept-hooks]
+
+options:
+  -h, --help            show this help message and exit
+  -v, --verbose         Increase stderr log verbosity (-v=INFO, -vv=DEBUG)
+  -q, --quiet           Suppress all stderr log output
+  --replace             Replace any existing gateway instance (useful for
+                        systemd)
+  --force               Start a foreground gateway even when a
+                        systemd/launchd/s6 service already supervises this
+                        profile. Without --force, the command refuses because
+                        a second dispatcher escapes the service and can
+                        corrupt shared gateway state.
+  --no-supervise        Inside the s6-overlay Docker image, normally `gateway
+                        run` is automatically redirected to the supervised s6
+                        service (so the gateway gets auto-restart on crash,
+                        plus a supervised dashboard if HERMES_DASHBOARD is
+                        set). Pass --no-supervise to opt out and get the
+                        historical pre-s6 foreground behavior: the gateway is
+                        the container's main process and the container exits
+                        with the gateway's exit code. No effect outside an s6
+                        container.
+  --external-supervisor
+                        Declare that an external process manager owns this
+                        foreground gateway. In-chat restarts and updates exit
+                        back to that manager instead of spawning a detached
+                        replacement. Use this when a launchd/systemd wrapper
+                        strips its native environment markers.
+  --accept-hooks        Auto-approve unseen shell hooks without a TTY prompt
+                        (equivalent to HERMES_ACCEPT_HOOKS=1 /
+                        hooks_auto_accept: true).
+

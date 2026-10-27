@@ -1,0 +1,72 @@
+﻿@@ kanban boards list
+hermes kanban boards list [-h] [--json] [--all]
+@@ kanban boards create
+hermes kanban boards create [-h] [--name NAME] [--description DESCRIPTION] [--icon ICON] [--color COLOR] [--switch] [--default-workdir DEFAULT_WORKDIR] slug
+@@ kanban boards rm
+hermes kanban boards rm [-h] [--delete] slug
+@@ kanban boards switch
+hermes kanban boards switch [-h] slug
+@@ kanban boards show
+hermes kanban boards show [-h]
+@@ kanban boards current
+hermes kanban boards show [-h]
+@@ kanban boards rename
+hermes kanban boards rename [-h] slug name
+@@ kanban boards set-default-workdir
+hermes kanban boards set-default-workdir [-h] slug [path]
+@@ kanban boards export
+hermes kanban boards export [-h] [-o OUTPUT] [--no-attachments] [--include-logs] [--json] [slug]
+@@ kanban boards import
+hermes kanban boards import [-h] [--as AS_SLUG] [--switch] [--json] archive
+@@ skills tap list
+hermes skills tap list [-h]
+@@ skills tap add
+hermes skills tap add [-h] repo
+@@ skills tap remove
+hermes skills tap remove [-h] name
+@@ skills snapshot export
+hermes skills snapshot export [-h] output
+@@ skills snapshot import
+hermes skills snapshot import [-h] [--force] input
+@@ plugins pack install
+hermes plugins pack install [-h] [--force] source
+@@ plugins pack export
+hermes plugins pack export [-h] [--enabled-only] [--name NAME]
+@@ plugins pack show
+hermes plugins pack show [-h] source
+@@ secrets bitwarden setup
+hermes secrets bitwarden setup [-h] [--project-id PROJECT_ID] [--access-token ACCESS_TOKEN] [--server-url SERVER_URL]
+@@ secrets bitwarden status
+hermes secrets bitwarden status [-h]
+@@ secrets bitwarden token
+hermes secrets bitwarden token [-h] [--access-token ACCESS_TOKEN] [--no-verify]
+@@ secrets bitwarden sync
+hermes secrets bitwarden sync [-h] [--apply]
+@@ secrets bitwarden disable
+hermes secrets bitwarden disable [-h]
+@@ secrets bitwarden install
+hermes secrets bitwarden install [-h] [--force]
+@@ secrets onepassword setup
+hermes secrets onepassword setup [-h] [--account ACCOUNT] [--token-env TOKEN_ENV] [--token TOKEN] [--binary-path BINARY_PATH]
+@@ secrets onepassword status
+hermes secrets onepassword status [-h]
+@@ secrets onepassword token
+hermes secrets onepassword token [-h] [--token TOKEN] [--no-verify]
+@@ secrets onepassword set
+hermes secrets onepassword set [-h] env_var reference
+@@ secrets onepassword remove
+hermes secrets onepassword remove [-h] env_var
+@@ secrets onepassword sync
+hermes secrets onepassword sync [-h] [--apply]
+@@ secrets onepassword disable
+hermes secrets onepassword disable [-h]
+@@ computer-use permissions status
+hermes computer-use permissions status [-h] [--json]
+@@ computer-use permissions grant
+hermes computer-use permissions grant [-h]
+@@ auth spotify login
+hermes auth spotify [-h] [--client-id CLIENT_ID] [--redirect-uri REDIRECT_URI] [--scope SCOPE] [--no-browser] [--timeout TIMEOUT] [{login,status,logout}]
+@@ auth spotify status
+hermes auth spotify [-h] [--client-id CLIENT_ID] [--redirect-uri REDIRECT_URI] [--scope SCOPE] [--no-browser] [--timeout TIMEOUT] [{login,status,logout}]
+@@ auth spotify logout
+hermes auth spotify [-h] [--client-id CLIENT_ID] [--redirect-uri REDIRECT_URI] [--scope SCOPE] [--no-browser] [--timeout TIMEOUT] [{login,status,logout}]

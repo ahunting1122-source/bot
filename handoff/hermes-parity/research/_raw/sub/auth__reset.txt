@@ -1,0 +1,8 @@
+﻿usage: hermes auth reset [-h] provider
+
+positional arguments:
+  provider    Provider id
+
+options:
+  -h, --help  show this help message and exit
+

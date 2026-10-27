@@ -1,0 +1,9 @@
+﻿usage: hermes skills uninstall [-h] [--yes] name
+
+positional arguments:
+  name        Skill name to remove
+
+options:
+  -h, --help  show this help message and exit
+  --yes, -y   Skip confirmation prompt
+

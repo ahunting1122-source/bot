@@ -1,0 +1,6 @@
+﻿usage: hermes lsp status [-h] [--json]
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit machine-readable JSON
+

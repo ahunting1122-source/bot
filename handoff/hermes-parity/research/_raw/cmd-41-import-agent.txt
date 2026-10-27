@@ -1,0 +1,26 @@
+﻿### CMD: import-agent
+### EXITCODE: 0
+usage: hermes import-agent [-h] [--source SOURCE] [--dry-run] [--overwrite]
+                           [--yes]
+                           [{claude-code,codex}]
+
+One-command import of another coding agent's setup into Hermes. Maps
+CLAUDE.md/AGENTS.md instructions, permission allowlists, MCP servers, skills,
+and memories into their Hermes equivalents. Always shows a preview before
+making changes. API keys and credentials are never imported — run 'hermes
+setup' for those.
+
+positional arguments:
+  {claude-code,codex}  Which agent to import from (default: auto-detect
+                       ~/.claude or ~/.codex)
+
+options:
+  -h, --help           show this help message and exit
+  --source SOURCE      Path to the agent's config directory (default:
+                       ~/.claude or ~/.codex)
+  --dry-run            Preview only — stop after showing what would be
+                       imported
+  --overwrite          Overwrite existing Hermes items on name conflicts
+                       (default: skip)
+  --yes, -y            Skip confirmation prompts
+

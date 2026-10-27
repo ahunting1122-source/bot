@@ -1,0 +1,11 @@
+﻿### CMD: logout
+### EXITCODE: 0
+usage: hermes logout [-h] [--provider {nous,openai-codex,xai-oauth,spotify}]
+
+Remove stored credentials and reset provider config
+
+options:
+  -h, --help            show this help message and exit
+  --provider {nous,openai-codex,xai-oauth,spotify}
+                        Provider to log out from (default: active provider)
+

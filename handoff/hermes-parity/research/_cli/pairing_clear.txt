@@ -1,0 +1,4 @@
+﻿usage: hermes pairing clear-pending [-h]
+
+options:
+  -h, --help  show this help message and exit

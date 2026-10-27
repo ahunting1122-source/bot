@@ -1,0 +1,21 @@
+﻿usage: hermes kanban block [-h] [--ids IDS [IDS ...]]
+                           [--kind {capability,dependency,needs_input,transient}]
+                           task_id [reason ...]
+
+positional arguments:
+  task_id
+  reason                Reason (also appended as a comment)
+
+options:
+  -h, --help            show this help message and exit
+  --ids IDS [IDS ...]   Additional task ids to block with the same reason
+                        (bulk mode)
+  --kind {capability,dependency,needs_input,transient}
+                        Typed block reason. 'dependency' waits in todo (auto-
+                        promoted when parents finish, no human);
+                        'needs_input'/'capability' go to blocked for a human;
+                        'transient' marks a maybe-flaky failure. Repeated
+                        same-kind re-blocks after unblock route the task to
+                        triage to break unblock loops. Omit for a generic
+                        block.
+

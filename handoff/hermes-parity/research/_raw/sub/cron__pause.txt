@@ -1,0 +1,8 @@
+﻿usage: hermes cron pause [-h] job_id
+
+positional arguments:
+  job_id      Job ID to pause
+
+options:
+  -h, --help  show this help message and exit
+

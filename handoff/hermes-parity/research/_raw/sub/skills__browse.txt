@@ -1,0 +1,11 @@
+﻿usage: hermes skills browse [-h] [--page PAGE] [--size SIZE]
+                            [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}]
+
+options:
+  -h, --help            show this help message and exit
+  --page PAGE           Page number (default: 1)
+  --size SIZE           Results per page (default: 20)
+  --source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}
+                        Filter by source or provider (e.g. nvidia, openai)
+                        (default: all)
+

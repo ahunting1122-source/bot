@@ -1,0 +1,8 @@
+﻿usage: hermes lsp install [-h] server
+
+positional arguments:
+  server      Server id (e.g. pyright, gopls)
+
+options:
+  -h, --help  show this help message and exit
+

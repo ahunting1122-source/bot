@@ -1,0 +1,9 @@
+﻿usage: hermes profile export [-h] [-o OUTPUT] profile_name
+
+positional arguments:
+  profile_name         Profile to export
+
+options:
+  -h, --help           show this help message and exit
+  -o, --output OUTPUT  Output file (default: <name>.tar.gz)
+

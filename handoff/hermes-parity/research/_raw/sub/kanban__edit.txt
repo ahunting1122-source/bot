@@ -1,0 +1,15 @@
+﻿usage: hermes kanban edit [-h] --result RESULT [--summary SUMMARY]
+                          [--metadata METADATA]
+                          task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help           show this help message and exit
+  --result RESULT      Backfilled task result text for a done task
+  --summary SUMMARY    Structured handoff summary. Falls back to --result if
+                       omitted.
+  --metadata METADATA  JSON dict of structured facts to store on the latest
+                       completed run.
+

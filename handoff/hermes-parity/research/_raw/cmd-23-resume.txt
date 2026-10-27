@@ -1,0 +1,9 @@
+﻿### CMD: resume
+### EXITCODE: 0
+usage: hermes resume [-h]
+
+Remove the ESTOP sentinel; dispatch resumes on the next tick.
+
+options:
+  -h, --help  show this help message and exit
+

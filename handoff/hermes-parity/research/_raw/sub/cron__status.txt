@@ -1,0 +1,5 @@
+﻿usage: hermes cron status [-h]
+
+options:
+  -h, --help  show this help message and exit
+

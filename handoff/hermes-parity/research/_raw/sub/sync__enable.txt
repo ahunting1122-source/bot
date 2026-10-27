@@ -1,0 +1,8 @@
+﻿usage: hermes sync enable [-h] skill
+
+positional arguments:
+  skill       Skill name (frontmatter name / directory name)
+
+options:
+  -h, --help  show this help message and exit
+

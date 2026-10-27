@@ -1,0 +1,7 @@
+﻿usage: hermes console [-h]
+
+Open a curated Hermes command REPL. This is not a raw shell and does not
+expose the full Hermes CLI.
+
+options:
+  -h, --help  show this help message and exit

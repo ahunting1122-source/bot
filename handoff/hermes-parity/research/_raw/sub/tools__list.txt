@@ -1,0 +1,6 @@
+﻿usage: hermes tools list [-h] [--platform PLATFORM]
+
+options:
+  -h, --help           show this help message and exit
+  --platform PLATFORM  Platform to show (default: cli)
+

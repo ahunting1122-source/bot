@@ -1,0 +1,18 @@
+﻿usage: hermes plugins install [-h] [--force] [--ref COMMIT_SHA] [--enable |
+                              --no-enable]
+                              identifier
+
+positional arguments:
+  identifier        Git URL, owner/repo shorthand (e.g. anpicasso/hermes-
+                    plugin-chrome-profiles), or a bare plugin name resolved
+                    through the community index (see `hermes plugins search`)
+
+options:
+  -h, --help        show this help message and exit
+  --force, -f       Remove existing plugin and reinstall
+  --ref COMMIT_SHA  Install exactly one immutable 40-character Git commit SHA
+  --enable          Auto-enable the plugin after install (skip confirmation
+                    prompt)
+  --no-enable       Install disabled (skip confirmation prompt); enable later
+                    with `hermes plugins enable <name>`
+

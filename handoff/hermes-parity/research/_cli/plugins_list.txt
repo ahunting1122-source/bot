@@ -1,0 +1,10 @@
+﻿usage: hermes plugins list [-h] [--enabled] [--user] [--no-bundled] [--plain]
+                           [--json]
+
+options:
+  -h, --help    show this help message and exit
+  --enabled     Show only enabled plugins
+  --user        Show only user-installed plugins (including git plugins)
+  --no-bundled  Hide bundled plugins
+  --plain       Print compact plain-text output instead of a Rich table
+  --json        Print machine-readable JSON

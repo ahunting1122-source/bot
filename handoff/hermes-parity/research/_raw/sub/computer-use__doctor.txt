@@ -1,0 +1,20 @@
+﻿usage: hermes computer-use doctor [-h] [--include CHECK] [--skip CHECK]
+                                  [--json]
+
+Drive cua-driver's stable `health_report` MCP tool and render its check matrix
+(TCC permissions, bundle identity, version, platform support, screenshot
+probe, …) as human-readable output. cua-driver owns the health model; this
+command stays thin so new checks added upstream surface here without code
+changes. Exits 0 when overall=ok, 1 when degraded/failed, 2 when the binary is
+missing or unreachable.
+
+options:
+  -h, --help       show this help message and exit
+  --include CHECK  Run only the listed checks. Repeat for multiple (e.g.
+                   --include tcc_accessibility --include bundle_identity).
+                   Unknown names are reported by cua-driver.
+  --skip CHECK     Skip the listed checks. Repeat for multiple. Wins over
+                   --include.
+  --json           Emit the raw structured payload as JSON (same shape as
+                   `tools/call`).
+

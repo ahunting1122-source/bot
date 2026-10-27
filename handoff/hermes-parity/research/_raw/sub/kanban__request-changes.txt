@@ -1,0 +1,9 @@
+﻿usage: hermes kanban request-changes [-h] task_id reason [reason ...]
+
+positional arguments:
+  task_id
+  reason      Concrete changes required before re-review
+
+options:
+  -h, --help  show this help message and exit
+

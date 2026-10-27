@@ -1,0 +1,12 @@
+﻿usage: hermes skills publish [-h] [--to {github,clawhub}] [--repo REPO]
+                             skill_path
+
+positional arguments:
+  skill_path            Path to skill directory
+
+options:
+  -h, --help            show this help message and exit
+  --to {github,clawhub}
+                        Target registry
+  --repo REPO           Target GitHub repo (e.g. openai/skills)
+

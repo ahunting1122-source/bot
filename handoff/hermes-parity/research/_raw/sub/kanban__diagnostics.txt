@@ -1,0 +1,11 @@
+﻿usage: hermes kanban diagnostics [-h] [--severity {warning,error,critical}]
+                                 [--task TASK] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --severity {warning,error,critical}
+                        Only show diagnostics at or above this severity
+  --task TASK           Only show diagnostics for one task id
+  --json                Emit JSON (structured) instead of the default human
+                        table
+

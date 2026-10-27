@@ -1,0 +1,8 @@
+﻿usage: hermes plugins remove [-h] name
+
+positional arguments:
+  name        Plugin directory name to remove
+
+options:
+  -h, --help  show this help message and exit
+

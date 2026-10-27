@@ -1,0 +1,5 @@
+﻿usage: hermes kanban boards show [-h]
+
+options:
+  -h, --help  show this help message and exit
+

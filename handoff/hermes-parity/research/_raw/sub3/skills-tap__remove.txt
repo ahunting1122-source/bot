@@ -1,0 +1,8 @@
+﻿usage: hermes skills tap remove [-h] name
+
+positional arguments:
+  name        Tap name to remove
+
+options:
+  -h, --help  show this help message and exit
+

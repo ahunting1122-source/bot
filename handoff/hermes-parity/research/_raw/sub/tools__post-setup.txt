@@ -1,0 +1,15 @@
+﻿usage: hermes tools post-setup [-h] KEY
+
+Run the install/bootstrap hook a tool backend declares — the same step `hermes
+tools` runs after you pick a provider that needs extra dependencies (browser
+Chromium, Camofox, cua-driver, KittenTTS/Piper, ddgs, Spotify, Langfuse, xAI).
+Stable, non-interactive target the dashboard spawns to drive backend setup.
+Keys: agent_browser, camofox, cua_driver, kittentts, piper, ddgs, spotify,
+langfuse, xai_grok.
+
+positional arguments:
+  KEY         Post-setup hook key (e.g. agent_browser, camofox, kittentts)
+
+options:
+  -h, --help  show this help message and exit
+

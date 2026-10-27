@@ -1,0 +1,14 @@
+﻿usage: hermes kanban dispatch [-h] [--dry-run] [--max MAX]
+                              [--failure-limit FAILURE_LIMIT] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --dry-run             Don't actually spawn processes; just print what would
+                        happen
+  --max MAX             Cap number of spawns this pass
+  --failure-limit FAILURE_LIMIT
+                        Auto-block a task after this many consecutive non-
+                        success attempts (spawn_failed, timed_out, or crashed;
+                        default: 2)
+  --json
+

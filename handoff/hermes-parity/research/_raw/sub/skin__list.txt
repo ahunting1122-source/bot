@@ -1,0 +1,5 @@
+﻿usage: hermes skin list [-h]
+
+options:
+  -h, --help  show this help message and exit
+

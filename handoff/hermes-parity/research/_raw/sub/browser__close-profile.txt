@@ -1,0 +1,7 @@
+﻿usage: hermes browser close-profile [-h] [--browser BROWSER]
+
+options:
+  -h, --help         show this help message and exit
+  --browser BROWSER  Override detected default browser
+                     (chrome/edge/brave/brave-origin/chromium)
+

@@ -1,0 +1,8 @@
+﻿usage: hermes project use [-h] [project]
+
+positional arguments:
+  project     Project id or slug (omit to clear)
+
+options:
+  -h, --help  show this help message and exit
+

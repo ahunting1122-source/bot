@@ -1,0 +1,6 @@
+﻿usage: hermes checkpoints status [-h] [--limit LIMIT]
+
+options:
+  -h, --help     show this help message and exit
+  --limit LIMIT  Max projects to list (default 20)
+

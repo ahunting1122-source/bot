@@ -1,0 +1,10 @@
+﻿usage: hermes peer stop [-h] [--json] target run_id
+
+positional arguments:
+  target      <peer> or <peer>/<agent> (named profile on a multiplexed peer)
+  run_id      Run ID returned by 'hermes peer run'
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit a JSON result
+

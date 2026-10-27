@@ -1,0 +1,13 @@
+﻿usage: hermes kanban reassign [-h] [--reclaim] [--reason REASON]
+                              task_id profile
+
+positional arguments:
+  task_id
+  profile          New profile name (or 'none' to unassign)
+
+options:
+  -h, --help       show this help message and exit
+  --reclaim        Release any active claim before reassigning (required if
+                   task is running)
+  --reason REASON  Human-readable reason (recorded on the reclaimed event)
+

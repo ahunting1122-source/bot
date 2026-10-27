@@ -1,0 +1,3988 @@
+{
+ "pragma_journal": "delete",
+ "page_size": 4096,
+ "freelist_count": 170,
+ "page_count": 44654,
+ "encoding": "UTF-8",
+ "fk_enabled": 0,
+ "user_version": 0,
+ "schema_version": 86,
+ "application_id": 0,
+ "views": [],
+ "triggers": [
+  {
+   "type": "trigger",
+   "name": "messages_fts_delete",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN\n    DELETE FROM messages_fts WHERE rowid = old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "messages_fts_insert",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN\n    INSERT INTO messages_fts(rowid, content) VALUES (\n        new.id,\n        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')\n    );\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "messages_fts_trigram_delete",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_trigram_delete AFTER DELETE ON messages BEGIN\n    DELETE FROM messages_fts_trigram WHERE rowid = old.id;\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "messages_fts_trigram_insert",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_trigram_insert AFTER INSERT ON messages BEGIN\n    INSERT INTO messages_fts_trigram(rowid, content) VALUES (\n        new.id,\n        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')\n    );\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "messages_fts_trigram_update",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_trigram_update\nAFTER UPDATE OF content, tool_name, tool_calls ON messages BEGIN\n    DELETE FROM messages_fts_trigram WHERE rowid = old.id;\n    INSERT INTO messages_fts_trigram(rowid, content) VALUES (\n        new.id,\n        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')\n    );\nEND"
+  },
+  {
+   "type": "trigger",
+   "name": "messages_fts_update",
+   "tbl_name": "messages",
+   "sql": "CREATE TRIGGER messages_fts_update\nAFTER UPDATE OF content, tool_name, tool_calls ON messages BEGIN\n    DELETE FROM messages_fts WHERE rowid = old.id;\n    INSERT INTO messages_fts(rowid, content) VALUES (\n        new.id,\n        COALESCE(new.content, '') || ' ' || COALESCE(new.tool_name, '') || ' ' || COALESCE(new.tool_calls, '')\n    );\nEND"
+  }
+ ],
+ "tables": [
+  {
+   "name": "async_delegations",
+   "sql": "CREATE TABLE async_delegations (\n    delegation_id TEXT PRIMARY KEY,\n    origin_session TEXT NOT NULL,\n    origin_ui_session_id TEXT NOT NULL DEFAULT '',\n    parent_session_id TEXT,\n    state TEXT NOT NULL,\n    dispatched_at REAL NOT NULL,\n    completed_at REAL,\n    updated_at REAL NOT NULL,\n    event_json TEXT,\n    result_json TEXT,\n    delivery_state TEXT NOT NULL DEFAULT 'pending',\n    delivery_attempts INTEGER NOT NULL DEFAULT 0,\n    delivered_at REAL,\n    owner_pid INTEGER,\n    owner_started_at INTEGER,\n    task_json TEXT,\n    delivery_claim TEXT,\n    delivery_claimed_at REAL\n, origin_session_id TEXT)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "delegation_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "origin_session",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "origin_ui_session_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "parent_session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "state",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "dispatched_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "completed_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "event_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "result_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "delivery_state",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "'pending'",
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "delivery_attempts",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "delivered_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 13,
+     "name": "owner_pid",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 14,
+     "name": "owner_started_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 15,
+     "name": "task_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 16,
+     "name": "delivery_claim",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 17,
+     "name": "delivery_claimed_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 18,
+     "name": "origin_session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_async_delegations_delivery",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_async_delegations_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_async_delegations_delivery": [
+     {
+      "seqno": 0,
+      "cid": 10,
+      "name": "delivery_state"
+     },
+     {
+      "seqno": 1,
+      "cid": 6,
+      "name": "completed_at"
+     }
+    ],
+    "sqlite_autoindex_async_delegations_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "delegation_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 1
+  },
+  {
+   "name": "compression_locks",
+   "sql": "CREATE TABLE compression_locks (\n    session_id TEXT PRIMARY KEY,\n    holder TEXT NOT NULL,\n    acquired_at REAL NOT NULL,\n    expires_at REAL NOT NULL\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "holder",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "acquired_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "expires_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_compression_locks_expires",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_compression_locks_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_compression_locks_expires": [
+     {
+      "seqno": 0,
+      "cid": 3,
+      "name": "expires_at"
+     }
+    ],
+    "sqlite_autoindex_compression_locks_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "session_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "delivery_obligations",
+   "sql": "CREATE TABLE delivery_obligations (\n            obligation_id TEXT PRIMARY KEY,\n            session_key TEXT NOT NULL,\n            platform TEXT NOT NULL,\n            chat_id TEXT NOT NULL,\n            thread_id TEXT,\n            content TEXT NOT NULL,\n            state TEXT NOT NULL,\n            attempts INTEGER NOT NULL DEFAULT 0,\n            created_at REAL NOT NULL,\n            updated_at REAL NOT NULL,\n            owner_pid INTEGER,\n            owner_started_at INTEGER,\n            last_error TEXT\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "obligation_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "session_key",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "platform",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "chat_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "content",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "state",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "attempts",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "created_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "owner_pid",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "owner_started_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "last_error",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_delivery_obligations_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_delivery_obligations_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "obligation_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 123
+  },
+  {
+   "name": "gateway_heartbeats",
+   "sql": "CREATE TABLE gateway_heartbeats (\n    backend_id TEXT PRIMARY KEY,\n    pid INTEGER NOT NULL,\n    started_at REAL NOT NULL,\n    last_heartbeat REAL NOT NULL,\n    profile TEXT NOT NULL DEFAULT '',\n    host TEXT NOT NULL DEFAULT ''\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "backend_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "pid",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "started_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "last_heartbeat",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "profile",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "host",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_gateway_heartbeats_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_gateway_heartbeats_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "backend_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 5
+  },
+  {
+   "name": "gateway_hygiene_state",
+   "sql": "CREATE TABLE gateway_hygiene_state (\n    session_key TEXT PRIMARY KEY,\n    failure_streak INTEGER NOT NULL DEFAULT 0\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "session_key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "failure_streak",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_gateway_hygiene_state_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_gateway_hygiene_state_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "session_key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "gateway_routing",
+   "sql": "CREATE TABLE gateway_routing (\n    scope TEXT NOT NULL DEFAULT '',\n    session_key TEXT NOT NULL,\n    entry_json TEXT NOT NULL,\n    updated_at REAL NOT NULL,\n    PRIMARY KEY (scope, session_key)\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "scope",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "session_key",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "entry_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_gateway_routing_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_gateway_routing_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "scope"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "session_key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 5
+  },
+  {
+   "name": "hosted_room_events",
+   "sql": "CREATE TABLE hosted_room_events (\n            room_id TEXT NOT NULL,\n            seq INTEGER NOT NULL CHECK (seq >= 1),\n            event_id TEXT NOT NULL,\n            kind TEXT NOT NULL,\n            actor_json TEXT NOT NULL,\n            authority_epoch INTEGER CHECK (authority_epoch IS NULL OR authority_epoch >= 1),\n            payload_json TEXT NOT NULL,\n            created_at REAL NOT NULL,\n            PRIMARY KEY (room_id, seq),\n            UNIQUE (room_id, event_id),\n            FOREIGN KEY (room_id) REFERENCES hosted_rooms(room_id)\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "event_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "kind",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "actor_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "authority_epoch",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "payload_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "created_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_hosted_room_events_cursor",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_hosted_room_events_2",
+     "unique": 1,
+     "origin": "u",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "sqlite_autoindex_hosted_room_events_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_hosted_room_events_cursor": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "seq"
+     }
+    ],
+    "sqlite_autoindex_hosted_room_events_2": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 2,
+      "name": "event_id"
+     }
+    ],
+    "sqlite_autoindex_hosted_room_events_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "seq"
+     }
+    ]
+   },
+   "fks": [
+    {
+     "id": 0,
+     "seq": 0,
+     "table": "hosted_rooms",
+     "from": "room_id",
+     "to": "room_id",
+     "on_update": "NO ACTION",
+     "on_delete": "NO ACTION",
+     "match": "NONE"
+    }
+   ],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_links",
+   "sql": "CREATE TABLE hosted_room_links (\n            room_id TEXT NOT NULL,\n            member_id TEXT NOT NULL,\n            target_url TEXT NOT NULL,\n            target_profile TEXT NOT NULL,\n            grant TEXT NOT NULL,\n            catalog_json TEXT NOT NULL,\n            cancellation_scope_id TEXT NOT NULL,\n            trace_id TEXT NOT NULL,\n            transport_security TEXT NOT NULL,\n            status TEXT NOT NULL DEFAULT 'ready',\n            updated_at REAL NOT NULL,\n            PRIMARY KEY (room_id, member_id)\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "member_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "target_url",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "target_profile",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "grant",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "catalog_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "cancellation_scope_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "trace_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "transport_security",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "status",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "'ready'",
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_links_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_links_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "member_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_peer_reservations",
+   "sql": "CREATE TABLE hosted_room_peer_reservations (\n            room_id TEXT NOT NULL,\n            member_id TEXT NOT NULL,\n            target_profile TEXT NOT NULL,\n            authority_gateway_id TEXT NOT NULL,\n            authority_epoch INTEGER NOT NULL CHECK (authority_epoch >= 1),\n            expires_at REAL NOT NULL,\n            revoked_at REAL,\n            created_at REAL NOT NULL,\n            updated_at REAL NOT NULL,\n            PRIMARY KEY (room_id, member_id, target_profile)\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "member_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "target_profile",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "authority_gateway_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "authority_epoch",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "expires_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "revoked_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "created_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_peer_reservations_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_peer_reservations_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "member_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "target_profile"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_cursors",
+   "sql": "CREATE TABLE hosted_room_policy_cursors (\n                    room_id TEXT PRIMARY KEY,\n                    through_seq INTEGER NOT NULL DEFAULT 0,\n                    stopped_through_seq INTEGER NOT NULL DEFAULT 0,\n                    updated_at REAL NOT NULL DEFAULT 0\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "through_seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "stopped_through_seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_policy_cursors_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_policy_cursors_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_events",
+   "sql": "CREATE TABLE hosted_room_policy_events (\n                    room_id TEXT NOT NULL,\n                    thread_id TEXT NOT NULL,\n                    discussion_event_id TEXT NOT NULL,\n                    seq INTEGER NOT NULL,\n                    event_json TEXT NOT NULL,\n                    PRIMARY KEY(room_id, seq)\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "discussion_event_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 4,
+     "name": "event_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_hosted_room_policy_events_active",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_hosted_room_policy_events_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_hosted_room_policy_events_active": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 2,
+      "name": "discussion_event_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 3,
+      "name": "seq"
+     }
+    ],
+    "sqlite_autoindex_hosted_room_policy_events_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 3,
+      "name": "seq"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_publications",
+   "sql": "CREATE TABLE hosted_room_policy_publications (\n                    room_id TEXT NOT NULL,\n                    task_id TEXT NOT NULL,\n                    kind TEXT NOT NULL,\n                    execution_generation INTEGER NOT NULL DEFAULT 0,\n                    seq INTEGER NOT NULL,\n                    PRIMARY KEY(room_id, task_id, kind, execution_generation)\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "task_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "kind",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "execution_generation",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 4
+    },
+    {
+     "cid": 4,
+     "name": "seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_policy_publications_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_policy_publications_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "task_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "kind"
+     },
+     {
+      "seqno": 3,
+      "cid": 3,
+      "name": "execution_generation"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_threads",
+   "sql": "CREATE TABLE hosted_room_policy_threads (\n                    room_id TEXT NOT NULL,\n                    thread_id TEXT NOT NULL,\n                    discussion_event_id TEXT NOT NULL,\n                    latest_user_seq INTEGER NOT NULL,\n                    completed INTEGER NOT NULL DEFAULT 0,\n                    PRIMARY KEY(room_id, thread_id)\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "discussion_event_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "latest_user_seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "completed",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_hosted_room_policy_pending",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_hosted_room_policy_threads_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_hosted_room_policy_pending": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 4,
+      "name": "completed"
+     },
+     {
+      "seqno": 2,
+      "cid": 3,
+      "name": "latest_user_seq"
+     },
+     {
+      "seqno": 3,
+      "cid": 1,
+      "name": "thread_id"
+     }
+    ],
+    "sqlite_autoindex_hosted_room_policy_threads_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "thread_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_transcript",
+   "sql": "CREATE TABLE hosted_room_policy_transcript (\n                    room_id TEXT NOT NULL,\n                    thread_id TEXT NOT NULL,\n                    seq INTEGER NOT NULL,\n                    kind TEXT NOT NULL,\n                    settled_seq INTEGER,\n                    PRIMARY KEY(room_id, thread_id, seq)\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "kind",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "settled_seq",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_policy_transcript_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_policy_transcript_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "thread_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "seq"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_transcript_state",
+   "sql": "CREATE TABLE hosted_room_policy_transcript_state (\n                    room_id TEXT PRIMARY KEY,\n                    schema_version INTEGER NOT NULL\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "schema_version",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_policy_transcript_state_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_policy_transcript_state_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_policy_watermarks",
+   "sql": "CREATE TABLE hosted_room_policy_watermarks (\n                    room_id TEXT NOT NULL,\n                    thread_id TEXT NOT NULL,\n                    member_id TEXT NOT NULL,\n                    seen_through_seq INTEGER NOT NULL,\n                    PRIMARY KEY(room_id, thread_id, member_id)\n                )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "member_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "seen_through_seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_policy_watermarks_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_policy_watermarks_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "thread_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "member_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_remote_runs",
+   "sql": "CREATE TABLE hosted_room_remote_runs (\n            room_id TEXT NOT NULL,\n            home_install_id TEXT NOT NULL,\n            authority_gateway_id TEXT NOT NULL,\n            authority_epoch INTEGER NOT NULL CHECK (authority_epoch >= 1),\n            member_id TEXT NOT NULL,\n            task_id TEXT NOT NULL,\n            execution_generation INTEGER NOT NULL CHECK (execution_generation >= 1),\n            target_install_id TEXT NOT NULL,\n            target_profile TEXT NOT NULL,\n            run_id TEXT NOT NULL,\n            session_id TEXT NOT NULL,\n            created_at REAL NOT NULL,\n            updated_at REAL NOT NULL,\n            PRIMARY KEY (\n                room_id, home_install_id, authority_gateway_id, authority_epoch,\n                member_id, target_install_id, target_profile, task_id,\n                execution_generation\n            )\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "home_install_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "authority_gateway_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "authority_epoch",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 4
+    },
+    {
+     "cid": 4,
+     "name": "member_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 5
+    },
+    {
+     "cid": 5,
+     "name": "task_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 8
+    },
+    {
+     "cid": 6,
+     "name": "execution_generation",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 9
+    },
+    {
+     "cid": 7,
+     "name": "target_install_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 6
+    },
+    {
+     "cid": 8,
+     "name": "target_profile",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 7
+    },
+    {
+     "cid": 9,
+     "name": "run_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "created_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_remote_runs_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_remote_runs_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "home_install_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "authority_gateway_id"
+     },
+     {
+      "seqno": 3,
+      "cid": 3,
+      "name": "authority_epoch"
+     },
+     {
+      "seqno": 4,
+      "cid": 4,
+      "name": "member_id"
+     },
+     {
+      "seqno": 5,
+      "cid": 7,
+      "name": "target_install_id"
+     },
+     {
+      "seqno": 6,
+      "cid": 8,
+      "name": "target_profile"
+     },
+     {
+      "seqno": 7,
+      "cid": 5,
+      "name": "task_id"
+     },
+     {
+      "seqno": 8,
+      "cid": 6,
+      "name": "execution_generation"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_retired_ids",
+   "sql": "CREATE TABLE hosted_room_retired_ids (\n            room_id TEXT PRIMARY KEY,\n            retired_at REAL NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "retired_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_retired_ids_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_retired_ids_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_room_revoked_grants",
+   "sql": "CREATE TABLE hosted_room_revoked_grants (\n            scope_key TEXT PRIMARY KEY,\n            expires_at REAL NOT NULL,\n            revoked_before REAL NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "scope_key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "expires_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "revoked_before",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_room_revoked_grants_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_room_revoked_grants_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "scope_key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "hosted_rooms",
+   "sql": "CREATE TABLE hosted_rooms (\n            room_id TEXT PRIMARY KEY,\n            name TEXT NOT NULL,\n            members_json TEXT NOT NULL,\n            authority_gateway_id TEXT NOT NULL,\n            authority_epoch INTEGER NOT NULL DEFAULT 1 CHECK (authority_epoch >= 1),\n            next_seq INTEGER NOT NULL DEFAULT 1 CHECK (next_seq >= 1),\n            event_bytes INTEGER NOT NULL DEFAULT 0 CHECK (event_bytes >= 0),\n            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),\n            created_at REAL NOT NULL,\n            updated_at REAL NOT NULL,\n            disbanded_at REAL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "room_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "name",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "members_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "authority_gateway_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "authority_epoch",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "1",
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "next_seq",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "1",
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "event_bytes",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "revision",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "1",
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "created_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "updated_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "disbanded_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_hosted_rooms_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_hosted_rooms_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "room_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "messages",
+   "sql": "CREATE TABLE messages (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    session_id TEXT NOT NULL REFERENCES sessions(id),\n    role TEXT NOT NULL,\n    content TEXT,\n    tool_call_id TEXT,\n    tool_calls TEXT,\n    tool_name TEXT,\n    effect_disposition TEXT,\n    timestamp REAL NOT NULL,\n    token_count INTEGER,\n    finish_reason TEXT,\n    reasoning TEXT,\n    reasoning_content TEXT,\n    reasoning_details TEXT,\n    codex_reasoning_items TEXT,\n    codex_message_items TEXT,\n    platform_message_id TEXT,\n    observed INTEGER DEFAULT 0,\n    active INTEGER NOT NULL DEFAULT 1,\n    compacted INTEGER NOT NULL DEFAULT 0,\n    api_content TEXT\n, \"display_kind\" TEXT, \"display_metadata\" TEXT, \"_compressed_summary\" INTEGER NOT NULL DEFAULT 0)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "role",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "content",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "tool_call_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "tool_calls",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "tool_name",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "effect_disposition",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "timestamp",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "token_count",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "finish_reason",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "reasoning",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "reasoning_content",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 13,
+     "name": "reasoning_details",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 14,
+     "name": "codex_reasoning_items",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 15,
+     "name": "codex_message_items",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 16,
+     "name": "platform_message_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 17,
+     "name": "observed",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 18,
+     "name": "active",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "1",
+     "pk": 0
+    },
+    {
+     "cid": 19,
+     "name": "compacted",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 20,
+     "name": "api_content",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 21,
+     "name": "display_kind",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 22,
+     "name": "display_metadata",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 23,
+     "name": "_compressed_summary",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_messages_assistant_calls_by_session",
+     "unique": 0,
+     "origin": "c",
+     "partial": 1
+    },
+    {
+     "seq": 1,
+     "name": "idx_messages_session_id",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "idx_messages_active_null",
+     "unique": 0,
+     "origin": "c",
+     "partial": 1
+    },
+    {
+     "seq": 3,
+     "name": "idx_messages_session_active",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 4,
+     "name": "idx_messages_platform_msg_id",
+     "unique": 0,
+     "origin": "c",
+     "partial": 1
+    },
+    {
+     "seq": 5,
+     "name": "idx_messages_session",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_messages_assistant_calls_by_session": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     }
+    ],
+    "idx_messages_session_id": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 0,
+      "name": "id"
+     }
+    ],
+    "idx_messages_active_null": [
+     {
+      "seqno": 0,
+      "cid": 18,
+      "name": "active"
+     }
+    ],
+    "idx_messages_session_active": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 18,
+      "name": "active"
+     },
+     {
+      "seqno": 2,
+      "cid": 8,
+      "name": "timestamp"
+     }
+    ],
+    "idx_messages_platform_msg_id": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 16,
+      "name": "platform_message_id"
+     }
+    ],
+    "idx_messages_session": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 8,
+      "name": "timestamp"
+     }
+    ]
+   },
+   "fks": [
+    {
+     "id": 0,
+     "seq": 0,
+     "table": "sessions",
+     "from": "session_id",
+     "to": "id",
+     "on_update": "NO ACTION",
+     "on_delete": "NO ACTION",
+     "match": "NONE"
+    }
+   ],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts",
+   "sql": "CREATE VIRTUAL TABLE messages_fts USING fts5(\n    content\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "content",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_config",
+   "sql": "CREATE TABLE 'messages_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "k",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "v",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_messages_fts_config_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_messages_fts_config_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "k"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 2
+  },
+  {
+   "name": "messages_fts_content",
+   "sql": "CREATE TABLE 'messages_fts_content'(id INTEGER PRIMARY KEY, c0)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "c0",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_data",
+   "sql": "CREATE TABLE 'messages_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "block",
+     "type": "BLOB",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 2332
+  },
+  {
+   "name": "messages_fts_docsize",
+   "sql": "CREATE TABLE 'messages_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "sz",
+     "type": "BLOB",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_idx",
+   "sql": "CREATE TABLE 'messages_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "segid",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "term",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "pgno",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_messages_fts_idx_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_messages_fts_idx_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "segid"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "term"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 1925
+  },
+  {
+   "name": "messages_fts_trigram",
+   "sql": "CREATE VIRTUAL TABLE messages_fts_trigram USING fts5(\n    content,\n    tokenize='trigram'\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "content",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_trigram_config",
+   "sql": "CREATE TABLE 'messages_fts_trigram_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "k",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "v",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_messages_fts_trigram_config_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_messages_fts_trigram_config_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "k"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 2
+  },
+  {
+   "name": "messages_fts_trigram_content",
+   "sql": "CREATE TABLE 'messages_fts_trigram_content'(id INTEGER PRIMARY KEY, c0)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "c0",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_trigram_data",
+   "sql": "CREATE TABLE 'messages_fts_trigram_data'(id INTEGER PRIMARY KEY, block BLOB)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "block",
+     "type": "BLOB",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 15248
+  },
+  {
+   "name": "messages_fts_trigram_docsize",
+   "sql": "CREATE TABLE 'messages_fts_trigram_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "sz",
+     "type": "BLOB",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 14595
+  },
+  {
+   "name": "messages_fts_trigram_idx",
+   "sql": "CREATE TABLE 'messages_fts_trigram_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "segid",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "term",
+     "type": "",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "pgno",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_messages_fts_trigram_idx_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_messages_fts_trigram_idx_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "segid"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "term"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 10117
+  },
+  {
+   "name": "schema_version",
+   "sql": "CREATE TABLE schema_version (\n    version INTEGER NOT NULL\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "version",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 1
+  },
+  {
+   "name": "session_model_usage",
+   "sql": "CREATE TABLE session_model_usage (\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,\n    model TEXT NOT NULL,\n    billing_provider TEXT NOT NULL DEFAULT '',\n    billing_base_url TEXT NOT NULL DEFAULT '',\n    billing_mode TEXT NOT NULL DEFAULT '',\n    task TEXT NOT NULL DEFAULT '',\n    api_call_count INTEGER NOT NULL DEFAULT 0,\n    input_tokens INTEGER NOT NULL DEFAULT 0,\n    output_tokens INTEGER NOT NULL DEFAULT 0,\n    cache_read_tokens INTEGER NOT NULL DEFAULT 0,\n    cache_write_tokens INTEGER NOT NULL DEFAULT 0,\n    reasoning_tokens INTEGER NOT NULL DEFAULT 0,\n    estimated_cost_usd REAL NOT NULL DEFAULT 0,\n    actual_cost_usd REAL NOT NULL DEFAULT 0,\n    cost_status TEXT,\n    cost_source TEXT,\n    first_seen REAL,\n    last_seen REAL,\n    PRIMARY KEY (session_id, model, billing_provider, billing_base_url, billing_mode, task)\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "model",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "billing_provider",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 3
+    },
+    {
+     "cid": 3,
+     "name": "billing_base_url",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 4
+    },
+    {
+     "cid": 4,
+     "name": "billing_mode",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 5
+    },
+    {
+     "cid": 5,
+     "name": "task",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": "''",
+     "pk": 6
+    },
+    {
+     "cid": 6,
+     "name": "api_call_count",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "input_tokens",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "output_tokens",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "cache_read_tokens",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "cache_write_tokens",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "reasoning_tokens",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "estimated_cost_usd",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 13,
+     "name": "actual_cost_usd",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 14,
+     "name": "cost_status",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 15,
+     "name": "cost_source",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 16,
+     "name": "first_seen",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 17,
+     "name": "last_seen",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_session_model_usage_model",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "idx_session_model_usage_session",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "sqlite_autoindex_session_model_usage_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_session_model_usage_model": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "model"
+     }
+    ],
+    "idx_session_model_usage_session": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "session_id"
+     }
+    ],
+    "sqlite_autoindex_session_model_usage_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "model"
+     },
+     {
+      "seqno": 2,
+      "cid": 2,
+      "name": "billing_provider"
+     },
+     {
+      "seqno": 3,
+      "cid": 3,
+      "name": "billing_base_url"
+     },
+     {
+      "seqno": 4,
+      "cid": 4,
+      "name": "billing_mode"
+     },
+     {
+      "seqno": 5,
+      "cid": 5,
+      "name": "task"
+     }
+    ]
+   },
+   "fks": [
+    {
+     "id": 0,
+     "seq": 0,
+     "table": "sessions",
+     "from": "session_id",
+     "to": "id",
+     "on_update": "NO ACTION",
+     "on_delete": "CASCADE",
+     "match": "NONE"
+    }
+   ],
+   "rows": 115
+  },
+  {
+   "name": "session_turn_leases",
+   "sql": "CREATE TABLE session_turn_leases (\n    conversation_id TEXT PRIMARY KEY,\n    holder TEXT NOT NULL,\n    acquired_at REAL NOT NULL,\n    expires_at REAL NOT NULL\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "conversation_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "holder",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "acquired_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "expires_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_session_turn_leases_expires",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_session_turn_leases_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_session_turn_leases_expires": [
+     {
+      "seqno": 0,
+      "cid": 3,
+      "name": "expires_at"
+     }
+    ],
+    "sqlite_autoindex_session_turn_leases_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "conversation_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "sessions",
+   "sql": "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY,\n    source TEXT NOT NULL,\n    user_id TEXT,\n    session_key TEXT,\n    chat_id TEXT,\n    chat_type TEXT,\n    thread_id TEXT,\n    display_name TEXT,\n    origin_json TEXT,\n    expiry_finalized INTEGER DEFAULT 0,\n    model TEXT,\n    model_config TEXT,\n    system_prompt TEXT,\n    parent_session_id TEXT,\n    started_at REAL NOT NULL,\n    ended_at REAL,\n    end_reason TEXT,\n    message_count INTEGER DEFAULT 0,\n    tool_call_count INTEGER DEFAULT 0,\n    input_tokens INTEGER DEFAULT 0,\n    output_tokens INTEGER DEFAULT 0,\n    cache_read_tokens INTEGER DEFAULT 0,\n    cache_write_tokens INTEGER DEFAULT 0,\n    reasoning_tokens INTEGER DEFAULT 0,\n    cwd TEXT,\n    git_branch TEXT,\n    git_repo_root TEXT,\n    billing_provider TEXT,\n    billing_base_url TEXT,\n    billing_mode TEXT,\n    estimated_cost_usd REAL,\n    actual_cost_usd REAL,\n    cost_status TEXT,\n    cost_source TEXT,\n    pricing_version TEXT,\n    title TEXT,\n    api_call_count INTEGER DEFAULT 0,\n    handoff_state TEXT,\n    handoff_platform TEXT,\n    handoff_error TEXT,\n    compression_failure_cooldown_until REAL,\n    compression_failure_error TEXT,\n    compression_fallback_streak INTEGER NOT NULL DEFAULT 0,\n    profile_name TEXT,\n    rewind_count INTEGER NOT NULL DEFAULT 0,\n    archived INTEGER NOT NULL DEFAULT 0, \"system_prompt_hash\" TEXT, \"last_activity_at\" REAL, \"last_activity_description\" TEXT, \"last_activity_provenance\" TEXT, \"compression_ineffective_count\" INTEGER NOT NULL DEFAULT 0, \"pinned\" INTEGER NOT NULL DEFAULT 0, \"last_read_at\" REAL, \"git_metadata_generation\" INTEGER NOT NULL DEFAULT 0, \"title_source\" TEXT, \"hidden\" INTEGER NOT NULL DEFAULT 0,\n    FOREIGN KEY (parent_session_id) REFERENCES sessions(id)\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "source",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "user_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "session_key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "chat_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "chat_type",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "thread_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "display_name",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "origin_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "expiry_finalized",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "model",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "model_config",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "system_prompt",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 13,
+     "name": "parent_session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 14,
+     "name": "started_at",
+     "type": "REAL",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 15,
+     "name": "ended_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 16,
+     "name": "end_reason",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 17,
+     "name": "message_count",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 18,
+     "name": "tool_call_count",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 19,
+     "name": "input_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 20,
+     "name": "output_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 21,
+     "name": "cache_read_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 22,
+     "name": "cache_write_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 23,
+     "name": "reasoning_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 24,
+     "name": "cwd",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 25,
+     "name": "git_branch",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 26,
+     "name": "git_repo_root",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 27,
+     "name": "billing_provider",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 28,
+     "name": "billing_base_url",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 29,
+     "name": "billing_mode",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 30,
+     "name": "estimated_cost_usd",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 31,
+     "name": "actual_cost_usd",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 32,
+     "name": "cost_status",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 33,
+     "name": "cost_source",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 34,
+     "name": "pricing_version",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 35,
+     "name": "title",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 36,
+     "name": "api_call_count",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 37,
+     "name": "handoff_state",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 38,
+     "name": "handoff_platform",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 39,
+     "name": "handoff_error",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 40,
+     "name": "compression_failure_cooldown_until",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 41,
+     "name": "compression_failure_error",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 42,
+     "name": "compression_fallback_streak",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 43,
+     "name": "profile_name",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 44,
+     "name": "rewind_count",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 45,
+     "name": "archived",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 46,
+     "name": "system_prompt_hash",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 47,
+     "name": "last_activity_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 48,
+     "name": "last_activity_description",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 49,
+     "name": "last_activity_provenance",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 50,
+     "name": "compression_ineffective_count",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 51,
+     "name": "pinned",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 52,
+     "name": "last_read_at",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 53,
+     "name": "git_metadata_generation",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 54,
+     "name": "title_source",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 55,
+     "name": "hidden",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_sessions_system_prompt_hash",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "idx_sessions_title_unique",
+     "unique": 1,
+     "origin": "c",
+     "partial": 1
+    },
+    {
+     "seq": 2,
+     "name": "idx_sessions_handoff_state",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 3,
+     "name": "idx_sessions_gateway_peer",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 4,
+     "name": "idx_sessions_session_key",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 5,
+     "name": "idx_sessions_started",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 6,
+     "name": "idx_sessions_parent",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 7,
+     "name": "idx_sessions_source_id",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 8,
+     "name": "idx_sessions_source",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 9,
+     "name": "sqlite_autoindex_sessions_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_sessions_system_prompt_hash": [
+     {
+      "seqno": 0,
+      "cid": 46,
+      "name": "system_prompt_hash"
+     }
+    ],
+    "idx_sessions_title_unique": [
+     {
+      "seqno": 0,
+      "cid": 35,
+      "name": "title"
+     }
+    ],
+    "idx_sessions_handoff_state": [
+     {
+      "seqno": 0,
+      "cid": 37,
+      "name": "handoff_state"
+     },
+     {
+      "seqno": 1,
+      "cid": 14,
+      "name": "started_at"
+     }
+    ],
+    "idx_sessions_gateway_peer": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "source"
+     },
+     {
+      "seqno": 1,
+      "cid": 2,
+      "name": "user_id"
+     },
+     {
+      "seqno": 2,
+      "cid": 4,
+      "name": "chat_id"
+     },
+     {
+      "seqno": 3,
+      "cid": 5,
+      "name": "chat_type"
+     },
+     {
+      "seqno": 4,
+      "cid": 6,
+      "name": "thread_id"
+     },
+     {
+      "seqno": 5,
+      "cid": 14,
+      "name": "started_at"
+     }
+    ],
+    "idx_sessions_session_key": [
+     {
+      "seqno": 0,
+      "cid": 3,
+      "name": "session_key"
+     },
+     {
+      "seqno": 1,
+      "cid": 14,
+      "name": "started_at"
+     }
+    ],
+    "idx_sessions_started": [
+     {
+      "seqno": 0,
+      "cid": 14,
+      "name": "started_at"
+     }
+    ],
+    "idx_sessions_parent": [
+     {
+      "seqno": 0,
+      "cid": 13,
+      "name": "parent_session_id"
+     }
+    ],
+    "idx_sessions_source_id": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "source"
+     },
+     {
+      "seqno": 1,
+      "cid": 0,
+      "name": "id"
+     }
+    ],
+    "idx_sessions_source": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "source"
+     }
+    ],
+    "sqlite_autoindex_sessions_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "id"
+     }
+    ]
+   },
+   "fks": [
+    {
+     "id": 0,
+     "seq": 0,
+     "table": "sessions",
+     "from": "parent_session_id",
+     "to": "id",
+     "on_update": "NO ACTION",
+     "on_delete": "NO ACTION",
+     "match": "NONE"
+    }
+   ],
+   "rows": 100
+  },
+  {
+   "name": "sqlite_sequence",
+   "sql": "CREATE TABLE sqlite_sequence(name,seq)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "name",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 1,
+     "name": "seq",
+     "type": "",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 1
+  },
+  {
+   "name": "state_meta",
+   "sql": "CREATE TABLE state_meta (\n    key TEXT PRIMARY KEY,\n    value TEXT\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "value",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_state_meta_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_state_meta_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 1
+  },
+  {
+   "name": "system_prompts",
+   "sql": "CREATE TABLE system_prompts (\n    hash TEXT PRIMARY KEY,\n    prompt TEXT NOT NULL\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "hash",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "prompt",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_system_prompts_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_system_prompts_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "hash"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 16
+  }
+ ],
+ "indexes_all": [
+  {
+   "type": "index",
+   "name": "idx_async_delegations_delivery",
+   "tbl_name": "async_delegations",
+   "sql": "CREATE INDEX idx_async_delegations_delivery\n    ON async_delegations(delivery_state, completed_at)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_async_delegations_1",
+   "tbl_name": "async_delegations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_compression_locks_expires",
+   "tbl_name": "compression_locks",
+   "sql": "CREATE INDEX idx_compression_locks_expires ON compression_locks(expires_at)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_compression_locks_1",
+   "tbl_name": "compression_locks",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_delivery_obligations_1",
+   "tbl_name": "delivery_obligations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_gateway_heartbeats_1",
+   "tbl_name": "gateway_heartbeats",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_gateway_hygiene_state_1",
+   "tbl_name": "gateway_hygiene_state",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_gateway_routing_1",
+   "tbl_name": "gateway_routing",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_hosted_room_events_cursor",
+   "tbl_name": "hosted_room_events",
+   "sql": "CREATE INDEX idx_hosted_room_events_cursor\n           ON hosted_room_events(room_id, seq)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_events_1",
+   "tbl_name": "hosted_room_events",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_events_2",
+   "tbl_name": "hosted_room_events",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_links_1",
+   "tbl_name": "hosted_room_links",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_peer_reservations_1",
+   "tbl_name": "hosted_room_peer_reservations",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_cursors_1",
+   "tbl_name": "hosted_room_policy_cursors",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_hosted_room_policy_events_active",
+   "tbl_name": "hosted_room_policy_events",
+   "sql": "CREATE INDEX idx_hosted_room_policy_events_active\n                   ON hosted_room_policy_events(\n                       room_id, discussion_event_id, seq\n                   )"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_events_1",
+   "tbl_name": "hosted_room_policy_events",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_publications_1",
+   "tbl_name": "hosted_room_policy_publications",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_hosted_room_policy_pending",
+   "tbl_name": "hosted_room_policy_threads",
+   "sql": "CREATE INDEX idx_hosted_room_policy_pending\n                   ON hosted_room_policy_threads(\n                       room_id, completed, latest_user_seq, thread_id\n                   )"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_threads_1",
+   "tbl_name": "hosted_room_policy_threads",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_transcript_1",
+   "tbl_name": "hosted_room_policy_transcript",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_transcript_state_1",
+   "tbl_name": "hosted_room_policy_transcript_state",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_policy_watermarks_1",
+   "tbl_name": "hosted_room_policy_watermarks",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_remote_runs_1",
+   "tbl_name": "hosted_room_remote_runs",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_retired_ids_1",
+   "tbl_name": "hosted_room_retired_ids",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_room_revoked_grants_1",
+   "tbl_name": "hosted_room_revoked_grants",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_hosted_rooms_1",
+   "tbl_name": "hosted_rooms",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_active_null",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_active_null\n    ON messages(active) WHERE active IS NULL"
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_assistant_calls_by_session",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_assistant_calls_by_session\n    ON messages(session_id)\n    WHERE role = 'assistant' AND tool_calls IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_platform_msg_id",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_platform_msg_id ON messages(session_id, platform_message_id) WHERE platform_message_id IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_session",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_session ON messages(session_id, timestamp)"
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_session_active",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_session_active\n    ON messages(session_id, active, timestamp)"
+  },
+  {
+   "type": "index",
+   "name": "idx_messages_session_id",
+   "tbl_name": "messages",
+   "sql": "CREATE INDEX idx_messages_session_id ON messages(session_id, id)"
+  },
+  {
+   "type": "index",
+   "name": "idx_session_model_usage_model",
+   "tbl_name": "session_model_usage",
+   "sql": "CREATE INDEX idx_session_model_usage_model ON session_model_usage(model)"
+  },
+  {
+   "type": "index",
+   "name": "idx_session_model_usage_session",
+   "tbl_name": "session_model_usage",
+   "sql": "CREATE INDEX idx_session_model_usage_session ON session_model_usage(session_id)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_session_model_usage_1",
+   "tbl_name": "session_model_usage",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_session_turn_leases_expires",
+   "tbl_name": "session_turn_leases",
+   "sql": "CREATE INDEX idx_session_turn_leases_expires ON session_turn_leases(expires_at)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_session_turn_leases_1",
+   "tbl_name": "session_turn_leases",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_gateway_peer",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_gateway_peer\n    ON sessions(source, user_id, chat_id, chat_type, thread_id, started_at DESC)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_handoff_state",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_handoff_state\n    ON sessions(handoff_state, started_at)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_parent",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_parent ON sessions(parent_session_id)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_session_key",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_session_key\n    ON sessions(session_key, started_at DESC)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_source",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_source ON sessions(source)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_source_id",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_source_id ON sessions(source, id)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_started",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_started ON sessions(started_at DESC)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_system_prompt_hash",
+   "tbl_name": "sessions",
+   "sql": "CREATE INDEX idx_sessions_system_prompt_hash\n    ON sessions(system_prompt_hash)"
+  },
+  {
+   "type": "index",
+   "name": "idx_sessions_title_unique",
+   "tbl_name": "sessions",
+   "sql": "CREATE UNIQUE INDEX idx_sessions_title_unique ON sessions(title) WHERE title IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_sessions_1",
+   "tbl_name": "sessions",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_state_meta_1",
+   "tbl_name": "state_meta",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_system_prompts_1",
+   "tbl_name": "system_prompts",
+   "sql": null
+  }
+ ]
+}

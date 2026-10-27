@@ -24,6 +24,12 @@ dependencies = [
   "numpy>=2,<3",
 ]
 
+# `orbit` 命令行入口。对标 Hermes 的 `hermes` CLI——命令面是功能面的一部分，
+# 不是"顺带加的脚本"。`uv sync` 装包后可在任意目录执行 `orbit <命令>`；
+# 不想重装时用 `python -m app.cli` 等价调用（见 `app/cli/__main__.py`）。
+[project.scripts]
+orbit = "app.cli.main:main"
+
 [dependency-groups]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8", "ruff>=0.11,<1", "mypy>=1.15,<2", "bandit>=1.8,<2"]
 

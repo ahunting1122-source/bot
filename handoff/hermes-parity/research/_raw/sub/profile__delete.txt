@@ -1,0 +1,9 @@
+﻿usage: hermes profile delete [-h] [-y] profile_name
+
+positional arguments:
+  profile_name  Profile to delete
+
+options:
+  -h, --help    show this help message and exit
+  -y, --yes     Skip confirmation prompt
+

@@ -1,0 +1,17 @@
+﻿usage: hermes profile describe [-h] [--text TEXT] [--auto] [--overwrite]
+                               [--all]
+                               [profile_name]
+
+positional arguments:
+  profile_name  Profile to describe (omit + use --all --auto to sweep)
+
+options:
+  -h, --help    show this help message and exit
+  --text TEXT   Set description to this exact text (overwrites any existing
+                description)
+  --auto        Auto-generate description via the auxiliary LLM (uses
+                auxiliary.profile_describer)
+  --overwrite   With --auto, replace user-authored descriptions too (default:
+                only fill in missing or previously-auto descriptions)
+  --all         With --auto, run on every profile missing a description
+

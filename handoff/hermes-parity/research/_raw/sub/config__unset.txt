@@ -1,0 +1,8 @@
+﻿usage: hermes config unset [-h] [key]
+
+positional arguments:
+  key         Configuration key to remove
+
+options:
+  -h, --help  show this help message and exit
+

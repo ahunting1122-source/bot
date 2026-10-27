@@ -1,0 +1,18 @@
+﻿usage: hermes curator run [-h] [--sync] [--background] [--dry-run]
+                          [--consolidate]
+
+options:
+  -h, --help            show this help message and exit
+  --sync, --synchronous
+                        Wait for the LLM review pass to finish (default for
+                        manual runs)
+  --background          Start the LLM review pass in a background thread and
+                        return immediately
+  --dry-run             Report only — no state changes, no archives, no
+                        consolidation (use this to preview what curator would
+                        do)
+  --consolidate         Force the LLM umbrella-building consolidation pass on
+                        for this run, overriding the config default (off).
+                        Without this flag the run is prune-only unless
+                        `curator.consolidate: true` is set.
+

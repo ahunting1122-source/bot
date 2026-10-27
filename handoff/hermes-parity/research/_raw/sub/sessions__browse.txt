@@ -1,0 +1,7 @@
+﻿usage: hermes sessions browse [-h] [--source SOURCE] [--limit LIMIT]
+
+options:
+  -h, --help       show this help message and exit
+  --source SOURCE  Filter by source (cli, telegram, discord, etc.)
+  --limit LIMIT    Max sessions to load (default: 500)
+

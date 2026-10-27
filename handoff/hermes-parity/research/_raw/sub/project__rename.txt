@@ -1,0 +1,9 @@
+﻿usage: hermes project rename [-h] project name
+
+positional arguments:
+  project     Project id or slug
+  name        New name
+
+options:
+  -h, --help  show this help message and exit
+

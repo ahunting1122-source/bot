@@ -1,0 +1,16 @@
+﻿usage: hermes skills search [-h]
+                            [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}]
+                            [--limit LIMIT] [--json]
+                            query
+
+positional arguments:
+  query                 Search query
+
+options:
+  -h, --help            show this help message and exit
+  --source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}
+                        Filter by source or provider (e.g. nvidia, openai)
+  --limit LIMIT         Max results
+  --json                Output JSON instead of a table (full identifiers,
+                        scripting-friendly)
+

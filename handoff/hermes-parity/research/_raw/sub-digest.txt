@@ -1,0 +1,590 @@
+﻿@@ approvals suggest
+hermes approvals suggest [-h] [--apply N[,M...]] [--json] [--days DAYS] [--min-count MIN_COUNT] [--limit LIMIT] [--db DB]
+@@ approvals test
+hermes approvals test [-h] [--env-type ENV_TYPE] [--json] ...
+@@ auth add
+hermes auth add [-h] [--type {oauth,api-key,api_key}] [--label LABEL] [--api-key API_KEY] [--portal-url PORTAL_URL] [--inference-url INFERENCE_URL] [--client-id CLIENT_ID] [--scope SCOPE] [--no-browser] [--timeout TIMEOUT] [--insecure] [--ca-bundle CA_BUNDLE] provider
+@@ auth list
+hermes auth list [-h] [provider]
+@@ auth logout
+hermes auth logout [-h] provider
+@@ auth remove
+hermes auth remove [-h] provider target
+@@ auth reset
+hermes auth reset [-h] provider
+@@ auth spotify
+hermes auth spotify [-h] [--client-id CLIENT_ID] [--redirect-uri REDIRECT_URI] [--scope SCOPE] [--no-browser] [--timeout TIMEOUT] [{login,status,logout}]
+@@ auth status
+hermes auth status [-h] provider
+@@ browser close-profile
+hermes browser close-profile [-h] [--browser BROWSER]
+@@ bundles create
+hermes bundles create [-h] [--skill SKILL] [--description DESCRIPTION] [--instruction INSTRUCTION] [--force] name
+@@ bundles delete
+hermes bundles delete [-h] name
+@@ bundles list
+hermes bundles list [-h]
+@@ bundles reload
+hermes bundles reload [-h]
+@@ bundles show
+hermes bundles show [-h] name
+@@ checkpoints clear
+hermes checkpoints clear [-h] [-f]
+@@ checkpoints clear-legacy
+hermes checkpoints clear-legacy [-h] [-f]
+@@ checkpoints prune
+hermes checkpoints prune [-h] [--retention-days RETENTION_DAYS] [--max-size-mb MAX_SIZE_MB] [--keep-orphans] [-f]
+@@ checkpoints status
+hermes checkpoints status [-h] [--limit LIMIT]
+@@ claw cleanup
+hermes claw cleanup [-h] [--source SOURCE] [--dry-run] [--yes]
+@@ claw migrate
+hermes claw migrate [-h] [--source SOURCE] [--dry-run] [--preset {user-data,full}] [--overwrite] [--migrate-secrets] [--no-backup] [--workspace-target WORKSPACE_TARGET] [--skill-conflict {skip,overwrite,rename}] [--yes]
+@@ computer-use doctor
+hermes computer-use doctor [-h] [--include CHECK] [--skip CHECK] [--json]
+@@ computer-use install
+hermes computer-use install [-h] [--upgrade]
+@@ computer-use permissions
+hermes computer-use permissions [-h] {status,grant} ...
+@@ computer-use status
+hermes computer-use status [-h]
+@@ config check
+hermes config check [-h]
+@@ config edit
+hermes config edit [-h]
+@@ config env-path
+hermes config env-path [-h]
+@@ config get
+hermes config get [-h] [--json] [key]
+@@ config migrate
+hermes config migrate [-h]
+@@ config path
+hermes config path [-h]
+@@ config set
+hermes config set [-h] [--force] [key] [value]
+@@ config show
+hermes config show [-h]
+@@ config unset
+hermes config unset [-h] [key]
+@@ cron create
+hermes cron create [-h] [--name NAME] [--deliver DELIVER] [--repeat REPEAT] [--skill SKILLS] [--script SCRIPT] [--no-agent] [--monitor-script MONITOR_SCRIPT] [--monitor-url MONITOR_URL] [--workdir WORKDIR] [--model MODEL] [--provider MODEL_PROVIDER] [--reasoning-effort REASONING_EFFORT] [--continuity] schedule [prompt]
+@@ cron doctor
+hermes cron doctor [-h]
+@@ cron edit
+hermes cron edit [-h] [--schedule SCHEDULE] [--prompt PROMPT] [--name NAME] [--deliver DELIVER] [--repeat REPEAT] [--skill SKILLS] [--add-skill ADD_SKILLS] [--remove-skill REMOVE_SKILLS] [--clear-skills] [--script SCRIPT] [--no-agent] [--agent] [--continuity] [--no-continuity] [--monitor-script MONITOR_SCRIPT] [--monitor-url MONITOR_URL] [--workdir WORKDIR] [--model MODEL] [--provider MODEL_PROVIDER] [--reasoning-effort REASONING_EFFORT] job_id
+@@ cron incidents
+hermes cron incidents [-h] [--state {detected,alerted,closed}] [{list,ack}] [incident_id]
+@@ cron list
+hermes cron list [-h] [--all]
+@@ cron notepad
+hermes cron notepad [-h] job_id [{get,set,delete,list}] [key] [value]
+@@ cron pause
+hermes cron pause [-h] job_id
+@@ cron remove
+hermes cron remove [-h] job_id
+@@ cron resume
+hermes cron resume [-h] [--at RUN_AT] [--run-now] job_id
+@@ cron run
+hermes cron run [-h] [--accept-hooks] job_id
+@@ cron runs
+hermes cron runs [-h] [--limit LIMIT] [job_id]
+@@ cron status
+hermes cron status [-h]
+@@ cron tick
+hermes cron tick [-h] [--accept-hooks]
+@@ curator adopt
+hermes curator adopt [-h] [--all-unmanaged] [--dry-run] [--yes] [skill ...]
+@@ curator archive
+hermes curator archive [-h] skill
+@@ curator backup
+hermes curator backup [-h] [--reason REASON]
+@@ curator ledger
+hermes curator ledger [-h] [--skill SKILL] [--limit LIMIT]
+@@ curator list-archived
+hermes curator list-archived [-h]
+@@ curator list-unmanaged
+hermes curator list-unmanaged [-h]
+@@ curator pause
+hermes curator pause [-h]
+@@ curator pin
+hermes curator pin [-h] skill
+@@ curator prune
+hermes curator prune [-h] [--days DAYS] [-y] [--dry-run]
+@@ curator purge
+hermes curator purge [-h] [--days DAYS] [--dry-run] [-y]
+@@ curator restore
+hermes curator restore [-h] skill
+@@ curator resume
+hermes curator resume [-h]
+@@ curator rollback
+hermes curator rollback [-h] [--list] [--id BACKUP_ID] [-y] [entry_id]
+@@ curator run
+hermes curator run [-h] [--sync] [--background] [--dry-run] [--consolidate]
+@@ curator status
+hermes curator status [-h]
+@@ curator unpin
+hermes curator unpin [-h] skill
+@@ curator usage
+hermes curator usage [-h] [--sort {activity,recent,name}] [--provenance {agent,bundled,hub}] [--json]
+@@ dashboard register
+hermes dashboard register [-h] [--name NAME] [--redirect-uri REDIRECT_URI] [--portal-url PORTAL_URL]
+@@ debug delete
+hermes debug delete [-h] [urls ...]
+@@ debug share
+hermes debug share [-h] [--lines LINES] [--expire EXPIRE] [--local] [-y] [--no-redact] [--nous]
+@@ egress config
+hermes egress config [-h]
+@@ egress disable
+hermes egress disable [-h]
+@@ egress install
+hermes egress install [-h] [--force]
+@@ egress reload
+hermes egress reload [-h]
+@@ egress restart
+hermes egress restart [-h]
+@@ egress setup
+hermes egress setup [-h] [--tunnel-port TUNNEL_PORT] [--from-bitwarden] [--no-bitwarden] [--rotate-tokens] [--restart] [--no-restart]
+@@ egress start
+hermes egress start [-h]
+@@ egress status
+hermes egress status [-h] [--show-tokens]
+@@ egress stop
+hermes egress stop [-h]
+@@ fallback add
+hermes fallback add [-h]
+@@ fallback clear
+hermes fallback clear [-h]
+@@ fallback list
+hermes fallback list [-h]
+@@ fallback remove
+hermes fallback remove [-h]
+@@ gateway enroll
+hermes gateway enroll [-h] [--token TOKEN] [--connector-url CONNECTOR_URL] [--gateway-id GATEWAY_ID] [--wake-url WAKE_URL]
+@@ gateway install
+hermes gateway install [-h] [--force] [--system] [--run-as-user RUN_AS_USER] [--start-now] [--no-start-now] [--start-on-login] [--no-start-on-login]
+@@ gateway list
+hermes gateway list [-h]
+@@ gateway migrate-legacy
+hermes gateway migrate-legacy [-h] [--dry-run] [-y]
+@@ gateway restart
+hermes gateway restart [-h] [--system] [--all]
+@@ gateway run
+hermes gateway run [-h] [-v] [-q] [--replace] [--force] [--no-supervise] [--external-supervisor] [--accept-hooks]
+@@ gateway setup
+hermes gateway setup [-h]
+@@ gateway start
+hermes gateway start [-h] [--system] [--all]
+@@ gateway status
+hermes gateway status [-h] [--deep] [-l] [--system]
+@@ gateway stop
+hermes gateway stop [-h] [--system] [--all]
+@@ gateway uninstall
+hermes gateway uninstall [-h] [--system]
+@@ hooks doctor
+hermes hooks doctor [-h]
+@@ hooks list
+hermes hooks list [-h]
+@@ hooks revoke
+hermes hooks revoke [-h] command
+@@ hooks test
+hermes hooks test [-h] [--for-tool FOR_TOOL] [--payload-file PAYLOAD_FILE] event
+@@ journey delete
+hermes journey delete [-h] [-y] node
+@@ journey edit
+hermes journey edit [-h] node
+@@ journey list
+hermes journey list [-h] [--no-color]
+@@ kanban archive
+hermes kanban archive [-h] [--rm PURGE_IDS [PURGE_IDS ...]] [task_ids ...]
+@@ kanban assign
+hermes kanban assign [-h] task_id profile
+@@ kanban assignees
+hermes kanban assignees [-h] [--json]
+@@ kanban attach
+hermes kanban attach [-h] [--content-type CONTENT_TYPE] [--name NAME] [--author AUTHOR] task_id path
+@@ kanban attachments
+hermes kanban attachments [-h] [--json] task_id
+@@ kanban attach-rm
+hermes kanban attach-rm [-h] attachment_id
+@@ kanban block
+hermes kanban block [-h] [--ids IDS [IDS ...]] [--kind {capability,dependency,needs_input,transient}] task_id [reason ...]
+@@ kanban boards
+hermes kanban boards [-h] {list,ls,create,new,rm,remove,delete,switch,use,show,current,rename,set-default-workdir,export,import} ...
+@@ kanban claim
+hermes kanban claim [-h] [--ttl TTL] task_id
+@@ kanban comment
+hermes kanban comment [-h] [--author AUTHOR] [--max-len MAX_LEN] task_id text [text ...]
+@@ kanban complete
+hermes kanban complete [-h] [--result RESULT] [--summary SUMMARY] [--metadata METADATA] task_ids [task_ids ...]
+@@ kanban context
+hermes kanban context [-h] task_id
+@@ kanban create
+hermes kanban create [-h] [--body BODY] [--assignee ASSIGNEE] [--parent PARENT] [--workspace WORKSPACE] [--branch BRANCH] [--project PROJECT] [--tenant TENANT] [--priority PRIORITY] [--triage] [--idempotency-key IDEMPOTENCY_KEY] [--max-runtime MAX_RUNTIME] [--created-by CREATED_BY] [--skill SKILLS] [--max-retries N] [--model MODEL_OVERRIDE] [--provider PROVIDER_OVERRIDE] [--goal] [--goal-max-turns N] [--initial-status {blocked,running}] [--json] title
+@@ kanban daemon
+hermes kanban daemon [-h] [--interval INTERVAL] [--max MAX] [--failure-limit FAILURE_LIMIT] [--pidfile PIDFILE] [--verbose]
+@@ kanban decompose
+hermes kanban decompose [-h] [--all] [--tenant TENANT] [--author AUTHOR] [--json] [task_id]
+@@ kanban diagnostics
+hermes kanban diagnostics [-h] [--severity {warning,error,critical}] [--task TASK] [--json]
+@@ kanban dispatch
+hermes kanban dispatch [-h] [--dry-run] [--max MAX] [--failure-limit FAILURE_LIMIT] [--json]
+@@ kanban edit
+hermes kanban edit [-h] --result RESULT [--summary SUMMARY] [--metadata METADATA] task_id
+@@ kanban gc
+hermes kanban gc [-h] [--event-retention-days EVENT_RETENTION_DAYS] [--log-retention-days LOG_RETENTION_DAYS]
+@@ kanban heartbeat
+hermes kanban heartbeat [-h] [--note NOTE] task_id
+@@ kanban init
+hermes kanban init [-h]
+@@ kanban link
+hermes kanban link [-h] parent_id child_id
+@@ kanban list
+hermes kanban list [-h] [--mine] [--assignee ASSIGNEE] [--status {archived,blocked,done,ready,review,running,scheduled,todo,triage}] [--tenant TENANT] [--session SESSION] [--archived] [--json] [--sort {assignee,created,created-desc,priority,priority-desc,status,title,updated}] [--workflow-template-id ID] [--step-key KEY]
+@@ kanban log
+hermes kanban log [-h] [--tail TAIL] task_id
+@@ kanban notify-list
+hermes kanban notify-list [-h] [--json] [task_id]
+@@ kanban notify-subscribe
+hermes kanban notify-subscribe [-h] --platform PLATFORM --chat-id CHAT_ID [--thread-id THREAD_ID] [--user-id USER_ID] [--user-id-alt USER_ID_ALT] [--chat-type {dm,group,channel,thread}] [--notifier-profile NOTIFIER_PROFILE] [--delivery-mode {notify,notify+wake,wake}] task_id
+@@ kanban notify-unsubscribe
+hermes kanban notify-unsubscribe [-h] --platform PLATFORM --chat-id CHAT_ID [--thread-id THREAD_ID] task_id
+@@ kanban promote
+hermes kanban promote [-h] [--ids IDS [IDS ...]] [--force] [--dry-run] [--json] task_id [reason ...]
+@@ kanban reassign
+hermes kanban reassign [-h] [--reclaim] [--reason REASON] task_id profile
+@@ kanban reclaim
+hermes kanban reclaim [-h] [--reason REASON] task_id
+@@ kanban reopen-review
+hermes kanban reopen-review [-h] [--reason REASON] task_ids [task_ids ...]
+@@ kanban repair
+hermes kanban repair [-h] [--json]
+@@ kanban request-changes
+hermes kanban request-changes [-h] task_id reason [reason ...]
+@@ kanban request-review
+hermes kanban request-review [-h] [--summary SUMMARY] [--reviewer REVIEWER] [--metadata METADATA] [--force] task_id
+@@ kanban runs
+hermes kanban runs [-h] [--json] [--state-type {status,outcome}] [--state-name VALUE] task_id
+@@ kanban schedule
+hermes kanban schedule [-h] [--ids IDS [IDS ...]] task_id [reason ...]
+@@ kanban set-model
+hermes kanban set-model [-h] [--provider PROVIDER] task_id [model]
+@@ kanban show
+hermes kanban show [-h] [--json] [--state-type {status,outcome}] [--state-name VALUE] task_id
+@@ kanban specify
+hermes kanban specify [-h] [--all] [--tenant TENANT] [--author AUTHOR] [--json] [task_id]
+@@ kanban stats
+hermes kanban stats [-h] [--json]
+@@ kanban swarm
+hermes kanban swarm [-h] [--worker PROFILE:TITLE[:SKILL,SKILL]] --verifier VERIFIER --synthesizer SYNTHESIZER [--tenant TENANT] [--priority PRIORITY] [--created-by CREATED_BY] [--idempotency-key IDEMPOTENCY_KEY] [--json] goal
+@@ kanban tail
+hermes kanban tail [-h] [--interval INTERVAL] task_id
+@@ kanban unblock
+hermes kanban unblock [-h] [--reason REASON] task_ids [task_ids ...]
+@@ kanban unlink
+hermes kanban unlink [-h] parent_id child_id
+@@ kanban watch
+hermes kanban watch [-h] [--assignee ASSIGNEE] [--tenant TENANT] [--kinds KINDS] [--interval INTERVAL]
+@@ lsp install
+hermes lsp install [-h] server
+@@ lsp install-all
+hermes lsp install-all [-h] [--include-manual]
+@@ lsp list
+hermes lsp list [-h] [--installed-only]
+@@ lsp restart
+hermes lsp restart [-h]
+@@ lsp status
+hermes lsp status [-h] [--json]
+@@ lsp which
+hermes lsp which [-h] server
+@@ mcp add
+hermes mcp add [-h] [--url URL] [--command MCP_COMMAND] [--args ...] [--auth {oauth,header}] [--preset PRESET] [--connect-timeout CONNECT_TIMEOUT] [--env [ENV ...]] name
+@@ mcp catalog
+hermes mcp catalog [-h]
+@@ mcp configure
+hermes mcp configure [-h] name
+@@ mcp install
+hermes mcp install [-h] identifier
+@@ mcp list
+hermes mcp list [-h]
+@@ mcp login
+hermes mcp login [-h] name
+@@ mcp picker
+hermes mcp picker [-h]
+@@ mcp reauth
+hermes mcp reauth [-h] [--all] [name]
+@@ mcp remove
+hermes mcp remove [-h] name
+@@ mcp serve
+hermes mcp serve [-h] [-v] [--accept-hooks]
+@@ mcp test
+hermes mcp test [-h] name
+@@ memory off
+hermes memory off [-h]
+@@ memory reset
+hermes memory reset [-h] [--yes] [--target {all,memory,user}]
+@@ memory setup
+hermes memory setup [-h] [provider]
+@@ memory status
+hermes memory status [-h]
+@@ migrate xai
+hermes migrate xai [-h] [--apply] [--no-backup]
+@@ moa configure
+hermes moa configure [-h] [name]
+@@ moa delete
+hermes moa delete [-h] name
+@@ moa list
+hermes moa list [-h]
+@@ monitoring status
+hermes monitoring status [-h]
+@@ pairing approve
+hermes pairing approve [-h] platform request-id|code
+@@ pairing clear-pending
+hermes pairing clear-pending [-h]
+@@ pairing list
+hermes pairing list [-h]
+@@ pairing revoke
+hermes pairing revoke [-h] platform user_id
+@@ peer add
+hermes peer add [-h] --url URL [--key KEY] [--note NOTE] name
+@@ peer dm
+hermes peer dm [-h] [--json] target [message]
+@@ peer list
+hermes peer list [-h]
+@@ peer remove
+hermes peer remove [-h] name
+@@ peer run
+hermes peer run [-h] [--idempotency-key IDEMPOTENCY_KEY] [--json] target [message]
+@@ peer status
+hermes peer status [-h] [--json] target run_id
+@@ peer stop
+hermes peer stop [-h] [--json] target run_id
+@@ pets doctor
+hermes pets doctor [-h]
+@@ pets install
+hermes pets install [-h] [--force] [--select] slug
+@@ pets list
+hermes pets list [-h] [--installed] [--limit LIMIT] [query]
+@@ pets off
+hermes pets off [-h]
+@@ pets remove
+hermes pets remove [-h] slug
+@@ pets scale
+hermes pets scale [-h] factor
+@@ pets select
+hermes pets select [-h] [slug]
+@@ pets show
+hermes pets show [-h] [--state STATE] [--cycle] [--once] [--mode MODE] [--scale SCALE] [slug]
+@@ plugins capabilities
+hermes plugins capabilities [-h] [name]
+@@ plugins disable
+hermes plugins disable [-h] name
+@@ plugins doctor
+hermes plugins doctor [-h] [--ci] [target]
+@@ plugins enable
+hermes plugins enable [-h] [--allow-tool-override | --no-allow-tool-override] name
+@@ plugins install
+hermes plugins install [-h] [--force] [--ref COMMIT_SHA] [--enable | --no-enable] identifier
+@@ plugins list
+hermes plugins list [-h] [--enabled] [--user] [--no-bundled] [--plain] [--json]
+@@ plugins pack
+hermes plugins pack [-h] {install,export,show} ...
+@@ plugins remove
+hermes plugins remove [-h] name
+@@ plugins search
+hermes plugins search [-h] [--json] [--capability CAP] [--refresh] [term]
+@@ plugins show
+hermes plugins show [-h] name
+@@ plugins update
+hermes plugins update [-h] name
+@@ portal info
+hermes portal info [-h]
+@@ portal login
+hermes portal login [-h]
+@@ portal open
+hermes portal open [-h]
+@@ portal tools
+hermes portal tools [-h]
+@@ profile alias
+hermes profile alias [-h] [--remove] [--name NAME] profile_name
+@@ profile create
+hermes profile create [-h] [--clone] [--clone-all] [--clone-from SOURCE] [--no-alias] [--no-skills] [--description DESCRIPTION] profile_name
+@@ profile delete
+hermes profile delete [-h] [-y] profile_name
+@@ profile describe
+hermes profile describe [-h] [--text TEXT] [--auto] [--overwrite] [--all] [profile_name]
+@@ profile export
+hermes profile export [-h] [-o OUTPUT] profile_name
+@@ profile import
+hermes profile import [-h] [--name NAME] archive
+@@ profile info
+hermes profile info [-h] profile_name
+@@ profile install
+hermes profile install [-h] [--name NAME] [--alias] [--force] [-y] source
+@@ profile list
+hermes profile list [-h]
+@@ profile rename
+hermes profile rename [-h] old_name new_name
+@@ profile show
+hermes profile show [-h] profile_name
+@@ profile update
+hermes profile update [-h] [--force-config] [-y] profile_name
+@@ profile use
+hermes profile use [-h] profile_name
+@@ project add-folder
+hermes project add-folder [-h] [--label LABEL] [--primary] project path
+@@ project archive
+hermes project archive [-h] project
+@@ project bind-board
+hermes project bind-board [-h] project [board]
+@@ project create
+hermes project create [-h] [--slug SLUG] [--primary PATH] [--description DESCRIPTION] [--icon ICON] [--color COLOR] [--board SLUG] [--use] name [folders ...]
+@@ project list
+hermes project list [-h] [--all]
+@@ project remove-folder
+hermes project remove-folder [-h] project path
+@@ project rename
+hermes project rename [-h] project name
+@@ project restore
+hermes project restore [-h] project
+@@ project set-primary
+hermes project set-primary [-h] project path
+@@ project show
+hermes project show [-h] project
+@@ project use
+hermes project use [-h] [project]
+@@ proxy providers
+hermes proxy providers [-h]
+@@ proxy start
+hermes proxy start [-h] [--provider PROVIDER] [--host HOST] [--port PORT]
+@@ proxy status
+hermes proxy status [-h]
+@@ secrets bitwarden
+hermes secrets bitwarden [-h] {setup,status,token,sync,disable,install} ...
+@@ secrets onepassword
+hermes secrets onepassword [-h] {setup,status,token,set,remove,sync,disable} ...
+@@ security audit
+hermes security audit [-h] [--json] [--fail-on {low,moderate,high,critical}] [--skip-venv] [--skip-plugins] [--skip-mcp]
+@@ sessions archive
+hermes sessions archive [-h] [--older-than AGE] [--newer-than AGE] [--before TIME] [--after TIME] [--source SOURCE] [--title TITLE] [--end-reason END_REASON] [--cwd CWD] [--min-messages MIN_MESSAGES] [--max-messages MAX_MESSAGES] [--model MODEL] [--provider PROVIDER] [--user USER] [--chat-id CHAT_ID] [--chat-type CHAT_TYPE] [--branch BRANCH] [--min-tokens MIN_TOKENS] [--max-tokens MAX_TOKENS] [--min-cost MIN_COST] [--max-cost MAX_COST] [--min-tool-calls MIN_TOOL_CALLS] [--max-tool-calls MAX_TOOL_CALLS] [--dry-run] [--yes]
+@@ sessions browse
+hermes sessions browse [-h] [--source SOURCE] [--limit LIMIT]
+@@ sessions clean-markers
+hermes sessions clean-markers [-h] [--dry-run] [--no-backup]
+@@ sessions delete
+hermes sessions delete [-h] [--yes] session_id
+@@ sessions export
+hermes sessions export [-h] [--format {jsonl,md,qmd,html,trace}] [--upload] [--public] [--no-redact] [--only {user-prompts}] [--session-id SESSION_ID] [--older-than AGE] [--newer-than AGE] [--before TIME] [--after TIME] [--source SOURCE] [--title TITLE] [--end-reason END_REASON] [--cwd CWD] [--min-messages MIN_MESSAGES] [--max-messages MAX_MESSAGES] [--model MODEL] [--provider PROVIDER] [--user USER] [--chat-id CHAT_ID] [--chat-type CHAT_TYPE] [--branch BRANCH] [--min-tokens MIN_TOKENS] [--max-tokens MAX_TOKENS] [--min-cost MIN_COST] [--max-cost MAX_COST] [--min-tool-calls MIN_TOOL_CALLS] [--max-tool-calls MAX_TOOL_CALLS] [--dry-run] [--yes] [--redact] [--lineage {single,logical}] [--delete-after-verified] [--force] [output]
+@@ sessions import
+hermes sessions import [-h] [--from {claude,codex}] [path]
+@@ sessions list
+hermes sessions list [-h] [--source SOURCE] [--limit LIMIT] [--workspace NEEDLE]
+@@ sessions optimize
+hermes sessions optimize [-h]
+@@ sessions optimize-storage
+hermes sessions optimize-storage [-h] [--no-vacuum] [--yes]
+@@ sessions pin
+hermes sessions pin [-h] session_ids [session_ids ...]
+@@ sessions pinned
+hermes sessions pinned [-h] [--json]
+@@ sessions prune
+hermes sessions prune [-h] [--older-than AGE] [--newer-than AGE] [--before TIME] [--after TIME] [--source SOURCE] [--title TITLE] [--end-reason END_REASON] [--cwd CWD] [--min-messages MIN_MESSAGES] [--max-messages MAX_MESSAGES] [--model MODEL] [--provider PROVIDER] [--user USER] [--chat-id CHAT_ID] [--chat-type CHAT_TYPE] [--branch BRANCH] [--min-tokens MIN_TOKENS] [--max-tokens MAX_TOKENS] [--min-cost MIN_COST] [--max-cost MAX_COST] [--min-tool-calls MIN_TOOL_CALLS] [--max-tool-calls MAX_TOOL_CALLS] [--dry-run] [--yes] [--include-archived] [--include-pinned] [--never-active]
+@@ sessions recover
+hermes sessions recover [-h] --source SOURCE [--output OUTPUT] [--inspect-only] [--work-dir WORK_DIR] [--chunk-size CHUNK_SIZE] [--allow-partial] [--report REPORT]
+@@ sessions rename
+hermes sessions rename [-h] session_id title [title ...]
+@@ sessions repair
+hermes sessions repair [-h] [--check-only] [--no-backup]
+@@ sessions repair-routing
+hermes sessions repair-routing [-h] [--apply] [--max-gap-seconds MAX_GAP_SECONDS]
+@@ sessions retitle-skills
+hermes sessions retitle-skills [-h] [--apply] [--limit LIMIT]
+@@ sessions stats
+hermes sessions stats [-h]
+@@ sessions unpin
+hermes sessions unpin [-h] session_ids [session_ids ...]
+@@ skills audit
+hermes skills audit [-h] [--deep] [name]
+@@ skills browse
+hermes skills browse [-h] [--page PAGE] [--size SIZE] [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}]
+@@ skills check
+hermes skills check [-h] [name]
+@@ skills config
+hermes skills config [-h]
+@@ skills diff
+hermes skills diff [-h] name
+@@ skills inspect
+hermes skills inspect [-h] identifier
+@@ skills install
+hermes skills install [-h] [--category CATEGORY] [--name NAME] [--force] [--yes] identifier
+@@ skills list
+hermes skills list [-h] [--source {all,hub,builtin,local}] [--enabled-only]
+@@ skills list-modified
+hermes skills list-modified [-h] [--json]
+@@ skills opt-in
+hermes skills opt-in [-h] [--sync]
+@@ skills opt-out
+hermes skills opt-out [-h] [--remove] [--yes]
+@@ skills publish
+hermes skills publish [-h] [--to {github,clawhub}] [--repo REPO] skill_path
+@@ skills repair-official
+hermes skills repair-official [-h] [--restore] [--yes] name
+@@ skills reset
+hermes skills reset [-h] [--restore] [--yes] name
+@@ skills search
+hermes skills search [-h] [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}] [--limit LIMIT] [--json] query
+@@ skills snapshot
+hermes skills snapshot [-h] {export,import} ...
+@@ skills tap
+hermes skills tap [-h] {list,add,remove} ...
+@@ skills trust
+hermes skills trust [-h] [path]
+@@ skills uninstall
+hermes skills uninstall [-h] [--yes] name
+@@ skills untrust
+hermes skills untrust [-h] [path]
+@@ skills update
+hermes skills update [-h] [--force] [name]
+@@ skin list
+hermes skin list [-h]
+@@ skin set
+hermes skin set [-h] [--skin SKIN] key value
+@@ skin use
+hermes skin use [-h] name
+@@ slack manifest
+hermes slack manifest [-h] [--write [PATH]] [--name NAME] [--description DESCRIPTION] [--long-description TEXT | --long-description-file PATH] [--slashes-only] [--no-assistant | --agent-view]
+@@ sync device
+hermes sync device [-h] [--name DEVICE_NAME]
+@@ sync disable
+hermes sync disable [-h] skill
+@@ sync enable
+hermes sync enable [-h] skill
+@@ sync now
+hermes sync now [-h]
+@@ sync propose
+hermes sync propose [-h] [-m MESSAGE] name
+@@ sync pull
+hermes sync pull [-h]
+@@ sync push
+hermes sync push [-h]
+@@ sync status
+hermes sync status [-h]
+@@ tools disable
+hermes tools disable [-h] [--platform PLATFORM] NAME [NAME ...]
+@@ tools enable
+hermes tools enable [-h] [--platform PLATFORM] NAME [NAME ...]
+@@ tools list
+hermes tools list [-h] [--platform PLATFORM]
+@@ tools post-setup
+hermes tools post-setup [-h] KEY
+@@ webhook list
+hermes webhook list [-h]
+@@ webhook remove
+hermes webhook remove [-h] name
+@@ webhook subscribe
+hermes webhook subscribe [-h] [--prompt PROMPT] [--events EVENTS] [--description DESCRIPTION] [--skills SKILLS] [--deliver DELIVER] [--deliver-chat-id DELIVER_CHAT_ID] [--secret SECRET] [--deliver-only] [--script SCRIPT] name
+@@ webhook test
+hermes webhook test [-h] [--payload PAYLOAD] name
+@@ worktree list
+hermes worktree list [-h] [--repo REPO]
+@@ worktree prune
+hermes worktree prune [-h] [--repo REPO] [--dry-run] [--trees-only] [--branches-only]

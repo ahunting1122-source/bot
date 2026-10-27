@@ -1,0 +1,9 @@
+﻿usage: hermes pairing approve [-h] platform request-id|code
+
+positional arguments:
+  platform         Platform name (telegram, discord, slack, whatsapp)
+  request-id|code  Request ID from 'pairing list', or the code the bot DM'd
+                   the user
+
+options:
+  -h, --help       show this help message and exit

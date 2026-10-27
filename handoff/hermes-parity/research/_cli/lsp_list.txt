@@ -1,0 +1,5 @@
+﻿usage: hermes lsp list [-h] [--installed-only]
+
+options:
+  -h, --help        show this help message and exit
+  --installed-only  Only show servers whose binary is currently available

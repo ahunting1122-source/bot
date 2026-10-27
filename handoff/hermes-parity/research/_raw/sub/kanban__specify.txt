@@ -1,0 +1,15 @@
+﻿usage: hermes kanban specify [-h] [--all] [--tenant TENANT] [--author AUTHOR]
+                             [--json]
+                             [task_id]
+
+positional arguments:
+  task_id          Task id to specify (required unless --all is given)
+
+options:
+  -h, --help       show this help message and exit
+  --all            Specify every task currently in the triage column
+  --tenant TENANT  When used with --all, restrict the sweep to this tenant
+  --author AUTHOR  Author name recorded on the audit comment (default:
+                   $HERMES_PROFILE or 'specifier')
+  --json           Emit one JSON object per task on stdout
+

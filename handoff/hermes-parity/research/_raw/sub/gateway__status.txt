@@ -1,0 +1,8 @@
+﻿usage: hermes gateway status [-h] [--deep] [-l] [--system]
+
+options:
+  -h, --help  show this help message and exit
+  --deep      Deep status check
+  -l, --full  Show full, untruncated service/log output where supported
+  --system    Target the Linux system-level gateway service
+

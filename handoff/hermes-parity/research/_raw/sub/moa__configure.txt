@@ -1,0 +1,8 @@
+﻿usage: hermes moa configure [-h] [name]
+
+positional arguments:
+  name        Preset name to create or update
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,10 @@
+﻿usage: hermes pets list [-h] [--installed] [--limit LIMIT] [query]
+
+positional arguments:
+  query          Filter by slug/name substring
+
+options:
+  -h, --help     show this help message and exit
+  --installed    Only show installed pets
+  --limit LIMIT  Max rows (0 = all)
+

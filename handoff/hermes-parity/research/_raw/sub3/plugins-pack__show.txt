@@ -1,0 +1,8 @@
+﻿usage: hermes plugins pack show [-h] source
+
+positional arguments:
+  source      Path to a hermes-pack.yaml file, or an https:// URL
+
+options:
+  -h, --help  show this help message and exit
+

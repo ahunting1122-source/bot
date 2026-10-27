@@ -1,0 +1,7 @@
+﻿usage: hermes gateway stop [-h] [--system] [--all]
+
+options:
+  -h, --help  show this help message and exit
+  --system    Target the Linux system-level gateway service
+  --all       Stop ALL gateway processes across all profiles
+

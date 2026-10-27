@@ -1,0 +1,11 @@
+﻿usage: hermes project add-folder [-h] [--label LABEL] [--primary] project path
+
+positional arguments:
+  project        Project id or slug
+  path           Folder path
+
+options:
+  -h, --help     show this help message and exit
+  --label LABEL
+  --primary      Mark as primary repo
+

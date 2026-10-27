@@ -1,0 +1,19 @@
+﻿### CMD: memory
+### EXITCODE: 0
+usage: hermes memory [-h] {setup,status,off,reset} ...
+
+Set up and manage external memory provider plugins. Available providers:
+honcho, openviking, mem0, hindsight, holographic, retaindb, byterover. Only
+one external provider can be active at a time. Built-in memory
+(MEMORY.md/USER.md) is always active.
+
+positional arguments:
+  {setup,status,off,reset}
+    setup               Interactive provider selection and configuration
+    status              Show current memory provider config
+    off                 Disable external provider (built-in only)
+    reset               Erase all built-in memory (MEMORY.md and USER.md)
+
+options:
+  -h, --help            show this help message and exit
+

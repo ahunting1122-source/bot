@@ -1,0 +1,9 @@
+﻿usage: hermes sessions rename [-h] session_id title [title ...]
+
+positional arguments:
+  session_id  Session ID to rename
+  title       New title for the session
+
+options:
+  -h, --help  show this help message and exit
+

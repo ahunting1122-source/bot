@@ -1,0 +1,15 @@
+﻿usage: hermes skills reset [-h] [--restore] [--yes] name
+
+Clear a bundled skill's entry from the sync manifest
+(~/.hermes/skills/.bundled_manifest) so future 'hermes update' runs stop
+marking it as user-modified. Pass --restore to also replace the current copy
+with the bundled version.
+
+positional arguments:
+  name        Skill name to reset (e.g. google-workspace)
+
+options:
+  -h, --help  show this help message and exit
+  --restore   Also delete the current copy and re-copy the bundled version
+  --yes, -y   Skip confirmation prompt when using --restore
+

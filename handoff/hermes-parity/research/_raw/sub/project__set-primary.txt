@@ -1,0 +1,9 @@
+﻿usage: hermes project set-primary [-h] project path
+
+positional arguments:
+  project     Project id or slug
+  path        Folder path (must already be in project)
+
+options:
+  -h, --help  show this help message and exit
+

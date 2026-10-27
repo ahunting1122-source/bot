@@ -1,0 +1,10 @@
+﻿usage: hermes kanban boards rm [-h] [--delete] slug
+
+positional arguments:
+  slug
+
+options:
+  -h, --help  show this help message and exit
+  --delete    Hard-delete the board directory instead of archiving it. Default
+              is to move it to boards/_archived/ so it's recoverable.
+

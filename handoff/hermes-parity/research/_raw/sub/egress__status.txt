@@ -1,0 +1,7 @@
+﻿usage: hermes egress status [-h] [--show-tokens]
+
+options:
+  -h, --help     show this help message and exit
+  --show-tokens  Print the proxy tokens (default: redacted prefix only).
+                 Beware: tokens may persist in your shell history.
+

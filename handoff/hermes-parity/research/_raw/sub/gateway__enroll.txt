@@ -1,0 +1,32 @@
+﻿usage: hermes gateway enroll [-h] [--token TOKEN]
+                             [--connector-url CONNECTOR_URL]
+                             [--gateway-id GATEWAY_ID] [--wake-url WAKE_URL]
+
+Redeem a single-use enrollment token with a relay connector. Authenticates as
+your Nous Portal account (the connector derives the authoritative tenant from
+it), mints this gateway's per-gateway secret and per-tenant delivery key, and
+writes GATEWAY_RELAY_ID / GATEWAY_RELAY_SECRET / GATEWAY_RELAY_DELIVERY_KEY
+into ~/.hermes/.env. Requires being logged in (hermes setup). Not available in
+managed installs.
+
+options:
+  -h, --help            show this help message and exit
+  --token TOKEN         The single-use enrollment token from the connector
+                        (delivered with your gateway config). Also settable
+                        via GATEWAY_RELAY_ENROLL_TOKEN.
+  --connector-url CONNECTOR_URL
+                        The connector base/relay URL, e.g.
+                        wss://connector.example.com/relay or
+                        https://connector.example.com. Also settable via
+                        GATEWAY_RELAY_URL / gateway.relay_url in config.yaml.
+  --gateway-id GATEWAY_ID
+                        A stable id for this gateway instance (kill-switch
+                        granularity). Defaults to gw-<hostname>.
+  --wake-url WAKE_URL   Phase 5 §5.2 wake URL: a reachable URL the connector
+                        pokes (payload-free GET) to wake this gateway when
+                        buffered work arrives while it's idle/suspended, so it
+                        reconnects and drains. Persisted as
+                        GATEWAY_RELAY_WAKE_URL in ~/.hermes/.env and forwarded
+                        at provision. Optional — without it the gateway still
+                        drains whenever it next reconnects on its own.
+

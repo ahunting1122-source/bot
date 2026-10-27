@@ -1,0 +1,17 @@
+﻿usage: hermes kanban promote [-h] [--ids IDS [IDS ...]] [--force] [--dry-run]
+                             [--json]
+                             task_id [reason ...]
+
+positional arguments:
+  task_id
+  reason               Audit-trail reason (recorded on the task_events row)
+
+options:
+  -h, --help           show this help message and exit
+  --ids IDS [IDS ...]  Additional task ids to promote with the same reason
+                       (bulk mode)
+  --force              Promote even if parent dependencies are not yet
+                       done/archived
+  --dry-run            Validate the promotion without mutating state
+  --json               Emit machine-readable JSON result
+

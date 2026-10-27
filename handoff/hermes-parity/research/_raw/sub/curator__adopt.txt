@@ -1,0 +1,13 @@
+﻿usage: hermes curator adopt [-h] [--all-unmanaged] [--dry-run] [--yes]
+                            [skill ...]
+
+positional arguments:
+  skill            Skill name(s) to adopt. Omit when using --all-unmanaged.
+
+options:
+  -h, --help       show this help message and exit
+  --all-unmanaged  Adopt every curation-eligible skill that has no provenance
+                   marker
+  --dry-run        List what would be adopted without writing anything
+  --yes            Skip the confirmation prompt for --all-unmanaged
+

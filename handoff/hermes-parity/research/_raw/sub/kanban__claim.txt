@@ -1,0 +1,9 @@
+﻿usage: hermes kanban claim [-h] [--ttl TTL] task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help  show this help message and exit
+  --ttl TTL   Claim TTL in seconds (default: 900)
+

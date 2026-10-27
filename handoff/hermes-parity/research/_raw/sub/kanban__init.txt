@@ -1,0 +1,5 @@
+﻿usage: hermes kanban init [-h]
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,12 @@
+﻿usage: hermes kanban set-model [-h] [--provider PROVIDER] task_id [model]
+
+positional arguments:
+  task_id
+  model                Model to pin the worker to (or 'none' to clear the
+                       override)
+
+options:
+  -h, --help           show this help message and exit
+  --provider PROVIDER  Provider the model belongs to (worker is spawned with
+                       --provider <name>). Cleared together with the model.
+

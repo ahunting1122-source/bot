@@ -1,0 +1,14 @@
+﻿### CMD: migrate
+### EXITCODE: 0
+usage: hermes migrate [-h] {xai} ...
+
+Diagnose and (optionally) rewrite the active config.yaml to replace references
+to retired models or deprecated settings.
+
+positional arguments:
+  {xai}
+    xai       Migrate xAI models scheduled for retirement on May 15, 2026
+
+options:
+  -h, --help  show this help message and exit
+

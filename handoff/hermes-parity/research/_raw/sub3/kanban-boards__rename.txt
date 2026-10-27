@@ -1,0 +1,9 @@
+﻿usage: hermes kanban boards rename [-h] slug name
+
+positional arguments:
+  slug
+  name        New display name
+
+options:
+  -h, --help  show this help message and exit
+

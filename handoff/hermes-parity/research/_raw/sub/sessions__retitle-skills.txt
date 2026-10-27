@@ -1,0 +1,12 @@
+﻿usage: hermes sessions retitle-skills [-h] [--apply] [--limit LIMIT]
+
+Sessions opened with a /skill were auto-titled from the expanded message,
+which embeds the whole skill body — so the title describes the SKILL, not the
+request. This regenerates those titles from what the user actually typed.
+Lists what it would change unless --apply is passed.
+
+options:
+  -h, --help     show this help message and exit
+  --apply        Write the new titles (default: dry run)
+  --limit LIMIT  Maximum sessions to examine (default: 200)
+

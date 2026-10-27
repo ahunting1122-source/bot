@@ -1,0 +1,20 @@
+﻿usage: hermes auth spotify [-h] [--client-id CLIENT_ID]
+                           [--redirect-uri REDIRECT_URI] [--scope SCOPE]
+                           [--no-browser] [--timeout TIMEOUT]
+                           [{login,status,logout}]
+
+positional arguments:
+  {login,status,logout}
+
+options:
+  -h, --help            show this help message and exit
+  --client-id CLIENT_ID
+                        Spotify app client_id (or set
+                        HERMES_SPOTIFY_CLIENT_ID)
+  --redirect-uri REDIRECT_URI
+                        Allow-listed localhost redirect URI for your Spotify
+                        app
+  --scope SCOPE         Override requested Spotify scopes
+  --no-browser          Do not attempt to open the browser automatically
+  --timeout TIMEOUT     Callback/token exchange timeout in seconds
+

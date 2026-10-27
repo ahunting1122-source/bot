@@ -1,0 +1,8 @@
+﻿usage: hermes pets select [-h] [slug]
+
+positional arguments:
+  slug        Pet slug (omit for picker)
+
+options:
+  -h, --help  show this help message and exit
+

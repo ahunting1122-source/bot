@@ -1,0 +1,10 @@
+﻿usage: hermes skills update [-h] [--force] [name]
+
+positional arguments:
+  name        Specific skill to update (default: all outdated skills)
+
+options:
+  -h, --help  show this help message and exit
+  --force     Overwrite skills you have edited locally (they are skipped by
+              default)
+

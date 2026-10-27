@@ -1,0 +1,26 @@
+﻿usage: hermes egress setup [-h] [--tunnel-port TUNNEL_PORT] [--from-bitwarden]
+                           [--no-bitwarden] [--rotate-tokens] [--restart]
+                           [--no-restart]
+
+options:
+  -h, --help            show this help message and exit
+  --tunnel-port TUNNEL_PORT
+                        Override the tunnel port (default 9090)
+  --from-bitwarden      Treat secrets as managed by Bitwarden — discover
+                        provider keys from secrets.bitwarden config instead of
+                        the current env. Fails loudly if BW is unreachable
+                        rather than silently falling back.
+  --no-bitwarden        Explicitly switch credential_source back to env on re-
+                        setup (only meaningful when the previous setup used
+                        --from-bitwarden).
+  --rotate-tokens       Mint fresh proxy tokens for every provider (default is
+                        to preserve tokens for providers that already had one
+                        — avoids 401-ing already-running sandboxes on re-
+                        setup).
+  --restart             If a daemon is already running, restart it
+                        automatically after writing the new config/tokens
+                        (non-interactive default on a tty is to ask).
+  --no-restart          Do not restart a running daemon after setup; you'll
+                        need to run `hermes egress restart` yourself for
+                        changes to take effect.
+

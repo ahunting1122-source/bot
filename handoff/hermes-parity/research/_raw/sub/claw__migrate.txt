@@ -1,0 +1,32 @@
+﻿usage: hermes claw migrate [-h] [--source SOURCE] [--dry-run]
+                           [--preset {user-data,full}] [--overwrite]
+                           [--migrate-secrets] [--no-backup]
+                           [--workspace-target WORKSPACE_TARGET]
+                           [--skill-conflict {skip,overwrite,rename}] [--yes]
+
+Import settings, memories, skills, and API keys from an OpenClaw installation.
+Always shows a preview before making changes.
+
+options:
+  -h, --help            show this help message and exit
+  --source SOURCE       Path to OpenClaw directory (default: ~/.openclaw)
+  --dry-run             Preview only — stop after showing what would be
+                        migrated
+  --preset {user-data,full}
+                        Migration preset (default: full). Neither preset
+                        imports secrets — pass --migrate-secrets to include
+                        API keys.
+  --overwrite           Overwrite existing files (default: refuse to apply
+                        when the plan has conflicts)
+  --migrate-secrets     Include allowlisted secrets (TELEGRAM_BOT_TOKEN, API
+                        keys, etc.). Required even under --preset full.
+  --no-backup           Skip the pre-migration zip snapshot of ~/.hermes/ (by
+                        default a single restore-point archive is written to
+                        ~/.hermes/backups/ before apply; restorable with
+                        'hermes import').
+  --workspace-target WORKSPACE_TARGET
+                        Absolute path to copy workspace instructions into
+  --skill-conflict {skip,overwrite,rename}
+                        How to handle skill name conflicts (default: skip)
+  --yes, -y             Skip confirmation prompts
+

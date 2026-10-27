@@ -1,0 +1,8 @@
+﻿usage: hermes mcp login [-h] name
+
+positional arguments:
+  name        Server name to re-authenticate
+
+options:
+  -h, --help  show this help message and exit
+

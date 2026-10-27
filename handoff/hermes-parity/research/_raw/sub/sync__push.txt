@@ -1,0 +1,5 @@
+﻿usage: hermes sync push [-h]
+
+options:
+  -h, --help  show this help message and exit
+

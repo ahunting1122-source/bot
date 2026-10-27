@@ -1,0 +1,10 @@
+﻿### CMD: completion
+### EXITCODE: 0
+usage: hermes completion [-h] [{bash,zsh,fish}]
+
+positional arguments:
+  {bash,zsh,fish}  Shell type (default: bash)
+
+options:
+  -h, --help       show this help message and exit
+

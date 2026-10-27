@@ -1,0 +1,9 @@
+﻿usage: hermes kanban attachments [-h] [--json] task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help  show this help message and exit
+  --json
+

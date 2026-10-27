@@ -1,0 +1,26 @@
+﻿usage: hermes kanban boards [-h]
+                            {list,ls,create,new,rm,remove,delete,switch,use,show,current,rename,set-default-workdir,export,import} ...
+
+Boards let you separate unrelated streams of work (projects, repos, domains)
+into isolated queues. Each board has its own DB, workspaces directory, and
+dispatcher loop — tasks on one board cannot collide with tasks on another. The
+first board is 'default' and always exists.
+
+positional arguments:
+  {list,ls,create,new,rm,remove,delete,switch,use,show,current,rename,set-default-workdir,export,import}
+    list (ls)           List all boards with task counts
+    create (new)        Create a new board
+    rm (remove, delete)
+                        Archive (default) or delete a board
+    switch (use)        Set the active board for subsequent CLI calls
+    show (current)      Print the currently-active board slug
+    rename              Change a board's human-readable display name (slug is
+                        immutable)
+    set-default-workdir
+                        Set the default workspace path for tasks on a board
+    export              Export a board to a portable .tar.gz archive
+    import              Import a board archive as a new board
+
+options:
+  -h, --help            show this help message and exit
+

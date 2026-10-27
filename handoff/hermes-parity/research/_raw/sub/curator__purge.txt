@@ -1,0 +1,8 @@
+﻿usage: hermes curator purge [-h] [--days DAYS] [--dry-run] [-y]
+
+options:
+  -h, --help   show this help message and exit
+  --days DAYS  Override curator.archive_ttl_days for this invocation
+  --dry-run    Show what would be purged without deleting
+  -y, --yes    Skip the confirmation prompt
+

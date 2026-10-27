@@ -1,0 +1,8 @@
+﻿usage: hermes curator prune [-h] [--days DAYS] [-y] [--dry-run]
+
+options:
+  -h, --help   show this help message and exit
+  --days DAYS  Archive skills idle for at least N days (default: 90)
+  -y, --yes    Skip the confirmation prompt
+  --dry-run    Show what would be archived without doing it
+

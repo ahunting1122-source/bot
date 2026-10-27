@@ -1,0 +1,31 @@
+﻿### CMD: gateway
+### EXITCODE: 0
+usage: hermes gateway [-h] [--accept-hooks]
+                      {run,start,stop,restart,status,install,uninstall,list,setup,migrate-legacy,enroll} ...
+
+Manage the messaging gateway (Telegram, Discord, WhatsApp, Weixin, and more)
+
+positional arguments:
+  {run,start,stop,restart,status,install,uninstall,list,setup,migrate-legacy,enroll}
+    run                 Run gateway in foreground (recommended for WSL,
+                        Docker, Termux)
+    start               Start the installed systemd/launchd background service
+    stop                Stop gateway service
+    restart             Restart gateway service
+    status              Show gateway status
+    install             Install gateway as a systemd/launchd background
+                        service
+    uninstall           Uninstall gateway service
+    list                List all profiles and their gateway status
+    setup               Configure messaging platforms
+    migrate-legacy      Remove legacy hermes.service units from pre-rename
+                        installs
+    enroll              Enroll this gateway with a relay connector (writes
+                        relay auth creds to .env)
+
+options:
+  -h, --help            show this help message and exit
+  --accept-hooks        Auto-approve unseen shell hooks without a TTY prompt
+                        (equivalent to HERMES_ACCEPT_HOOKS=1 /
+                        hooks_auto_accept: true).
+

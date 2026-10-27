@@ -1,0 +1,7 @@
+﻿usage: hermes plugins update [-h] name
+
+positional arguments:
+  name        Plugin name to update
+
+options:
+  -h, --help  show this help message and exit

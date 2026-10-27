@@ -1,0 +1,9 @@
+﻿usage: hermes webhook test [-h] [--payload PAYLOAD] name
+
+positional arguments:
+  name               Subscription name to test
+
+options:
+  -h, --help         show this help message and exit
+  --payload PAYLOAD  JSON payload to send (default: test payload)
+

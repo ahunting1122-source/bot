@@ -1,0 +1,11 @@
+﻿usage: hermes claw cleanup [-h] [--source SOURCE] [--dry-run] [--yes]
+
+Scan for and archive leftover OpenClaw directories to prevent state
+fragmentation
+
+options:
+  -h, --help       show this help message and exit
+  --source SOURCE  Path to a specific OpenClaw directory to clean up
+  --dry-run        Preview what would be archived without making changes
+  --yes, -y        Skip confirmation prompts
+

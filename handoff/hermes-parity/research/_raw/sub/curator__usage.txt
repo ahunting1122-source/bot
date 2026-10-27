@@ -1,0 +1,13 @@
+﻿usage: hermes curator usage [-h] [--sort {activity,recent,name}]
+                            [--provenance {agent,bundled,hub}] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --sort {activity,recent,name}
+                        Sort order: activity (most-used first, default),
+                        recent (most-recently-active first), or name
+                        (alphabetical)
+  --provenance {agent,bundled,hub}
+                        Only show skills of this origin
+  --json                Emit the full report as JSON instead of a table
+

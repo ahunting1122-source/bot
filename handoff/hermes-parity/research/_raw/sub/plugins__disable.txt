@@ -1,0 +1,8 @@
+﻿usage: hermes plugins disable [-h] name
+
+positional arguments:
+  name        Plugin name to disable
+
+options:
+  -h, --help  show this help message and exit
+

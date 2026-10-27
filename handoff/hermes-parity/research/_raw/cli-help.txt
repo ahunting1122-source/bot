@@ -1,0 +1,606 @@
+﻿===== bundles list --help =====
+usage: hermes bundles list [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== bundles show --help =====
+usage: hermes bundles show [-h] name
+
+positional arguments:
+  name        Bundle name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== bundles create --help =====
+usage: hermes bundles create [-h] [--skill SKILL] [--description DESCRIPTION]
+                             [--instruction INSTRUCTION] [--force]
+                             name
+
+Create a new bundle. Skills can be passed via --skill (repeat for multiple) or
+entered interactively when omitted.
+
+positional arguments:
+  name                  Bundle name (becomes the /slash command)
+
+options:
+  -h, --help            show this help message and exit
+  --skill, -s SKILL     Skill name to include (repeat for multiple)
+  --description, -d DESCRIPTION
+                        Human-readable description shown in /help and `hermes
+                        bundles list`
+  --instruction, -i INSTRUCTION
+                        Extra guidance prepended to the loaded skill content
+  --force, -f           Overwrite an existing bundle with the same name
+
+
+===== bundles delete --help =====
+usage: hermes bundles delete [-h] name
+
+positional arguments:
+  name        Bundle name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== bundles reload --help =====
+usage: hermes bundles reload [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator status --help =====
+usage: hermes curator status [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator usage --help =====
+usage: hermes curator usage [-h] [--sort {activity,recent,name}]
+                            [--provenance {agent,bundled,hub}] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --sort {activity,recent,name}
+                        Sort order: activity (most-used first, default),
+                        recent (most-recently-active first), or name
+                        (alphabetical)
+  --provenance {agent,bundled,hub}
+                        Only show skills of this origin
+  --json                Emit the full report as JSON instead of a table
+
+
+===== curator run --help =====
+usage: hermes curator run [-h] [--sync] [--background] [--dry-run]
+                          [--consolidate]
+
+options:
+  -h, --help            show this help message and exit
+  --sync, --synchronous
+                        Wait for the LLM review pass to finish (default for
+                        manual runs)
+  --background          Start the LLM review pass in a background thread and
+                        return immediately
+  --dry-run             Report only — no state changes, no archives, no
+                        consolidation (use this to preview what curator would
+                        do)
+  --consolidate         Force the LLM umbrella-building consolidation pass on
+                        for this run, overriding the config default (off).
+                        Without this flag the run is prune-only unless
+                        `curator.consolidate: true` is set.
+
+
+===== curator pause --help =====
+usage: hermes curator pause [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator resume --help =====
+usage: hermes curator resume [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator pin --help =====
+usage: hermes curator pin [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator unpin --help =====
+usage: hermes curator unpin [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator list-unmanaged --help =====
+usage: hermes curator list-unmanaged [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator adopt --help =====
+usage: hermes curator adopt [-h] [--all-unmanaged] [--dry-run] [--yes]
+                            [skill ...]
+
+positional arguments:
+  skill            Skill name(s) to adopt. Omit when using --all-unmanaged.
+
+options:
+  -h, --help       show this help message and exit
+  --all-unmanaged  Adopt every curation-eligible skill that has no provenance
+                   marker
+  --dry-run        List what would be adopted without writing anything
+  --yes            Skip the confirmation prompt for --all-unmanaged
+
+
+===== curator restore --help =====
+usage: hermes curator restore [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator list-archived --help =====
+usage: hermes curator list-archived [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator archive --help =====
+usage: hermes curator archive [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== curator prune --help =====
+usage: hermes curator prune [-h] [--days DAYS] [-y] [--dry-run]
+
+options:
+  -h, --help   show this help message and exit
+  --days DAYS  Archive skills idle for at least N days (default: 90)
+  -y, --yes    Skip the confirmation prompt
+  --dry-run    Show what would be archived without doing it
+
+
+===== curator backup --help =====
+usage: hermes curator backup [-h] [--reason REASON]
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  Free-text label stored in manifest.json (default: 'manual')
+
+
+===== curator rollback --help =====
+usage: hermes curator rollback [-h] [--list] [--id BACKUP_ID] [-y] [entry_id]
+
+positional arguments:
+  entry_id        Ledger entry id for single-mutation rollback (from `hermes
+                  curator ledger`). Omit for whole-tree snapshot rollback.
+
+options:
+  -h, --help      show this help message and exit
+  --list          List available snapshots and exit without restoring
+  --id BACKUP_ID  Snapshot id to restore (see `--list`); default: newest
+  -y, --yes       Skip confirmation prompt
+
+
+===== curator ledger --help =====
+usage: hermes curator ledger [-h] [--skill SKILL] [--limit LIMIT]
+
+options:
+  -h, --help     show this help message and exit
+  --skill SKILL  Only show entries for this skill
+  --limit LIMIT  Max entries to show (default: 20)
+
+
+===== curator purge --help =====
+usage: hermes curator purge [-h] [--days DAYS] [--dry-run] [-y]
+
+options:
+  -h, --help   show this help message and exit
+  --days DAYS  Override curator.archive_ttl_days for this invocation
+  --dry-run    Show what would be purged without deleting
+  -y, --yes    Skip the confirmation prompt
+
+
+===== skills trust --help =====
+usage: hermes skills trust [-h] [path]
+
+positional arguments:
+  path        Project root to trust (default: enclosing git checkout of cwd)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== skills untrust --help =====
+usage: hermes skills untrust [-h] [path]
+
+positional arguments:
+  path        Project root to untrust (default: enclosing git checkout of cwd)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== skills browse --help =====
+usage: hermes skills browse [-h] [--page PAGE] [--size SIZE]
+                            [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}]
+
+options:
+  -h, --help            show this help message and exit
+  --page PAGE           Page number (default: 1)
+  --size SIZE           Results per page (default: 20)
+  --source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}
+                        Filter by source or provider (e.g. nvidia, openai)
+                        (default: all)
+
+
+===== skills search --help =====
+usage: hermes skills search [-h]
+                            [--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}]
+                            [--limit LIMIT] [--json]
+                            query
+
+positional arguments:
+  query                 Search query
+
+options:
+  -h, --help            show this help message and exit
+  --source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}
+                        Filter by source or provider (e.g. nvidia, openai)
+  --limit LIMIT         Max results
+  --json                Output JSON instead of a table (full identifiers,
+                        scripting-friendly)
+
+
+===== skills install --help =====
+usage: hermes skills install [-h] [--category CATEGORY] [--name NAME]
+                             [--force] [--yes]
+                             identifier
+
+positional arguments:
+  identifier           Skill identifier (e.g. openai/skills/skill-creator) or
+                       a direct HTTP(S) URL to a SKILL.md file
+
+options:
+  -h, --help           show this help message and exit
+  --category CATEGORY  Category folder to install into
+  --name NAME          Override the skill name (useful when installing from a
+                       URL whose SKILL.md has no `name:` frontmatter)
+  --force              Install despite blocked scan verdict
+  --yes, -y            Skip confirmation prompt (needed in TUI mode)
+
+
+===== skills inspect --help =====
+usage: hermes skills inspect [-h] identifier
+
+positional arguments:
+  identifier  Skill identifier
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== skills list --help =====
+usage: hermes skills list [-h] [--source {all,hub,builtin,local}]
+                          [--enabled-only]
+
+options:
+  -h, --help            show this help message and exit
+  --source {all,hub,builtin,local}
+  --enabled-only        Hide disabled skills. Use with -p <profile> to see
+                        exactly which skills will load for that profile.
+
+
+===== skills check --help =====
+usage: hermes skills check [-h] [name]
+
+positional arguments:
+  name        Specific skill to check (default: all)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== skills update --help =====
+usage: hermes skills update [-h] [--force] [name]
+
+positional arguments:
+  name        Specific skill to update (default: all outdated skills)
+
+options:
+  -h, --help  show this help message and exit
+  --force     Overwrite skills you have edited locally (they are skipped by
+              default)
+
+
+===== skills audit --help =====
+usage: hermes skills audit [-h] [--deep] [name]
+
+positional arguments:
+  name        Specific skill to audit (default: all)
+
+options:
+  -h, --help  show this help message and exit
+  --deep      Run AST-level analysis on Python files (opt-in diagnostic)
+
+
+===== skills uninstall --help =====
+usage: hermes skills uninstall [-h] [--yes] name
+
+positional arguments:
+  name        Skill name to remove
+
+options:
+  -h, --help  show this help message and exit
+  --yes, -y   Skip confirmation prompt
+
+
+===== skills reset --help =====
+usage: hermes skills reset [-h] [--restore] [--yes] name
+
+Clear a bundled skill's entry from the sync manifest
+(~/.hermes/skills/.bundled_manifest) so future 'hermes update' runs stop
+marking it as user-modified. Pass --restore to also replace the current copy
+with the bundled version.
+
+positional arguments:
+  name        Skill name to reset (e.g. google-workspace)
+
+options:
+  -h, --help  show this help message and exit
+  --restore   Also delete the current copy and re-copy the bundled version
+  --yes, -y   Skip confirmation prompt when using --restore
+
+
+===== skills list-modified --help =====
+usage: hermes skills list-modified [-h] [--json]
+
+Show the bundled skills whose local copy differs from the version last synced,
+i.e. the ones `hermes update` reports as user-modified and skips. Use `hermes
+skills diff <name>` to see changes and `hermes skills reset <name>` to resume
+updates.
+
+options:
+  -h, --help  show this help message and exit
+  --json      Output the list as JSON
+
+
+===== skills diff --help =====
+usage: hermes skills diff [-h] name
+
+Print a unified diff between your local copy of a bundled skill and the
+current bundled (stock) version, so you can confirm what changed before
+running `hermes skills reset`.
+
+positional arguments:
+  name        Skill name to diff (e.g. google-workspace)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== skills opt-out --help =====
+usage: hermes skills opt-out [-h] [--remove] [--yes]
+
+Write the .no-bundled-skills marker so the installer, `hermes update`, and any
+direct sync stop seeding bundled skills into the active profile. By default
+nothing already on disk is touched. Pass --remove to ALSO delete bundled
+skills that are unmodified (user-edited and hub/local skills are never
+removed).
+
+options:
+  -h, --help  show this help message and exit
+  --remove    Also delete already-present unmodified bundled skills
+  --yes, -y   Skip confirmation prompt when using --remove
+
+
+===== skills opt-in --help =====
+usage: hermes skills opt-in [-h] [--sync]
+
+Remove the .no-bundled-skills marker so bundled skills are seeded again on the
+next `hermes update`. Pass --sync to re-seed now.
+
+options:
+  -h, --help  show this help message and exit
+  --sync      Re-seed bundled skills immediately instead of waiting for update
+
+
+===== skills repair-official --help =====
+usage: hermes skills repair-official [-h] [--restore] [--yes] name
+
+Repair official optional skill provenance. By default, only backfills hub
+metadata for exact matches. Pass --restore to replace missing or mutated
+active copies from optional-skills/, moving existing copies to a restore
+backup first. Use name 'all' to repair every optional skill.
+
+positional arguments:
+  name        Official optional skill folder/frontmatter name, or 'all'
+
+options:
+  -h, --help  show this help message and exit
+  --restore   Restore from official optional source, backing up existing
+              matching copies
+  --yes, -y   Skip confirmation prompt when using --restore
+
+
+===== skills publish --help =====
+usage: hermes skills publish [-h] [--to {github,clawhub}] [--repo REPO]
+                             skill_path
+
+positional arguments:
+  skill_path            Path to skill directory
+
+options:
+  -h, --help            show this help message and exit
+  --to {github,clawhub}
+                        Target registry
+  --repo REPO           Target GitHub repo (e.g. openai/skills)
+
+
+===== skills snapshot --help =====
+usage: hermes skills snapshot [-h] {export,import} ...
+
+positional arguments:
+  {export,import}
+    export         Export installed skills to a file
+    import         Import and install skills from a file
+
+options:
+  -h, --help       show this help message and exit
+
+
+===== skills tap --help =====
+usage: hermes skills tap [-h] {list,add,remove} ...
+
+positional arguments:
+  {list,add,remove}
+    list             List configured taps
+    add              Add a GitHub repo as skill source
+    remove           Remove a tap
+
+options:
+  -h, --help         show this help message and exit
+
+
+===== skills config --help =====
+usage: hermes skills config [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== journey list --help =====
+usage: hermes journey list [-h] [--no-color]
+
+options:
+  -h, --help  show this help message and exit
+  --no-color
+
+
+===== journey delete --help =====
+usage: hermes journey delete [-h] [-y] node
+
+positional arguments:
+  node        Node id (skill name or memory:<source>:<index>; see `journey
+              list`).
+
+options:
+  -h, --help  show this help message and exit
+  -y, --yes   Skip the confirmation prompt.
+
+
+===== journey edit --help =====
+usage: hermes journey edit [-h] node
+
+positional arguments:
+  node        Node id (skill name or memory:<source>:<index>; see `journey
+              list`).
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync status --help =====
+usage: hermes sync status [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync pull --help =====
+usage: hermes sync pull [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync push --help =====
+usage: hermes sync push [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync now --help =====
+usage: hermes sync now [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync enable --help =====
+usage: hermes sync enable [-h] skill
+
+positional arguments:
+  skill       Skill name (frontmatter name / directory name)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync disable --help =====
+usage: hermes sync disable [-h] skill
+
+positional arguments:
+  skill       Skill name (frontmatter name / directory name)
+
+options:
+  -h, --help  show this help message and exit
+
+
+===== sync device --help =====
+usage: hermes sync device [-h] [--name DEVICE_NAME]
+
+options:
+  -h, --help          show this help message and exit
+  --name DEVICE_NAME  Set a human-friendly label for this device (e.g. "Ben's
+                      Laptop"). Omit to print the current label.
+
+
+===== sync propose --help =====
+usage: hermes sync propose [-h] [-m MESSAGE] name
+
+Submit one of your skills to your organisation's shared set. If you are an
+admin it is added directly; otherwise it becomes a proposal for an admin to
+review. Accounts that aren't part of a shared organisation don't have this
+workflow.
+
+positional arguments:
+  name                  Skill name to share
+
+options:
+  -h, --help            show this help message and exit
+  -m, --message MESSAGE
+                        Optional message describing the change
+
+
+

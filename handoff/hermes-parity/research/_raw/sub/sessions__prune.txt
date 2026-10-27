@@ -1,0 +1,74 @@
+﻿usage: hermes sessions prune [-h] [--older-than AGE] [--newer-than AGE]
+                             [--before TIME] [--after TIME] [--source SOURCE]
+                             [--title TITLE] [--end-reason END_REASON]
+                             [--cwd CWD] [--min-messages MIN_MESSAGES]
+                             [--max-messages MAX_MESSAGES] [--model MODEL]
+                             [--provider PROVIDER] [--user USER]
+                             [--chat-id CHAT_ID] [--chat-type CHAT_TYPE]
+                             [--branch BRANCH] [--min-tokens MIN_TOKENS]
+                             [--max-tokens MAX_TOKENS] [--min-cost MIN_COST]
+                             [--max-cost MAX_COST]
+                             [--min-tool-calls MIN_TOOL_CALLS]
+                             [--max-tool-calls MAX_TOOL_CALLS] [--dry-run]
+                             [--yes] [--include-archived] [--include-pinned]
+                             [--never-active]
+
+options:
+  -h, --help            show this help message and exit
+  --older-than AGE      Delete sessions older than AGE — days if bare number,
+                        or a duration like '5h'/'2d'/'1w', or an ISO timestamp
+                        (bare prune with no filters defaults to 90 days; any
+                        filter matches all ages)
+  --newer-than AGE      Only match sessions active within the last AGE (e.g.
+                        '5h', '2d') or after an ISO timestamp
+  --before TIME         Only match sessions started before TIME (duration ago
+                        like '5h', or ISO timestamp like '2026-07-05 14:30')
+  --after TIME          Only match sessions started at/after TIME (duration
+                        ago like '5h', or ISO timestamp)
+  --source SOURCE       Only match sessions from this source
+  --title TITLE         Only match sessions whose title contains this
+                        substring
+  --end-reason END_REASON
+                        Only match sessions with this end reason
+  --cwd CWD             Only match sessions whose working directory is under
+                        this path
+  --min-messages MIN_MESSAGES
+                        Only match sessions with >= N messages
+  --max-messages MAX_MESSAGES
+                        Only match sessions with <= N messages
+  --model MODEL         Only match sessions whose model name contains this
+                        substring (e.g. 'sonnet', 'gpt-5', 'hermes')
+  --provider PROVIDER   Only match sessions billed through this provider (e.g.
+                        openrouter, anthropic, nous)
+  --user USER           Only match sessions from this user ID
+  --chat-id CHAT_ID     Only match sessions from this chat/channel ID
+  --chat-type CHAT_TYPE
+                        Only match sessions with this chat type (e.g. dm,
+                        group)
+  --branch BRANCH       Only match sessions whose git branch contains this
+                        substring
+  --min-tokens MIN_TOKENS
+                        Only match sessions with >= N total tokens
+                        (input+output)
+  --max-tokens MAX_TOKENS
+                        Only match sessions with <= N total tokens
+                        (input+output)
+  --min-cost MIN_COST   Only match sessions costing >= N USD (actual or
+                        estimated)
+  --max-cost MAX_COST   Only match sessions costing <= N USD (actual or
+                        estimated)
+  --min-tool-calls MIN_TOOL_CALLS
+                        Only match sessions with >= N tool calls
+  --max-tool-calls MAX_TOOL_CALLS
+                        Only match sessions with <= N tool calls
+  --dry-run             List matching sessions without changing anything
+  --yes, -y             Skip confirmation
+  --include-archived    Also delete archived sessions (excluded by default)
+  --include-pinned      Also delete pinned sessions (excluded by default — pin
+                        is a keep flag)
+  --never-active        Instead of ended sessions, delete keyed gateway rows
+                        that were opened and never used (no messages, tokens,
+                        tool calls or title) and are older than AGE (default
+                        30 days). Ordinary prune can never reach these — it
+                        only ever selects ended sessions
+

@@ -1,0 +1,37 @@
+﻿### CMD: send
+### EXITCODE: 0
+usage: hermes send [-h] [-t TARGET] [-f PATH] [-s LINE] [-l] [-q] [--json]
+                   [message]
+
+Pipe text from any shell script to any messaging platform Hermes is already configured for. Reuses the gateway's platform credentials (~/.hermes/.env + ~/.hermes/config.yaml) — no LLM, no agent loop, no running gateway required for bot-token platforms like Telegram/Discord/Slack/Signal.
+
+positional arguments:
+  message             Message text. If omitted, read from --file or stdin.
+
+options:
+  -h, --help          show this help message and exit
+  -t, --to TARGET     Delivery target. Format: 'platform' (home channel),
+                      'platform:chat_id', 'platform:chat_id:thread_id', or
+                      'platform:#channel-name'. Examples: telegram,
+                      telegram:-1001234567890:17585, discord:#ops,
+                      slack:C0123ABCD, signal:+15551234567.
+  -f, --file PATH     Read message body from PATH (text only). Use '-' to
+                      force stdin. To send an image/document as an attachment,
+                      use MEDIA:<path> in the message text instead.
+  -s, --subject LINE  Prepend a subject/header line before the message body.
+  -l, --list          List available targets. Optional positional filter:
+                      `hermes send --list telegram`.
+  -q, --quiet         Suppress stdout on success (exit code only).
+  --json              Emit raw JSON result instead of human-readable output.
+
+Examples:
+  hermes send --to telegram "deploy finished"
+  echo "RAM 92%" | hermes send --to telegram:-1001234567890
+  hermes send --to discord:#ops --file /tmp/report.md
+  hermes send --to slack:#eng --subject "[CI]" --file build.log
+  hermes send --to telegram "MEDIA:/tmp/chart.png"   # send a media attachment
+  hermes send --list                  # all platforms
+  hermes send --list telegram         # filter by platform
+
+Exit codes: 0 ok, 1 delivery/backend error, 2 usage error.
+

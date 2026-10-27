@@ -1,0 +1,11 @@
+﻿### CMD: __slash-worker
+### EXITCODE: 0
+usage: hermes __slash-worker [-h] --session-key SESSION_KEY [--model MODEL]
+
+Internal: run the TUI slash-worker process (hidden).
+
+options:
+  -h, --help            show this help message and exit
+  --session-key SESSION_KEY
+  --model MODEL
+

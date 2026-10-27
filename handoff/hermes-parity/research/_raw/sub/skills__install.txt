@@ -1,0 +1,16 @@
+﻿usage: hermes skills install [-h] [--category CATEGORY] [--name NAME]
+                             [--force] [--yes]
+                             identifier
+
+positional arguments:
+  identifier           Skill identifier (e.g. openai/skills/skill-creator) or
+                       a direct HTTP(S) URL to a SKILL.md file
+
+options:
+  -h, --help           show this help message and exit
+  --category CATEGORY  Category folder to install into
+  --name NAME          Override the skill name (useful when installing from a
+                       URL whose SKILL.md has no `name:` frontmatter)
+  --force              Install despite blocked scan verdict
+  --yes, -y            Skip confirmation prompt (needed in TUI mode)
+

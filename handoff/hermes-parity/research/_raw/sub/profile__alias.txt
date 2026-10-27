@@ -1,0 +1,10 @@
+﻿usage: hermes profile alias [-h] [--remove] [--name NAME] profile_name
+
+positional arguments:
+  profile_name  Profile name
+
+options:
+  -h, --help    show this help message and exit
+  --remove      Remove the wrapper script
+  --name NAME   Custom alias name (default: profile name)
+

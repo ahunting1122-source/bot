@@ -1,0 +1,8 @@
+﻿usage: hermes skin use [-h] name
+
+positional arguments:
+  name        Skin name
+
+options:
+  -h, --help  show this help message and exit
+

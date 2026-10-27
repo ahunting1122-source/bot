@@ -1,0 +1,10 @@
+﻿usage: hermes cron resume [-h] [--at RUN_AT] [--run-now] job_id
+
+positional arguments:
+  job_id       Job ID to resume
+
+options:
+  -h, --help   show this help message and exit
+  --at RUN_AT  Re-arm at an ISO-8601 time
+  --run-now    Re-arm to run now
+

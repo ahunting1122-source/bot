@@ -1,0 +1,19 @@
+﻿usage: hermes project create [-h] [--slug SLUG] [--primary PATH]
+                             [--description DESCRIPTION] [--icon ICON]
+                             [--color COLOR] [--board SLUG] [--use]
+                             name [folders ...]
+
+positional arguments:
+  name                  Human name, e.g. 'Hermes Agent'
+  folders               Folder paths to include (first = primary)
+
+options:
+  -h, --help            show this help message and exit
+  --slug SLUG           Explicit slug override
+  --primary PATH        Primary repo path
+  --description DESCRIPTION
+  --icon ICON
+  --color COLOR
+  --board SLUG          Bind a kanban board
+  --use                 Set as the active project
+

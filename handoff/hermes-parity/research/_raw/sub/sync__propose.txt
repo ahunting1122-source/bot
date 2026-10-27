@@ -1,0 +1,15 @@
+﻿usage: hermes sync propose [-h] [-m MESSAGE] name
+
+Submit one of your skills to your organisation's shared set. If you are an
+admin it is added directly; otherwise it becomes a proposal for an admin to
+review. Accounts that aren't part of a shared organisation don't have this
+workflow.
+
+positional arguments:
+  name                  Skill name to share
+
+options:
+  -h, --help            show this help message and exit
+  -m, --message MESSAGE
+                        Optional message describing the change
+

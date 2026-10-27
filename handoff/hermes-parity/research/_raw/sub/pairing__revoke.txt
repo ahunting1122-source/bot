@@ -1,0 +1,9 @@
+﻿usage: hermes pairing revoke [-h] platform user_id
+
+positional arguments:
+  platform    Platform name
+  user_id     User ID to revoke
+
+options:
+  -h, --help  show this help message and exit
+

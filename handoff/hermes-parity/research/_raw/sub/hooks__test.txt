@@ -1,0 +1,16 @@
+﻿usage: hermes hooks test [-h] [--for-tool FOR_TOOL]
+                         [--payload-file PAYLOAD_FILE]
+                         event
+
+positional arguments:
+  event                 Hook event name (e.g. pre_tool_call, pre_llm_call,
+                        subagent_stop)
+
+options:
+  -h, --help            show this help message and exit
+  --for-tool FOR_TOOL   Only fire hooks whose matcher matches this tool name
+                        (used for pre_tool_call / post_tool_call)
+  --payload-file PAYLOAD_FILE
+                        Path to a JSON file whose contents are merged into the
+                        synthetic payload before execution
+

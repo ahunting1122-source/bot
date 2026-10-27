@@ -1,0 +1,9 @@
+﻿usage: hermes skills snapshot import [-h] [--force] input
+
+positional arguments:
+  input       Input JSON file path
+
+options:
+  -h, --help  show this help message and exit
+  --force     Force install despite caution verdict
+

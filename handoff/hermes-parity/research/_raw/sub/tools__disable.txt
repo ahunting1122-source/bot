@@ -1,0 +1,9 @@
+﻿usage: hermes tools disable [-h] [--platform PLATFORM] NAME [NAME ...]
+
+positional arguments:
+  NAME                 Toolset name (e.g. web) or MCP tool in server:tool form
+
+options:
+  -h, --help           show this help message and exit
+  --platform PLATFORM  Platform to apply to (default: cli)
+

@@ -1,0 +1,9 @@
+﻿usage: hermes config get [-h] [--json] [key]
+
+positional arguments:
+  key         Configuration key (e.g., model)
+
+options:
+  -h, --help  show this help message and exit
+  --json      Print value as JSON
+

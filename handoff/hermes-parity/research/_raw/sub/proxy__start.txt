@@ -1,0 +1,11 @@
+﻿usage: hermes proxy start [-h] [--provider PROVIDER] [--host HOST]
+                          [--port PORT]
+
+options:
+  -h, --help           show this help message and exit
+  --provider PROVIDER  Upstream provider: nous or xai (default: nous). See
+                       `hermes proxy providers`.
+  --host HOST          Bind address (default: 127.0.0.1). Use 0.0.0.0 to
+                       expose on LAN.
+  --port PORT          Bind port (default: 8645)
+

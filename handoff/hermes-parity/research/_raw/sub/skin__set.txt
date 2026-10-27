@@ -1,0 +1,10 @@
+﻿usage: hermes skin set [-h] [--skin SKIN] key value
+
+positional arguments:
+  key          Color key (e.g. ui_tool, ui_accent, background)
+  value        Hex color (#rrggbb)
+
+options:
+  -h, --help   show this help message and exit
+  --skin SKIN  Target a specific skin instead of the active one
+

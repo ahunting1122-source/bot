@@ -1,0 +1,10 @@
+﻿usage: hermes sessions list [-h] [--source SOURCE] [--limit LIMIT]
+                            [--workspace NEEDLE]
+
+options:
+  -h, --help          show this help message and exit
+  --source SOURCE     Filter by source (cli, telegram, discord, etc.)
+  --limit LIMIT       Max sessions to show
+  --workspace NEEDLE  Only sessions in one workspace: a git repo root or
+                      project dir (matched by path substring or basename).
+

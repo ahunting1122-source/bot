@@ -1,0 +1,5 @@
+﻿usage: hermes portal login [-h]
+
+options:
+  -h, --help  show this help message and exit
+

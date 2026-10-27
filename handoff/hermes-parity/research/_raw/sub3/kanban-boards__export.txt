@@ -1,0 +1,19 @@
+﻿usage: hermes kanban boards export [-h] [-o OUTPUT] [--no-attachments]
+                                   [--include-logs] [--json]
+                                   [slug]
+
+Package a board's tasks, comments, links, history, and file attachments into
+one archive that can be imported on another machine. Claims, worker PIDs, chat
+subscriptions, and paths belonging to this machine are stripped. Workspaces
+are never included — they are rebuilt on demand.
+
+positional arguments:
+  slug                 Board to export (default: the current board)
+
+options:
+  -h, --help           show this help message and exit
+  -o, --output OUTPUT  Archive path (default: ./<slug>.tar.gz)
+  --no-attachments     Skip attachment files, keeping the archive small
+  --include-logs       Include per-task worker logs
+  --json
+

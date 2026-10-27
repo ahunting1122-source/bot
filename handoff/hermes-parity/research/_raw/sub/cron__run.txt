@@ -1,0 +1,11 @@
+﻿usage: hermes cron run [-h] [--accept-hooks] job_id
+
+positional arguments:
+  job_id          Job ID to trigger
+
+options:
+  -h, --help      show this help message and exit
+  --accept-hooks  Auto-approve unseen shell hooks without a TTY prompt
+                  (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept:
+                  true).
+

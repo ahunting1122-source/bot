@@ -1,0 +1,6 @@
+﻿usage: hermes journey list [-h] [--no-color]
+
+options:
+  -h, --help  show this help message and exit
+  --no-color
+

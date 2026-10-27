@@ -1,0 +1,25 @@
+﻿usage: hermes dashboard register [-h] [--name NAME]
+                                 [--redirect-uri REDIRECT_URI]
+                                 [--portal-url PORTAL_URL]
+
+Register this install as a self-hosted dashboard with your Nous Portal
+account. Creates an OAuth client, writes HERMES_DASHBOARD_OAUTH_CLIENT_ID into
+~/.hermes/.env, and prints how to engage the login gate. Requires being logged
+in (hermes setup).
+
+options:
+  -h, --help            show this help message and exit
+  --name NAME           Human-readable label for the dashboard (default: an
+                        auto-generated name)
+  --redirect-uri REDIRECT_URI
+                        Optional public HTTPS OAuth redirect URI for the
+                        dashboard, e.g.
+                        https://hermes.example.com/auth/callback. Omit for
+                        localhost-only use.
+  --portal-url PORTAL_URL
+                        Override the Nous Portal base URL for registration
+                        (default: the portal you logged into). The access
+                        token must be valid at this portal. Also settable via
+                        HERMES_DASHBOARD_PORTAL_URL. Mainly for testing
+                        against a staging/preview portal.
+

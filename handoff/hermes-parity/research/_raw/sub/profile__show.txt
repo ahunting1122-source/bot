@@ -1,0 +1,8 @@
+﻿usage: hermes profile show [-h] profile_name
+
+positional arguments:
+  profile_name  Profile to show
+
+options:
+  -h, --help    show this help message and exit
+

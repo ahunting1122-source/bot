@@ -1,0 +1,15 @@
+﻿usage: hermes kanban attach [-h] [--content-type CONTENT_TYPE] [--name NAME]
+                            [--author AUTHOR]
+                            task_id path
+
+positional arguments:
+  task_id
+  path                  Path to the local file to attach
+
+options:
+  -h, --help            show this help message and exit
+  --content-type CONTENT_TYPE
+                        MIME type (default: guessed from the file extension)
+  --name NAME           Stored filename (default: the source file's basename)
+  --author AUTHOR       uploaded_by label (default: $HERMES_PROFILE or 'user')
+

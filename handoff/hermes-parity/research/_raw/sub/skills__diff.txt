@@ -1,0 +1,12 @@
+﻿usage: hermes skills diff [-h] name
+
+Print a unified diff between your local copy of a bundled skill and the
+current bundled (stock) version, so you can confirm what changed before
+running `hermes skills reset`.
+
+positional arguments:
+  name        Skill name to diff (e.g. google-workspace)
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,9 @@
+﻿usage: hermes profile import [-h] [--name NAME] archive
+
+positional arguments:
+  archive      Path to .tar.gz archive
+
+options:
+  -h, --help   show this help message and exit
+  --name NAME  Profile name (default: inferred from archive)
+

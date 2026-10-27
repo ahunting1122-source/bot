@@ -1,0 +1,14 @@
+﻿### CMD: __update-gateway-helper
+### EXITCODE: 0
+usage: hermes __update-gateway-helper [-h] output_path exit_code_path ...
+
+Internal: run hermes update --gateway detached (hidden).
+
+positional arguments:
+  output_path
+  exit_code_path
+  cmd
+
+options:
+  -h, --help      show this help message and exit
+

@@ -1,0 +1,9 @@
+﻿usage: hermes project bind-board [-h] project [board]
+
+positional arguments:
+  project     Project id or slug
+  board       Board slug (omit to unbind)
+
+options:
+  -h, --help  show this help message and exit
+

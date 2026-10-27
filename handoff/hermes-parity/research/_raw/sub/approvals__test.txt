@@ -1,0 +1,22 @@
+﻿usage: hermes approvals test [-h] [--env-type ENV_TYPE] [--json] ...
+
+Evaluate a command against the REAL runtime approval guards — hardline
+blocklist, user approvals.deny rules, dangerous-pattern detection, allowlist,
+yolo/off bypass — and print the verdict, the matching rule, and the
+normalized-command trace, without executing the command, prompting anyone, or
+persisting anything. Exit codes: 0 allow, 2 ask-approval, 3 deny (hardline or
+user deny rule). Tip: use `--` before the command so its own flags aren't
+parsed: hermes approvals test -- rm -rf /tmp/x
+
+positional arguments:
+  command              The command to evaluate (prefix with -- to protect its
+                       flags)
+
+options:
+  -h, --help           show this help message and exit
+  --env-type ENV_TYPE  Terminal backend type to evaluate against (default:
+                       local; isolated container backends like docker skip the
+                       guards)
+  --json               Emit machine-readable JSON instead of human-readable
+                       text
+

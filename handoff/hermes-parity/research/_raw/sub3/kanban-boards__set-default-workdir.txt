@@ -1,0 +1,9 @@
+﻿usage: hermes kanban boards set-default-workdir [-h] slug [path]
+
+positional arguments:
+  slug
+  path        Absolute path to use as default workdir. Omit to clear.
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,25 @@
+﻿usage: hermes kanban swarm [-h] [--worker PROFILE:TITLE[:SKILL,SKILL]]
+                           --verifier VERIFIER --synthesizer SYNTHESIZER
+                           [--tenant TENANT] [--priority PRIORITY]
+                           [--created-by CREATED_BY]
+                           [--idempotency-key IDEMPOTENCY_KEY] [--json]
+                           goal
+
+positional arguments:
+  goal                  Swarm goal / final outcome
+
+options:
+  -h, --help            show this help message and exit
+  --worker PROFILE:TITLE[:SKILL,SKILL]
+                        Parallel worker card (repeatable)
+  --verifier VERIFIER   Verifier profile
+  --synthesizer SYNTHESIZER
+                        Synthesizer/writer profile
+  --tenant TENANT       Tenant namespace
+  --priority PRIORITY   Priority tiebreaker
+  --created-by CREATED_BY
+                        Creator/anchor profile
+  --idempotency-key IDEMPOTENCY_KEY
+                        Dedup key for the root card
+  --json                Emit JSON output
+

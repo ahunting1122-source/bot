@@ -1,0 +1,8 @@
+﻿usage: hermes skills snapshot export [-h] output
+
+positional arguments:
+  output      Output JSON file path (use - for stdout)
+
+options:
+  -h, --help  show this help message and exit
+

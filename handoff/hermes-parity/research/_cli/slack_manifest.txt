@@ -1,0 +1,36 @@
+﻿usage: hermes slack manifest [-h] [--write [PATH]] [--name NAME]
+                             [--description DESCRIPTION]
+                             [--long-description TEXT |
+                             --long-description-file PATH] [--slashes-only]
+                             [--no-assistant | --agent-view]
+
+Generate a Slack app manifest that registers every gateway command in
+COMMAND_REGISTRY as a first-class Slack slash command (matching Discord and
+Telegram parity). Paste the output into Slack app config → Features → App
+Manifest → Edit, then Save. Reinstall the app if Slack prompts for it.
+
+options:
+  -h, --help            show this help message and exit
+  --write [PATH]        Write manifest to a file instead of stdout. With no
+                        PATH writes to $HERMES_HOME/slack-manifest.json.
+  --name NAME           Bot display name (default: "Hermes")
+  --description DESCRIPTION
+                        Bot description shown in Slack's app directory.
+  --long-description TEXT
+                        Set Slack's long app description (175-4,000
+                        characters).
+  --long-description-file PATH
+                        Read Slack's long app description from a UTF-8 text
+                        file (175-4,000 characters).
+  --slashes-only        Emit only the features.slash_commands array (for
+                        merging into an existing manifest manually).
+  --no-assistant        Omit Slack AI Assistant mode (assistant_view,
+                        assistant:write scope, assistant_thread_* events). DMs
+                        then render as a flat chat where bare slash commands
+                        (/help, /new) work inline instead of Slack's Assistant
+                        thread pane.
+  --agent-view          Emit Slack's Agent messaging experience (agent_view,
+                        app_home_opened + message.im) instead of the legacy
+                        assistant_view experience. This changes Slack's app
+                        messaging surface and cannot be reversed in Slack
+                        after applying the manifest.

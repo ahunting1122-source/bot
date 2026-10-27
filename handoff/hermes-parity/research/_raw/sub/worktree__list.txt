@@ -1,0 +1,6 @@
+﻿usage: hermes worktree list [-h] [--repo REPO]
+
+options:
+  -h, --help   show this help message and exit
+  --repo REPO  Repo root (default: current repo)
+

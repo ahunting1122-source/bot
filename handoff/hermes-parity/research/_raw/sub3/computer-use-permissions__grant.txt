@@ -1,0 +1,5 @@
+﻿usage: hermes computer-use permissions grant [-h]
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,10 @@
+﻿usage: hermes journey delete [-h] [-y] node
+
+positional arguments:
+  node        Node id (skill name or memory:<source>:<index>; see `journey
+              list`).
+
+options:
+  -h, --help  show this help message and exit
+  -y, --yes   Skip the confirmation prompt.
+

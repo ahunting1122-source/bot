@@ -1,0 +1,10 @@
+﻿usage: hermes profile rename [-h] old_name new_name
+
+positional arguments:
+  old_name    Current profile name
+  new_name    New profile name (for 'default': a display name — the canonical
+              id stays 'default')
+
+options:
+  -h, --help  show this help message and exit
+

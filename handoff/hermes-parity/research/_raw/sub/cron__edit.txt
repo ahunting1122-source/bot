@@ -1,0 +1,66 @@
+﻿usage: hermes cron edit [-h] [--schedule SCHEDULE] [--prompt PROMPT]
+                        [--name NAME] [--deliver DELIVER] [--repeat REPEAT]
+                        [--skill SKILLS] [--add-skill ADD_SKILLS]
+                        [--remove-skill REMOVE_SKILLS] [--clear-skills]
+                        [--script SCRIPT] [--no-agent] [--agent]
+                        [--continuity] [--no-continuity]
+                        [--monitor-script MONITOR_SCRIPT]
+                        [--monitor-url MONITOR_URL] [--workdir WORKDIR]
+                        [--model MODEL] [--provider MODEL_PROVIDER]
+                        [--reasoning-effort REASONING_EFFORT]
+                        job_id
+
+positional arguments:
+  job_id                Job ID to edit
+
+options:
+  -h, --help            show this help message and exit
+  --schedule SCHEDULE   New schedule
+  --prompt PROMPT       New prompt/task instruction
+  --name NAME           New job name
+  --deliver DELIVER     New delivery target
+  --repeat REPEAT       New repeat count
+  --skill SKILLS        Replace the job's skills with this set. Repeat to
+                        attach multiple skills.
+  --add-skill ADD_SKILLS
+                        Append a skill without replacing the existing list.
+                        Repeatable.
+  --remove-skill REMOVE_SKILLS
+                        Remove a specific attached skill. Repeatable.
+  --clear-skills        Remove all attached skills from the job
+  --script SCRIPT       Path to a script under ~/.hermes/scripts/. Pass empty
+                        string to clear. With --no-agent the script IS the
+                        job; otherwise its stdout is injected into the agent's
+                        prompt each run.
+  --no-agent            Enable no-agent mode on this job (requires --script or
+                        an existing script on the job).
+  --agent               Disable no-agent mode on this job (reverts to LLM-
+                        driven execution).
+  --continuity          Turn on run-to-run continuity: each run sees the job's
+                        own previous output (dedupe, continue where it left
+                        off).
+  --no-continuity       Turn off run-to-run continuity (other context_from job
+                        refs are preserved).
+  --monitor-script MONITOR_SCRIPT
+                        Set/replace the monitor source script (see `hermes
+                        cron create --monitor-script`). Pass empty string to
+                        clear.
+  --monitor-url MONITOR_URL
+                        Set/replace the monitor source URL. Pass empty string
+                        to clear.
+  --workdir WORKDIR     Absolute path for the job to run from (injects
+                        AGENTS.md etc. and sets terminal cwd). Pass empty
+                        string to clear.
+  --model MODEL         Pin this job to a specific inference model (user-
+                        owned; the agent's cronjob tool cannot set this). Pass
+                        empty string to clear the pin and follow cron.model /
+                        model.default.
+  --provider MODEL_PROVIDER
+                        Inference provider paired with --model. Pass empty
+                        string to clear.
+  --reasoning-effort REASONING_EFFORT
+                        Pin this job's reasoning (thinking) effort: none,
+                        minimal, low, medium, high, xhigh, max, or ultra. Pass
+                        empty string to clear the pin and follow config
+                        resolution.
+

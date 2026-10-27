@@ -1,0 +1,18 @@
+﻿### CMD: auth
+### EXITCODE: 0
+usage: hermes auth [-h] {add,list,remove,reset,status,logout,spotify} ...
+
+positional arguments:
+  {add,list,remove,reset,status,logout,spotify}
+    add                 Add a pooled credential
+    list                List pooled credentials
+    remove              Remove a pooled credential by index, id, or label
+    reset               Clear exhaustion status for all credentials for a
+                        provider
+    status              Show auth status for a provider
+    logout              Log out a provider and clear stored auth state
+    spotify             Authenticate Hermes with Spotify via PKCE
+
+options:
+  -h, --help            show this help message and exit
+

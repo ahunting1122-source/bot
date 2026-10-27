@@ -1,0 +1,20 @@
+﻿usage: hermes bundles create [-h] [--skill SKILL] [--description DESCRIPTION]
+                             [--instruction INSTRUCTION] [--force]
+                             name
+
+Create a new bundle. Skills can be passed via --skill (repeat for multiple) or
+entered interactively when omitted.
+
+positional arguments:
+  name                  Bundle name (becomes the /slash command)
+
+options:
+  -h, --help            show this help message and exit
+  --skill, -s SKILL     Skill name to include (repeat for multiple)
+  --description, -d DESCRIPTION
+                        Human-readable description shown in /help and `hermes
+                        bundles list`
+  --instruction, -i INSTRUCTION
+                        Extra guidance prepended to the loaded skill content
+  --force, -f           Overwrite an existing bundle with the same name
+

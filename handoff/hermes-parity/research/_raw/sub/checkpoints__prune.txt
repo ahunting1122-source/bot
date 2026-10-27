@@ -1,0 +1,15 @@
+﻿usage: hermes checkpoints prune [-h] [--retention-days RETENTION_DAYS]
+                                [--max-size-mb MAX_SIZE_MB] [--keep-orphans]
+                                [-f]
+
+options:
+  -h, --help            show this help message and exit
+  --retention-days RETENTION_DAYS
+                        Drop projects whose last_touch is older than N days
+                        (default 7)
+  --max-size-mb MAX_SIZE_MB
+                        After orphan/stale prune, drop oldest commits per
+                        project until total size <= this (default 500)
+  --keep-orphans        Skip deleting projects whose workdir no longer exists
+  -f, --force           Skip the orphan-deletion confirmation prompt
+

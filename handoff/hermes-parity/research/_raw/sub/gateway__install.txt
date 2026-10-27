@@ -1,0 +1,18 @@
+﻿usage: hermes gateway install [-h] [--force] [--system]
+                              [--run-as-user RUN_AS_USER] [--start-now]
+                              [--no-start-now] [--start-on-login]
+                              [--no-start-on-login]
+
+options:
+  -h, --help            show this help message and exit
+  --force               Force reinstall
+  --system              Install as a Linux system-level service (starts at
+                        boot)
+  --run-as-user RUN_AS_USER
+                        User account the Linux system service should run as
+  --start-now           Start the gateway service immediately after installing
+  --no-start-now        Do not start the gateway service after installing
+  --start-on-login      Enable the service to start automatically on
+                        login/boot
+  --no-start-on-login   Do not enable the service to start on login/boot
+

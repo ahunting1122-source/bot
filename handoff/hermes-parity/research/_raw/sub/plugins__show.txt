@@ -1,0 +1,8 @@
+﻿usage: hermes plugins show [-h] name
+
+positional arguments:
+  name        Plugin name or key to show
+
+options:
+  -h, --help  show this help message and exit
+

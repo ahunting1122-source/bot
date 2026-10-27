@@ -1,0 +1,13 @@
+﻿usage: hermes skills opt-out [-h] [--remove] [--yes]
+
+Write the .no-bundled-skills marker so the installer, `hermes update`, and any
+direct sync stop seeding bundled skills into the active profile. By default
+nothing already on disk is touched. Pass --remove to ALSO delete bundled
+skills that are unmodified (user-edited and hub/local skills are never
+removed).
+
+options:
+  -h, --help  show this help message and exit
+  --remove    Also delete already-present unmodified bundled skills
+  --yes, -y   Skip confirmation prompt when using --remove
+

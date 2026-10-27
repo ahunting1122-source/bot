@@ -1,0 +1,27 @@
+﻿### CMD: computer-use
+### EXITCODE: 0
+usage: hermes computer-use [-h] {install,status,doctor,permissions} ...
+
+Install or check the cua-driver binary used by the `computer_use` toolset.
+Supported on macOS, Windows, and Linux. Use `hermes computer-use install` to
+fetch and run the upstream cua-driver installer. This is equivalent to the
+post-setup hook that `hermes tools` runs when you first enable the Computer
+Use toolset, and is a stable target for re-running the install if it didn't
+fire (e.g. when toggling the toolset on a returning-user setup). Use `hermes
+computer-use doctor` to run cua-driver's `health_report` MCP tool and surface
+its check matrix (TCC, bundle identity, version, platform support, ...) in
+human-readable form.
+
+positional arguments:
+  {install,status,doctor,permissions}
+    install             Install or repair the cua-driver binary
+                        (macOS/Windows/Linux)
+    status              Print whether cua-driver is installed and on PATH
+    doctor              Run cua-driver `health_report` and surface the check
+                        matrix
+    permissions         Check or grant macOS Accessibility + Screen Recording
+                        (macOS)
+
+options:
+  -h, --help            show this help message and exit
+

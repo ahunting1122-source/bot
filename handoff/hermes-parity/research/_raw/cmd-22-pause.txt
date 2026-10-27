@@ -1,0 +1,12 @@
+﻿### CMD: pause
+### EXITCODE: 0
+usage: hermes pause [-h] [--reason REASON]
+
+Engage the global emergency stop. Halts NEW work only — cron dispatch, kanban
+dispatch, and new gateway turns — until `hermes resume`. In-flight work is
+never killed.
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  Optional reason stored in the sentinel and shown to users
+

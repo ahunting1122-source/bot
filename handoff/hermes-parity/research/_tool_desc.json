@@ -1,0 +1,1008 @@
+{
+ "agent_swarm": {
+  "name": "agent_swarm",
+  "desc": "Launch multiple subagents from one prompt template with {{item}} placeholder.",
+  "params": [
+   "description",
+   "subagent_type",
+   "prompt_template",
+   "items",
+   "resume_agent_ids"
+  ],
+  "file": "agent_swarm.py",
+  "line": 13
+ },
+ "annotate_preview": {
+  "name": "annotate_preview",
+  "desc": "Leave a LASTING mark on the preview-pane page (drive_preview's own marks fade; annotations stay until removed) — point at findings, flag what you're about to change, keep your place. Use the refs from drive_preview action='elements'. add: outline one element (optional short label — a word or two, drawn on the page). hold: freeze the whole visible field, every element outlined and named. remove/clear: take one/all down. Marks follow their element on scroll; navigation clears them.",
+  "params": [
+   "action",
+   "ref",
+   "selector",
+   "label"
+  ],
+  "file": "annotate_preview_tool.py",
+  "line": 89
+ },
+ "apply_layout": {
+  "name": "apply_layout",
+  "desc": "Apply a saved layout preset to the Hermes desktop app when the user asks to rearrange the workspace. Built-ins: default (chat + sidebars), focus (chat only), terminal-deck, quad; plugin/user presets by id. To reveal ONE pane, use focus_pane instead.",
+  "params": [
+   "preset"
+  ],
+  "file": "apply_layout_tool.py",
+  "line": 44
+ },
+ "browser_cdp": {
+  "name": "browser_cdp",
+  "desc": "Send a raw Chrome DevTools Protocol (CDP) command. Escape hatch for browser operations not covered by browser_navigate, browser_click, browser_console, etc.\n\n**Requires a reachable CDP endpoint.** Available when the user has run '/browser connect' to attach to a running Chrome, Brave, Chromium, or Edge browser, or when 'browser.cdp_url' is set in config.yaml. Not currently wired up for cloud backends (Browserbase, Browser Use, Firecrawl) — those expose CDP per session but live-session routing is a follow-up. Camofox is REST-only and will never support CDP. If the tool is in your toolset at all, a CDP endpoint is already reachable.\n\n**CDP method reference:** {...} — use web_extract on a method's URL (e.g. '/tot/Page/#method-handleJavaScriptDialog') to look up parameters and return shape.\n\n**Common patterns:**\n- List tabs: method='Target.getTargets', params={}\n- Handle a native JS dialog: method='Page.handleJavaScriptDialog', params={'accept': true, 'promptText': ''}, target_id=<tabId>\n- Get all cookies: method='Network.getAllCookies', params={}\n- Eval in a specific tab: method='Runtime.evaluate', params={'expression': '...', 'returnByValue': true}, target_id=<tabId>\n- Set viewport for a tab: method='Emulation.setDeviceMetricsOverride', params={'width': 1280, 'height': 720, 'deviceScaleFactor': 1, 'mobile': false}, target_id=<tabId>\n\n**Usage rules:**\n- Browser-level methods (Target.*, Browser.*, Storage.*): omit target_id and frame_id.\n- Page-level methods (Page.*, Runtime.*, DOM.*, Emulation.*, Network.* scoped to a tab): pass target_id from Target.getTargets.\n- **Cross-origin iframe scope** (Runtime.evaluate inside an OOPIF, Page.* targeting a frame target, etc.): pass frame_id from the browser_snapshot frame_tree output. This routes through the CDP supervisor's live connection — the only reliable way on Browserbase where stateless CDP calls hit signed-URL expiry.\n- Each stateless call (without frame_id) is independent — sessions and event subscriptions do not persist between calls. For stateful workflows, prefer the dedicated browser tools or use frame_id routing.",
+  "params": [
+   "method",
+   "params",
+   "target_id",
+   "frame_id",
+   "timeout"
+  ],
+  "file": "browser_cdp_tool.py",
+  "line": 610
+ },
+ "browser_dialog": {
+  "name": "browser_dialog",
+  "desc": "Respond to a native JavaScript dialog (alert / confirm / prompt / beforeunload) that is currently blocking the page.\n\n**Workflow:** call ``browser_snapshot`` first — if a dialog is open, it appears in the ``pending_dialogs`` field with ``id``, ``type``, and ``message``. Then call this tool with ``action='accept'`` or ``action='dismiss'``.\n\n**Prompt dialogs:** pass ``prompt_text`` to supply the response string. Ignored for alert/confirm/beforeunload.\n\n**Multiple dialogs:** if more than one dialog is queued (rare — happens when a second dialog fires while the first is still open), pass ``dialog_id`` from the snapshot to disambiguate.\n\n**Availability:** only present when a CDP-capable backend is attached — Browserbase sessions, local Chromium-family browser via ``/browser connect``, or ``browser.cdp_url`` in config.yaml. Not available on Camofox (REST-only) or the default Playwright local browser (CDP port is hidden).",
+  "params": [
+   "action",
+   "prompt_text",
+   "dialog_id"
+  ],
+  "file": "browser_dialog_tool.py",
+  "line": 28
+ },
+ "Content-Type": {
+  "name": "Content-Type",
+  "desc": null,
+  "params": [],
+  "file": "browser_supervisor.py",
+  "line": 1188
+ },
+ "Access-Control-Allow-Origin": {
+  "name": "Access-Control-Allow-Origin",
+  "desc": null,
+  "params": [],
+  "file": "browser_supervisor.py",
+  "line": 1189
+ },
+ "browser_navigate": {
+  "name": "browser_navigate",
+  "desc": "Navigate to a URL (starts the session); call before other browser tools. Prefer web_search/web_extract for simple retrieval; curl or web_extract for plain-text endpoints (.md/.txt/.json/.csv/.xml, raw.githubusercontent.com, APIs) — the browser stack is slower. Use it to interact (click, forms, dynamic content). Returns a compact snapshot with interactive ref IDs — no separate browser_snapshot call needed.",
+  "params": [
+   "url"
+  ],
+  "file": "browser_tool.py",
+  "line": 2801
+ },
+ "browser_snapshot": {
+  "name": "browser_snapshot",
+  "desc": "Text snapshot of the page's accessibility tree with ref IDs (@e1, @e2) for click/type. full=false (default): compact; full=true: complete content. Over 15000 chars it's truncated/summarized; full copy saved to a file (path included) for read_file. Requires browser_navigate first (navigate already returns a compact snapshot) — refresh after page-changing interactions or use full=true.",
+  "params": [
+   "full"
+  ],
+  "file": "browser_tool.py",
+  "line": 2815
+ },
+ "browser_click": {
+  "name": "browser_click",
+  "desc": "Click an element by its ref ID from the snapshot (e.g. '@e5'). Requires browser_navigate and browser_snapshot first.",
+  "params": [
+   "ref"
+  ],
+  "file": "browser_tool.py",
+  "line": 2830
+ },
+ "browser_type": {
+  "name": "browser_type",
+  "desc": "Type into an input by ref ID; clears the field first. Requires browser_navigate and browser_snapshot first.",
+  "params": [
+   "ref",
+   "text"
+  ],
+  "file": "browser_tool.py",
+  "line": 2844
+ },
+ "browser_scroll": {
+  "name": "browser_scroll",
+  "desc": "Scroll the page up/down to reveal more content. Requires browser_navigate first.",
+  "params": [
+   "direction"
+  ],
+  "file": "browser_tool.py",
+  "line": 2862
+ },
+ "browser_back": {
+  "name": "browser_back",
+  "desc": "Back to the previous page. Requires browser_navigate first.",
+  "params": [],
+  "file": "browser_tool.py",
+  "line": 2877
+ },
+ "browser_press": {
+  "name": "browser_press",
+  "desc": "Press a keyboard key (Enter, Tab, shortcuts). Requires browser_navigate first.",
+  "params": [
+   "key"
+  ],
+  "file": "browser_tool.py",
+  "line": 2886
+ },
+ "browser_get_images": {
+  "name": "browser_get_images",
+  "desc": "List page images with URLs and alt text — e.g. for the vision tool. Requires browser_navigate first.",
+  "params": [],
+  "file": "browser_tool.py",
+  "line": 2900
+ },
+ "browser_vision": {
+  "name": "browser_vision",
+  "desc": "Screenshot the current page to inspect it visually — CAPTCHAs, visual verification, complex layouts, or when the text snapshot misses visual info. Native-vision models get the image attached and inspect it next turn; otherwise Hermes falls back to an auxiliary vision model returning a text analysis. Includes screenshot_path — share it via MEDIA:<path>. Requires browser_navigate first.",
+  "params": [
+   "question",
+   "annotate"
+  ],
+  "file": "browser_tool.py",
+  "line": 2909
+ },
+ "browser_console": {
+  "name": "browser_console",
+  "desc": "Read console output and JS errors (log/warn/error/info + uncaught) — for silent JS errors, failed API calls, app warnings. With 'expression', evaluates JS in the page. Requires browser_navigate first.",
+  "params": [
+   "clear",
+   "expression"
+  ],
+  "file": "browser_tool.py",
+  "line": 2928
+ },
+ "browser_exec": {
+  "name": "browser_exec",
+  "desc": null,
+  "params": [
+   "code",
+   "session",
+   "timeout_s"
+  ],
+  "file": "browser_use_cli.py",
+  "line": 1020
+ },
+ "clarify": {
+  "name": "clarify",
+  "desc": "Ask the user one or more questions when you need a decision, clarification, or feedback before proceeding. Pass every question in `questions` (1-{...} entries) — a single question is a one-entry array, and several INDEPENDENT questions belong in ONE call (one form beats a chain of clarify calls; if one answer would change another question, ask separately). Per question: single-select (up to {...} choices — put your recommended option FIRST, the UI marks it '(Recommended)' and auto-appends an 'Other' free-text row), multi-select (multi_select=true), or open-ended (omit choices). Options go ONLY in `choices`, never enumerated inside the question text (choices render as pickable rows; options written into the question are dead prose the user can't click). Result: {responses: [...]} in question order (plus timed_out=true if the user stopped part-way). Prefer deciding low-stakes questions yourself; don't use this for dangerous-command confirmation (the terminal tool handles that).",
+  "params": [
+   "questions"
+  ],
+  "file": "clarify_tool.py",
+  "line": 442
+ },
+ "close_preview": {
+  "name": "close_preview",
+  "desc": "Close the preview pane beside the chat in the Hermes desktop app, or one tab inside it. Use this when the user asks to close, hide, or dismiss the preview — e.g. \"close the preview pane\", \"close cnn.com\", \"hide the preview\". Omit url to close the whole pane (every tab). Pass a web URL, localhost address, or file path to close only that tab. Counterpart of open_preview.",
+  "params": [
+   "url"
+  ],
+  "file": "close_preview_tool.py",
+  "line": 32
+ },
+ "close_terminal": {
+  "name": "close_terminal",
+  "desc": "Close the read-only terminal tab for one of your background processes in the Hermes desktop GUI (the tabs mirroring terminal(background=true) runs). This does NOT kill the process — it only drops the tab/view; the output keeps buffering and the user can reopen it from the status stack. Use it to tidy up when a background process's live terminal is no longer worth showing. To actually stop the process, use process(action='kill') instead.",
+  "params": [
+   "process_id"
+  ],
+  "file": "close_terminal_tool.py",
+  "line": 32
+ },
+ "execute_code": {
+  "name": "execute_code",
+  "desc": null,
+  "params": [
+   "code",
+   "reset"
+  ],
+  "file": "code_execution_tool.py",
+  "line": 2433
+ },
+ "cronjob": {
+  "name": "cronjob",
+  "desc": "Manage scheduled cron jobs: action='create' schedules a job from a prompt and/or skills; 'list' inspects jobs; 'update'/'pause'/'resume'/'remove' manage one by job_id (always list first — never guess job IDs); 'run' fires a job immediately in the BACKGROUND (returns a handle at once, outcome re-enters the conversation when done — do not wait or poll; optional 'prompt' adds transient context for that fire only).\n\nJobs run in a fresh session with no current-chat context, so prompts must be self-contained, and the agent's FINAL RESPONSE is what gets delivered — cron runs are autonomous and cannot ask questions. Prefer updating an existing job over creating near-duplicates.",
+  "params": [
+   "action",
+   "job_id",
+   "prompt",
+   "schedule",
+   "name",
+   "repeat",
+   "deliver",
+   "skills",
+   "script",
+   "monitor",
+   "no_agent",
+   "context_from",
+   "continuity",
+   "enabled_toolsets",
+   "workdir",
+   "attach_to_session"
+  ],
+  "file": "cronjob_tools.py",
+  "line": 1948
+ },
+ "delegate_task": {
+  "name": "delegate_task",
+  "desc": "Spawn one or more subagents in isolated contexts. Rebuilt at every get_definitions() call to reflect the user's current delegation limits.",
+  "params": [
+   "tasks",
+   "action",
+   "subagent_id",
+   "message"
+  ],
+  "file": "delegate_tool.py",
+  "line": 5198
+ },
+ "drive_preview": {
+  "name": "drive_preview",
+  "desc": "Use the web page open in the desktop preview pane (the one `desktop_preview` opens): log in, fill forms, click through flows. ALWAYS start with action='elements' — it inventories clickable/typable things as refs ('btn-sign-in') with role/label/value; act by ref, not guessed selectors. Refs survive re-renders and only die on navigation (you'll be told they're stale — call elements again). After the first full inventory, actions answer with a DELTA: 'added' in full, 'changed' as ref + moved fields, 'removed'/'rebound' as ref lists ('rebound' needs nothing from you — the ref already follows the rebuilt element). Anything unmentioned is unchanged; do not re-read to check. Input is real (pointer travels, hover menus open). Actions: elements, click, hover (park the pointer — opens dropdowns before clicking in), type (submit=true also presses Enter), scroll, press, strobe (visual flourish only — one call runs a multi-second burst; never loop it), back/forward/reload. Moves draw live and fade; annotate_preview leaves a lasting mark. Page text only: desktop_preview action=read. Separate automated browser: browser_* tools.",
+  "params": [
+   "action",
+   "ref",
+   "selector",
+   "text",
+   "submit",
+   "key",
+   "amount",
+   "to",
+   "max",
+   "full"
+  ],
+  "file": "drive_preview_tool.py",
+  "line": 127
+ },
+ "feishu_doc_read": {
+  "name": "feishu_doc_read",
+  "desc": "Read the full content of a Feishu/Lark document as plain text. Useful when you need more context beyond the quoted text in a comment.",
+  "params": [
+   "doc_token"
+  ],
+  "file": "feishu_doc_tool.py",
+  "line": 35
+ },
+ "feishu_drive_list_comments": {
+  "name": "feishu_drive_list_comments",
+  "desc": "List comments on a Feishu document. Use is_whole=true to list whole-document comments only.",
+  "params": [
+   "file_token",
+   "file_type",
+   "is_whole",
+   "page_size",
+   "page_token"
+  ],
+  "file": "feishu_drive_tool.py",
+  "line": 95
+ },
+ "feishu_drive_list_comment_replies": {
+  "name": "feishu_drive_list_comment_replies",
+  "desc": "List all replies in a comment thread on a Feishu document.",
+  "params": [
+   "file_token",
+   "comment_id",
+   "file_type",
+   "page_size",
+   "page_token"
+  ],
+  "file": "feishu_drive_tool.py",
+  "line": 174
+ },
+ "feishu_drive_reply_comment": {
+  "name": "feishu_drive_reply_comment",
+  "desc": "Reply to a local comment thread on a Feishu document. Use this for local (quoted-text) comments. For whole-document comments, use feishu_drive_add_comment instead.",
+  "params": [
+   "file_token",
+   "comment_id",
+   "content",
+   "file_type"
+  ],
+  "file": "feishu_drive_tool.py",
+  "line": 247
+ },
+ "feishu_drive_add_comment": {
+  "name": "feishu_drive_add_comment",
+  "desc": "Add a new whole-document comment on a Feishu document. Use this for whole-document comments or as a fallback when reply_comment fails with code 1069302.",
+  "params": [
+   "file_token",
+   "content",
+   "file_type"
+  ],
+  "file": "feishu_drive_tool.py",
+  "line": 322
+ },
+ "read_file": {
+  "name": "read_file",
+  "desc": "Read a text file with line numbers and pagination. Use this instead of cat/head/tail in terminal. Output format: 'LINE_NUM|CONTENT'. Suggests similar filenames if not found. Use offset and limit for large files. Reads exceeding ~100K characters are truncated on a line boundary and return a next_offset; continue with offset to read the rest. Documents auto-extract to readable text: .ipynb, Office (.docx/.xlsx/.pptx and legacy .doc/.ppt/.xls), PDF (text layer), OpenDocument, RTF, EPUB. Cannot read images/binary — use vision_analyze for images.",
+  "params": [
+   "path",
+   "offset",
+   "limit"
+  ],
+  "file": "file_tools.py",
+  "line": 2686
+ },
+ "write_file": {
+  "name": "write_file",
+  "desc": "Write content to a file, completely replacing existing content. Use this instead of echo/cat heredoc in terminal. Creates parent directories automatically. OVERWRITES the entire file — use 'patch' for targeted edits. Auto-runs syntax checks on .py/.json/.yaml/.toml and other linted languages; only NEW errors introduced by this write are surfaced (pre-existing errors are filtered out). The result's verified:true means the on-disk content hash was confirmed — do NOT re-read the file to check the write landed.",
+  "params": [
+   "path",
+   "content"
+  ],
+  "file": "file_tools.py",
+  "line": 2708
+ },
+ "patch": {
+  "name": "patch",
+  "desc": "Targeted find-and-replace edits in files. Use this instead of sed/awk in terminal. Uses fuzzy matching (9 strategies) so minor whitespace/indentation differences won't break it. Returns a unified diff. Auto-runs syntax checks after editing. Finds a unique string and replaces it.",
+  "params": [
+   "path",
+   "old_string",
+   "new_string",
+   "replace_all"
+  ],
+  "file": "file_tools.py",
+  "line": 2726
+ },
+ "search_files": {
+  "name": "search_files",
+  "desc": "Search file contents or find files by name. Use this instead of grep/rg/find/ls in terminal. Ripgrep-backed, faster than shell equivalents. On macOS, broad searches above the user home automatically skip TCC-protected folders (Desktop, Documents, Downloads, Library, Movies, Music, Pictures); target one directly when access is intentional.\n\nContent search (target='content'): Regex search inside files. Output modes: full matches with line numbers, file paths only, or match counts.\n\nFile search (target='files'): Find files by glob pattern (e.g., '*.py', '*config*'). Also use this instead of ls — results sorted by modification time.",
+  "params": [
+   "pattern",
+   "target",
+   "path",
+   "file_glob",
+   "limit",
+   "offset",
+   "output_mode",
+   "context"
+  ],
+  "file": "file_tools.py",
+  "line": 2823
+ },
+ "focus_pane": {
+  "name": "focus_pane",
+  "desc": "Reveal and focus a Hermes desktop pane when the user asks to see it: chat, files, terminal, review (git diff), or sessions. For URLs/files use the desktop_preview tool instead.",
+  "params": [
+   "pane"
+  ],
+  "file": "focus_pane_tool.py",
+  "line": 42
+ },
+ "ha_list_entities": {
+  "name": "ha_list_entities",
+  "desc": "List Home Assistant entities. Optionally filter by domain (light, switch, climate, sensor, binary_sensor, cover, fan, etc.) or by area name (living room, kitchen, bedroom, etc.).",
+  "params": [
+   "domain",
+   "area"
+  ],
+  "file": "homeassistant_tool.py",
+  "line": 354
+ },
+ "ha_get_state": {
+  "name": "ha_get_state",
+  "desc": "Get the detailed state of a single Home Assistant entity, including all attributes (brightness, color, temperature setpoint, sensor readings, etc.).",
+  "params": [
+   "entity_id"
+  ],
+  "file": "homeassistant_tool.py",
+  "line": 384
+ },
+ "ha_list_services": {
+  "name": "ha_list_services",
+  "desc": "List available Home Assistant services (actions) for device control. Shows what actions can be performed on each device type and what parameters they accept. Use this to discover how to control devices found via ha_list_entities.",
+  "params": [
+   "domain"
+  ],
+  "file": "homeassistant_tool.py",
+  "line": 405
+ },
+ "ha_call_service": {
+  "name": "ha_call_service",
+  "desc": "Call a Home Assistant service to control a device. Use ha_list_services to discover available services and their parameters for each domain.",
+  "params": [
+   "domain",
+   "service",
+   "entity_id",
+   "data"
+  ],
+  "file": "homeassistant_tool.py",
+  "line": 428
+ },
+ "image_generate": {
+  "name": "image_generate",
+  "desc": "Generate images from text prompts. The active model's edit/reference capabilities are rendered at serving time.",
+  "params": [
+   "prompt",
+   "aspect_ratio"
+  ],
+  "file": "image_generation_tool.py",
+  "line": 1540
+ },
+ "kanban_show": {
+  "name": "kanban_show",
+  "desc": "Read a task's full state — title, body, assignee, parent task handoffs, your prior attempts on this task if any, comments, and recent events. Use this to (re)orient yourself before starting work, especially on retries. The response includes a pre-formatted ``worker_context`` string suitable for inclusion verbatim in your reasoning.",
+  "params": [
+   "task_id",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1697
+ },
+ "kanban_list": {
+  "name": "kanban_list",
+  "desc": "List Kanban task summaries so an orchestrator profile can discover work to route. Supports the same core filters as the CLI: assignee, status, tenant, include_archived, and limit. Returns compact rows with ids, title, status, assignee, priority, parent/child ids, and counts. Bounded to 50 rows by default, 200 max, with truncation metadata. Also recomputes ready tasks before listing, matching the CLI. Orchestrator-only — dispatcher-spawned task workers never see this tool.",
+  "params": [
+   "assignee",
+   "status",
+   "tenant",
+   "include_archived",
+   "limit",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1720
+ },
+ "kanban_complete": {
+  "name": "kanban_complete",
+  "desc": "Mark your current task done with a structured handoff for downstream workers and humans. Prefer ``summary`` for a human-readable 1-3 sentence description of what you did; put machine-readable facts in ``metadata`` (changed_files, tests_run, decisions, findings, etc). At least one of ``summary`` or ``result`` is required. If you created new tasks via ``kanban_create`` during this run, list their ids in ``created_cards`` — the kernel verifies them so phantom references are caught before they leak into downstream automation. If you produced deliverable files (charts, PDFs, spreadsheets, generated images), list their absolute paths in ``artifacts`` — the gateway notifier will upload them as native attachments to the human who subscribed to the task, so the deliverable lands in their chat alongside the summary instead of being a path they have to fetch by hand.",
+  "params": [
+   "task_id",
+   "summary",
+   "metadata",
+   "result",
+   "created_cards",
+   "artifacts",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1765
+ },
+ "kanban_block": {
+  "name": "kanban_block",
+  "desc": "Stop work on this task and route it according to WHY you're stuck. Set ``kind`` to say which: 'dependency' (waiting on another task — goes to todo and auto-resumes when that task finishes, no human needed), 'needs_input' (you need a human decision/answer), 'capability' (a hard wall: no access, missing credentials, an action no agent can do), or 'transient' (a flaky failure that may clear). ``reason`` is shown to the human on the board. If a task keeps getting unblocked and re-blocked for the same reason, it is auto-escalated to triage. Use for genuine blockers only — don't block on things you can resolve yourself.",
+  "params": [
+   "task_id",
+   "reason",
+   "kind",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1860
+ },
+ "kanban_request_review": {
+  "name": "kanban_request_review",
+  "desc": "Hand the task off for review: implementation, self-review, and verification are complete and you want a human (or reviewer) to look before it is marked done. Moves the task to the 'review' column and notifies the subscriber. Unlike ``kanban_block`` this is NOT a blocker — it never counts toward unblock-loop detection, so a task can cycle through review across follow-ups without ever being falsely escalated to triage. Use this instead of blocking with a free-form 'review-required:' reason.",
+  "params": [
+   "task_id",
+   "summary",
+   "reviewer",
+   "metadata",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1904
+ },
+ "kanban_request_changes": {
+  "name": "kanban_request_changes",
+  "desc": "Reviewer verdict: return the current review run to the original implementer with concrete required changes. This closes the review run, reapplies parent dependency gating, and requeues the task without using block-loop accounting. Only use from a task claimed from the review column; use kanban_block only for a genuine external blocker.",
+  "params": [
+   "task_id",
+   "reason",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1952
+ },
+ "kanban_heartbeat": {
+  "name": "kanban_heartbeat",
+  "desc": "Signal that you're still alive during a long operation (training, encoding, large crawls). Call every few minutes so humans see liveness separately from PID checks. Pure side effect — no work changes.",
+  "params": [
+   "task_id",
+   "note",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 1981
+ },
+ "kanban_comment": {
+  "name": "kanban_comment",
+  "desc": "Append a comment to a task's thread. Use for durable notes that should outlive this run (questions for the next worker, partial findings, rationale). Ephemeral reasoning doesn't belong here — use your normal response instead.",
+  "params": [
+   "task_id",
+   "body",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2009
+ },
+ "kanban_attach": {
+  "name": "kanban_attach",
+  "desc": "Attach a file to a task by passing its bytes inline (base64). Use for genuine file artifacts the next worker or a human should be able to download — generated reports, images, exports. The file is stored as a real attachment (not a comment link) under the task's attachments dir, capped at 25 MB. Prefer kanban_attach_url when you only have a URL.",
+  "params": [
+   "task_id",
+   "filename",
+   "content_base64",
+   "content_type",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2037
+ },
+ "kanban_attach_url": {
+  "name": "kanban_attach_url",
+  "desc": "Attach a file to a task by URL — Hermes downloads it server-side and stores it as a real attachment (capped at 25 MB). Use when you have a link rather than the bytes. Only http/https URLs are accepted.",
+  "params": [
+   "task_id",
+   "url",
+   "filename",
+   "content_type",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2075
+ },
+ "kanban_attachments": {
+  "name": "kanban_attachments",
+  "desc": "List the files attached to a task: id, filename, content_type, size, who uploaded it, and the absolute on-disk path you can read.",
+  "params": [
+   "task_id",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2114
+ },
+ "kanban_create": {
+  "name": "kanban_create",
+  "desc": "Create a new kanban task, optionally as a child of the current one (pass the current task id in ``parents``). Used by orchestrator workers to fan out — decompose work into child tasks with specific assignees, link them into a pipeline, then complete your own task. The dispatcher picks up the new tasks on its next tick and spawns the assigned profiles.",
+  "params": [
+   "title",
+   "assignee",
+   "body",
+   "parents",
+   "tenant",
+   "priority",
+   "workspace_kind",
+   "workspace_path",
+   "project",
+   "triage",
+   "idempotency_key",
+   "max_runtime_seconds",
+   "initial_status",
+   "skills",
+   "goal_mode",
+   "goal_max_turns",
+   "model",
+   "provider",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2133
+ },
+ "kanban_unblock": {
+  "name": "kanban_unblock",
+  "desc": "Unblock a Kanban task. It moves to ready when all parents are done, or todo while any parent remains open. Orchestrator-only — only profiles with the kanban toolset can unblock routed work; dispatcher-spawned task workers never see this tool.",
+  "params": [
+   "task_id",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2313
+ },
+ "kanban_link": {
+  "name": "kanban_link",
+  "desc": "Add a parent→child dependency edge after both tasks already exist. The child won't promote to 'ready' until all parents are 'done'. Cycles and self-links are rejected.",
+  "params": [
+   "parent_id",
+   "child_id",
+   "board"
+  ],
+  "file": "kanban_tools.py",
+  "line": 2334
+ },
+ "memory": {
+  "name": "memory",
+  "desc": "Save durable, high-signal facts that survive across sessions (injected every turn).\n\nHOW: batch ALL changes in ONE call via 'operations' ({action, content?, old_text?}) — atomic; char limit checked on the FINAL result only, so one call can remove/replace stale entries to free room and add. Don't repeat it; bare fields for one change.\n\nWHEN: save proactively on stated preferences, corrections, personal details, or stable facts about environment/conventions/workflow.\n\nIF FULL: add is rejected showing current entries — reissue as ONE batch that removes/shortens stale entries and adds the new one.\n\nTARGETS: 'user' = who the user is; 'memory' = your notes (environment, conventions, tool quirks, lessons).\n\nSKIP: trivial info, re-discoverable facts, raw dumps, task progress, completed-work logs, temporary todo state (use session_search). Procedures belong in a skill, not memory.",
+  "params": [
+   "action",
+   "target",
+   "content",
+   "old_text",
+   "new_text",
+   "operations"
+  ],
+  "file": "memory_tool.py",
+  "line": 1277
+ },
+ "open_preview": {
+  "name": "open_preview",
+  "desc": "Open something in the preview pane beside the chat in the Hermes desktop app. Use this when the user asks to see a page, dev server, or file in the preview pane — e.g. \"open cnn.com in the preview pane\" or \"preview localhost:3000\". Accepts a web URL (a bare domain like www.cnn.com is fine), a localhost dev-server URL, or a file path (HTML renders live; other files show their contents). The pane opens for the current window only. To close the pane or a tab, use close_preview.",
+  "params": [
+   "url",
+   "label"
+  ],
+  "file": "open_preview_tool.py",
+  "line": 62
+ },
+ "desktop_preview": {
+  "name": "desktop_preview",
+  "desc": "The preview pane beside the chat in the Hermes desktop app. open: show a web URL (bare domains fine), a localhost dev server, or a file path (HTML renders live) — opens for the current window only. close: dismiss the whole pane, or one tab via url. read: what the pane currently shows — returns {kind, url, title, text, start, end, total_chars}; a Browser tab's text is the rendered page's visible text, paged with start/count (char offsets); a file tab answers identity only (read the file with read_file).",
+  "params": [
+   "action",
+   "url",
+   "label",
+   "start",
+   "count"
+  ],
+  "file": "preview_tool.py",
+  "line": 50
+ },
+ "process": {
+  "name": "process",
+  "desc": "Manage background processes (terminal background=true). Actions: list all; poll status+new output (optionally from a line offset); log full output (paginated, optionally exported to a file); wait until done / pattern match / timeout / output-silence; kill; write stdin (no newline); submit data+Enter (prompts); close stdin. Prefer wait with pattern= for mid-process signals (server readiness, migration-done) instead of blind polling. Any unique process ID prefix is accepted.",
+  "params": [
+   "action",
+   "session_id",
+   "data",
+   "timeout",
+   "pattern",
+   "inactivity_timeout",
+   "block",
+   "output_path",
+   "offset",
+   "limit"
+  ],
+  "file": "process_registry.py",
+  "line": 3857
+ },
+ "desktop_project": {
+  "name": "desktop_project",
+  "desc": "Desktop Projects (named workspaces). create: make one and switch this chat into it — pass path to anchor it to a repo/folder (the chat's workspace moves there, the sidebar follows). switch: move this chat into an existing project by name/slug/id — the intentional way to move the session, not `cd`. list: all projects + which is active.",
+  "params": [
+   "action",
+   "name",
+   "path"
+  ],
+  "file": "project_tools.py",
+  "line": 162
+ },
+ "react_to_message": {
+  "name": "react_to_message",
+  "desc": "React to a message with a single emoji, the way you'd tapback in iMessage. Reach for it when a reaction is what a person would do: something funny gets a 😂, warmth gets a ❤️, a plan you're on board with gets a 👍 — then just carry on with whatever the message actually needs. If a reaction says it all, it can BE the reply (skip the redundant 'sounds good!' turn). Use it like a person would: occasionally, when felt — not on every message, and never as a status signal. NEVER narrate or explain a reaction ('I reacted with...', 'Reacting now') — the emoji appearing on the bubble is the whole point, and commentary kills it. Defaults to the user's most recent message. One reaction per message: a different emoji replaces yours, an empty string retracts it.",
+  "params": [
+   "emoji",
+   "message_row_id",
+   "messages_back"
+  ],
+  "file": "react_to_message_tool.py",
+  "line": 136
+ },
+ "read_preview": {
+  "name": "read_preview",
+  "desc": "Read what's currently shown in the in-app browser / preview pane of the Hermes desktop GUI (the pane open_preview opens beside this chat). Call with no arguments for the first window of the active tab's content. Returns JSON {kind, url, title, text, start, end, total_chars, note?}: a URL (Browser) tab's text is the rendered page's visible text — page through longer pages with `start`/`count` (character offsets, capped per read); a file tab answers identity only (read the file with read_file); an artifact tab points back at the conversation. Use after open_preview, or whenever the user refers to what's on screen in the browser ('what does this page say?'). To close the pane, use close_preview.",
+  "params": [
+   "start",
+   "count"
+  ],
+  "file": "read_preview_tool.py",
+  "line": 54
+ },
+ "read_terminal": {
+  "name": "read_terminal",
+  "desc": "Read the in-app terminal pane beside this chat. No args = visible screen + total_lines; page scrollback with start_line (0 = oldest) + count. JSON: {total_lines, start, end, viewport_rows, cursor_row, text}.",
+  "params": [
+   "start_line",
+   "count"
+  ],
+  "file": "read_terminal_tool.py",
+  "line": 54
+ },
+ "read_window_below": {
+  "name": "read_window_below",
+  "desc": "Identify the app window directly behind the Hermes desktop window (what the user is working in). JSON: {window: {app, title, bounds, id}, frontmost, platform}. title may be empty when the OS withholds it (noted in `note`); where windows cannot be enumerated at all, {error, platform} says what would fix it — relay that instead of retrying. Metadata only; never captures pixels.",
+  "params": [],
+  "file": "read_window_tool.py",
+  "line": 43
+ },
+ "send_message": {
+  "name": "send_message",
+  "desc": "Send a message to a connected messaging platform, or list available targets.\n\nIMPORTANT: When the user asks to send to a specific channel or person (not just a bare platform name), call send_message(action='list') FIRST to see available targets, then send to the correct one.\nIf the user just says a platform name like 'send to telegram', send directly to the home channel without listing first.",
+  "params": [
+   "action",
+   "target",
+   "message",
+   "emoji",
+   "message_id"
+  ],
+  "file": "send_message_tool.py",
+  "line": 214
+ },
+ "session_search": {
+  "name": "session_search",
+  "desc": "Search past Hermes sessions (FTS5 over the local session DB), or read/scroll inside one. Four shapes, picked by args: `query` = discovery (top-N matching sessions, top result fully hydrated); `session_id` + `around_message_id` = scroll (window of messages around an anchor); `session_id` alone = read a whole session — how you resolve an `@session:<profile>/<id>` link (split on '/' into profile + id); no args = browse recent sessions. Results are actual DB messages, no LLM. Searches conversation history ONLY — when the user gave a direct source (URL, file, contact, live system), inspect that first; never conclude 'not found' from history alone. Use for questions about past conversations: 'what did we do about X', 'where did we leave Y'. When referring the user to a session, write its `link` value verbatim inline (it renders as a titled link).",
+  "params": [
+   "query",
+   "limit",
+   "sort",
+   "detail",
+   "session_id",
+   "around_message_id",
+   "window",
+   "role_filter",
+   "profile"
+  ],
+  "file": "session_search_tool.py",
+  "line": 1145
+ },
+ "setup_mcp": {
+  "name": "setup_mcp",
+  "desc": "Propose an MCP server as an inline consent card (install a catalog entry, re-enable a disabled server, or run OAuth); blocks until the user acts. Use when they ask to add an MCP or a task clearly needs a missing one. Never hand-edit mcp_servers config for them — always use this tool. Never re-ask after a decline — on declined/unanswered, continue without it. Catalog names: `hermes mcp catalog` in the terminal.",
+  "params": [
+   "server",
+   "action",
+   "reason"
+  ],
+  "file": "setup_mcp_tool.py",
+  "line": 74
+ },
+ "skill_manage": {
+  "name": "skill_manage",
+  "desc": "Create, update, or delete skills — your procedural memory for recurring task types. The call is an operations array (a single edit is a list of one); it applies atomically — any failure rolls every touched skill back. Ops: create (full SKILL.md; lands in {...}/skills/; must precede that skill's other ops), patch (targeted old_string/new_string fix — preferred; content alone REPLACES the whole file, read it via skill_view() first), write_file/remove_file (supporting files), delete (sole op only). Existing skills are modified wherever they live. Keep the description's first 57 chars a self-contained trigger: 'Use when <trigger>. <one-line behavior>.' — skill_view() shows format conventions.",
+  "params": [
+   "operations"
+  ],
+  "file": "skill_manager_tool.py",
+  "line": 2098
+ },
+ "skills_list": {
+  "name": "skills_list",
+  "desc": "List available skills (name + description). Use skill_view(name) to load full content.",
+  "params": [
+   "category"
+  ],
+  "file": "skills_tool.py",
+  "line": 1964
+ },
+ "skill_view": {
+  "name": "skill_view",
+  "desc": "Load a skill's full content or linked files (references, templates, scripts). First call returns SKILL.md + a 'linked_files' dict of available files; call again with file_path to open one. Use for specific tasks/workflows.",
+  "params": [
+   "name",
+   "file_path"
+  ],
+  "file": "skills_tool.py",
+  "line": 1979
+ },
+ "terminal": {
+  "name": "terminal",
+  "desc": null,
+  "params": [
+   "command",
+   "mode",
+   "interactive",
+   "process_id",
+   "background",
+   "timeout",
+   "promote_on_timeout",
+   "wait_for_pattern",
+   "inactivity_timeout",
+   "workdir",
+   "pty",
+   "notify_on_complete",
+   "watch_patterns",
+   "token_kill",
+   "max_lines",
+   "notify"
+  ],
+  "file": "terminal_tool.py",
+  "line": 4587
+ },
+ "tip": {
+  "name": "tip",
+  "desc": "Point at one thing in the desktop UI with a small arrow bubble (no dimming, no tour chrome) — for when a sentence is clearer with a finger on its subject. Get selectors from tour(action='targets'), prefer stable:true, never guess. One tip at a time (new replaces last); say the same thing in chat too — the bubble is a pointer, not the message. Sparingly: a bubble every turn stops being read.",
+  "params": [
+   "text",
+   "selector",
+   "title",
+   "side"
+  ],
+  "file": "tip_tool.py",
+  "line": 62
+ },
+ "todo": {
+  "name": "todo",
+  "desc": "Manage the session's task list. Use for complex tasks (3+ steps) or multiple user tasks; no args = read.\n\nWriting: 'todos' items ({id, content, status: pending|in_progress|completed|cancelled, notes?, code?}). merge=false (default) replaces the list; merge=true updates by id, adds new. Order = priority; ONE in_progress at a time; complete items when done; cancel failed ones and add revised.\n\nBehavior:\n- auto_fix=true (default) auto-completes extra in_progress; false rejects the write\n- Done items cannot be re-opened (clamped)\n- Replace-dropped done items are archived\n- `code` items verified on completion; failure reverts to pending with error in notes\n- All-done returns a reminder in 'message'\n\nAlways returns the full list + 'warnings' and 'message'. Break large phases into nested subtasks using parent.",
+  "params": [
+   "todos",
+   "merge",
+   "auto_fix"
+  ],
+  "file": "todo_tool.py",
+  "line": 788
+ },
+ "tour": {
+  "name": "tour",
+  "desc": "Guided tour in the desktop GUI: dim the screen, highlight an element, attach a titled popover. Surfaces: 'app' (Hermes itself) or 'preview' (the page in the preview pane). ALWAYS call action='targets' first — prefer targets marked stable:true (their selectors survive re-renders); re-scan if one stops matching. Then narrate with action='show' (one highlight per call, replaces the last — pair each with a chat message) or hand over with action='start' + steps (user gets Next/Prev; 'next'/'prev' also page it). 'stop' clears. Use for how-does-X-work / where-is-Y walkthroughs.",
+  "params": [
+   "action",
+   "surface",
+   "selector",
+   "title",
+   "text",
+   "side",
+   "steps",
+   "step_index"
+  ],
+  "file": "tour_tool.py",
+  "line": 127
+ },
+ "text_to_speech": {
+  "name": "text_to_speech",
+  "desc": "Convert text to speech audio. Returns a MEDIA: path that the platform delivers as native audio. Compatible providers render as a voice bubble on Telegram; otherwise audio is sent as a regular attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider are user-configured (built-in providers like edge/openai or custom command providers under tts.providers.<name>), not model-selected.",
+  "params": [
+   "text",
+   "output_path",
+   "speed",
+   "instructions",
+   "provider"
+  ],
+  "file": "tts_tool.py",
+  "line": 4586
+ },
+ "video_generate": {
+  "name": "video_generate",
+  "desc": "(rebuilt at get_definitions() time — see _build_dynamic_video_schema)",
+  "params": [
+   "prompt",
+   "duration",
+   "aspect_ratio",
+   "resolution",
+   "model"
+  ],
+  "file": "video_generation_tool.py",
+  "line": 62
+ },
+ "vision_analyze": {
+  "name": "vision_analyze",
+  "desc": "Load an image into the conversation so you can see it. Call it any time the user references an image — then answer from what you see.",
+  "params": [
+   "image_url",
+   "question",
+   "region"
+  ],
+  "file": "vision_tools.py",
+  "line": 1808
+ },
+ "video_analyze": {
+  "name": "video_analyze",
+  "desc": "Analyze a video from a URL or local file path using a multimodal AI model. Sends the video to a video-capable model (e.g. Gemini) for understanding. Use this for video files — for images, use vision_analyze instead. Supports mp4, webm, mov, avi, mkv, mpeg formats. Note: large videos (>20 MB) may be slow; max ~50 MB.",
+  "params": [
+   "video_url",
+   "question"
+  ],
+  "file": "vision_tools.py",
+  "line": 2259
+ },
+ "web_search": {
+  "name": "web_search",
+  "desc": "Search the web — up to 5 results (title/URL/description). Operators (site:, filetype:pdf, intitle:, -term, \"exact phrase\") work if the backend supports them.",
+  "params": [
+   "query",
+   "limit"
+  ],
+  "file": "web_tools.py",
+  "line": 1627
+ },
+ "web_extract": {
+  "name": "web_extract",
+  "desc": "Extract page content from URLs as markdown/text (no LLM). PDF URLs work — pass the PDF link. Within char budget (default 15000) pages return whole; larger pages head+tail truncate, footer points to the full text's saved file path (page with read_file). On failure/timeout use the browser tool.",
+  "params": [
+   "urls",
+   "char_limit"
+  ],
+  "file": "web_tools.py",
+  "line": 1649
+ },
+ "x_search": {
+  "name": "x_search",
+  "desc": "Search X (Twitter) posts, profiles, and threads using xAI's built-in X Search tool. Read-only discovery only: use this for current discussion, reactions, or claims on public X rather than general web pages. Do not use it to post, reply, like, DM, upload media, delete, or inspect the user's authenticated X account — those require a separate authenticated X API surface outside this tool. Available when xAI credentials are configured (SuperGrok OAuth or XAI_API_KEY).",
+  "params": [
+   "query",
+   "allowed_x_handles",
+   "excluded_x_handles",
+   "from_date",
+   "to_date",
+   "enable_image_understanding",
+   "enable_video_understanding"
+  ],
+  "file": "x_search_tool.py",
+  "line": 478
+ },
+ "xai_video_edit": {
+  "name": "xai_video_edit",
+  "desc": "Edit an existing video with xAI Imagine. This is separate from `video_generate` because video editing is provider-specific. `video_url` must be the public HTTPS MP4 URL from a prior Imagine result (`video` or `public_url` on files-cdn).",
+  "params": [
+   "prompt",
+   "video_url",
+   "model"
+  ],
+  "file": "xai_video_tools.py",
+  "line": 70
+ },
+ "xai_video_extend": {
+  "name": "xai_video_extend",
+  "desc": "Extend an existing video with xAI Imagine. This is separate from `video_generate` because video extension is provider-specific. `video_url` must be the public HTTPS MP4 URL from a prior Imagine result (`video` or `public_url` on files-cdn).",
+  "params": [
+   "prompt",
+   "video_url",
+   "duration",
+   "model"
+  ],
+  "file": "xai_video_tools.py",
+  "line": 102
+ },
+ "yb_query_group_info": {
+  "name": "yb_query_group_info",
+  "desc": "Query basic info about a group (called '派/Pai' in the app), including group name, owner, and member count.",
+  "params": [
+   "group_code"
+  ],
+  "file": "yuanbao_tools.py",
+  "line": 505
+ },
+ "yb_query_group_members": {
+  "name": "yb_query_group_members",
+  "desc": "Query members of a group (called '派/Pai' in the app). Use this tool when you need to @mention someone, find a user by name, list bots (including Yuanbao AI), or list all members. IMPORTANT: You MUST call this tool before @mentioning any user, because you need the exact nickname to construct the @mention format.",
+  "params": [
+   "group_code",
+   "action",
+   "name",
+   "mention"
+  ],
+  "file": "yuanbao_tools.py",
+  "line": 531
+ },
+ "yb_send_dm": {
+  "name": "yb_send_dm",
+  "desc": "Send a private/direct message (DM) to a user in a group, with optional media files. This tool automatically looks up the user by name in the group member list and sends the message. Use this when someone asks to privately message / 私信 / DM a user. Supports text, images, and file attachments. You can also provide user_id directly if already known.",
+  "params": [
+   "group_code",
+   "name",
+   "message",
+   "user_id",
+   "media_files"
+  ],
+  "file": "yuanbao_tools.py",
+  "line": 583
+ },
+ "yb_search_sticker": {
+  "name": "yb_search_sticker",
+  "desc": "Search the built-in Yuanbao sticker (TIM face / 表情包) catalogue by keyword. Returns the top matching candidates with sticker_id, name, and description. Use this BEFORE yb_send_sticker to discover the right sticker_id. Sticker = 贴纸 = TIM face — NOT a message reaction. Prefer sending a sticker over bare Unicode emoji when reacting/expressing emotion.",
+  "params": [
+   "query",
+   "limit"
+  ],
+  "file": "yuanbao_tools.py",
+  "line": 657
+ },
+ "yb_send_sticker": {
+  "name": "yb_send_sticker",
+  "desc": "Send a built-in sticker (TIMFaceElem / 贴纸表情) to the current Yuanbao chat. Call yb_search_sticker first if you don't know the sticker_id/name. Sticker = 贴纸 = TIM face — NOT a message reaction. CRITICAL: Whenever the user asks you to send a sticker / 贴纸 / 表情包, you MUST use this tool. DO NOT draw a PNG via execute_code / Pillow / matplotlib and then call send_image_file — that produces a fake 'sticker' image instead of a real TIM face and is the WRONG path. If no suitable sticker_id is known, call yb_search_sticker first. When the recent thread shows users sending stickers, prefer matching that tone by replying with a sticker instead of (or in addition to) text.",
+  "params": [
+   "sticker",
+   "chat_id",
+   "reply_to"
+  ],
+  "file": "yuanbao_tools.py",
+  "line": 694
+ }
+}

@@ -1,0 +1,6 @@
+﻿usage: hermes egress install [-h] [--force]
+
+options:
+  -h, --help  show this help message and exit
+  --force     Re-download even if a managed copy already exists
+

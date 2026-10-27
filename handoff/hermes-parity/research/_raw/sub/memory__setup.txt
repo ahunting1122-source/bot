@@ -1,0 +1,9 @@
+﻿usage: hermes memory setup [-h] [provider]
+
+positional arguments:
+  provider    Provider to configure directly (e.g. honcho), skipping the
+              picker
+
+options:
+  -h, --help  show this help message and exit
+

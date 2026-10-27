@@ -1,0 +1,12 @@
+﻿usage: hermes config set [-h] [--force] [key] [value]
+
+positional arguments:
+  key         Configuration key (e.g., model, terminal.backend)
+  value       Value to set
+
+options:
+  -h, --help  show this help message and exit
+  --force     Skip the unknown-key notice printed after writing a key the
+              running version doesn't recognize (the value is saved either
+              way).
+

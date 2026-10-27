@@ -1,0 +1,17 @@
+﻿usage: hermes security audit [-h] [--json]
+                             [--fail-on {low,moderate,high,critical}]
+                             [--skip-venv] [--skip-plugins] [--skip-mcp]
+
+Query OSV.dev for known vulnerabilities in installed components.
+
+options:
+  -h, --help            show this help message and exit
+  --json                Emit machine-readable JSON instead of human-readable
+                        text
+  --fail-on {low,moderate,high,critical}
+                        Exit non-zero when any finding meets this severity
+                        (default: critical)
+  --skip-venv           Skip scanning the Hermes Python venv
+  --skip-plugins        Skip scanning plugin requirements files
+  --skip-mcp            Skip scanning pinned MCP servers in config.yaml
+

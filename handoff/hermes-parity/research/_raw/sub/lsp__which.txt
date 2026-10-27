@@ -1,0 +1,8 @@
+﻿usage: hermes lsp which [-h] server
+
+positional arguments:
+  server      Server id
+
+options:
+  -h, --help  show this help message and exit
+

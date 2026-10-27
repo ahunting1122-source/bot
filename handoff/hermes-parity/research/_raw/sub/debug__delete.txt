@@ -1,0 +1,8 @@
+﻿usage: hermes debug delete [-h] [urls ...]
+
+positional arguments:
+  urls        One or more paste URLs to delete (e.g. https://paste.rs/abc123)
+
+options:
+  -h, --help  show this help message and exit
+

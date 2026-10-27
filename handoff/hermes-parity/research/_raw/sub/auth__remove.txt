@@ -1,0 +1,9 @@
+﻿usage: hermes auth remove [-h] provider target
+
+positional arguments:
+  provider    Provider id
+  target      Credential index, entry id, or exact label
+
+options:
+  -h, --help  show this help message and exit
+

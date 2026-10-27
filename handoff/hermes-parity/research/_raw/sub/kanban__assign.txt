@@ -1,0 +1,9 @@
+﻿usage: hermes kanban assign [-h] task_id profile
+
+positional arguments:
+  task_id
+  profile     Profile name (or 'none' to unassign)
+
+options:
+  -h, --help  show this help message and exit
+

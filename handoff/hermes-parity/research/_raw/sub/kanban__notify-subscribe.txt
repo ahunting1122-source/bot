@@ -1,0 +1,38 @@
+﻿usage: hermes kanban notify-subscribe [-h] --platform PLATFORM
+                                      --chat-id CHAT_ID
+                                      [--thread-id THREAD_ID]
+                                      [--user-id USER_ID]
+                                      [--user-id-alt USER_ID_ALT]
+                                      [--chat-type {dm,group,channel,thread}]
+                                      [--notifier-profile NOTIFIER_PROFILE]
+                                      [--delivery-mode {notify,notify+wake,wake}]
+                                      task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help            show this help message and exit
+  --platform PLATFORM
+  --chat-id CHAT_ID
+  --thread-id THREAD_ID
+  --user-id USER_ID
+  --user-id-alt USER_ID_ALT
+  --chat-type {dm,group,channel,thread}
+                        Originating source chat_type, recorded so the active-
+                        wake delivery modes resolve the operator's real
+                        session. Omit to leave an existing sub unchanged (new
+                        subs default to 'dm').
+  --notifier-profile NOTIFIER_PROFILE
+                        Profile gateway that owns/delivers this subscription
+                        (default: active profile)
+  --delivery-mode {notify,notify+wake,wake}
+                        How the kanban-notifier reacts to terminal events for
+                        this subscription: 'notify' (passive message only;
+                        default), 'notify+wake' (message AND wake the
+                        destination gateway agent so it reads the full board
+                        context and replies in its own voice), or 'wake' (wake
+                        the agent only, no passive message). Omit to leave an
+                        existing subscription's mode unchanged (new subs
+                        default to 'notify').
+

@@ -1,0 +1,9 @@
+﻿usage: hermes mcp reauth [-h] [--all] [name]
+
+positional arguments:
+  name        Server name to re-authenticate (omit with --all)
+
+options:
+  -h, --help  show this help message and exit
+  --all       Re-authenticate every OAuth server in config, one at a time
+

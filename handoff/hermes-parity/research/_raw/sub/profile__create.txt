@@ -1,0 +1,25 @@
+﻿usage: hermes profile create [-h] [--clone] [--clone-all]
+                             [--clone-from SOURCE] [--no-alias] [--no-skills]
+                             [--description DESCRIPTION]
+                             profile_name
+
+positional arguments:
+  profile_name          Profile name (lowercase, alphanumeric)
+
+options:
+  -h, --help            show this help message and exit
+  --clone               Copy config.yaml, .env, SOUL.md, and skills from
+                        active profile
+  --clone-all           Full copy of active profile (all state, excluding per-
+                        profile history)
+  --clone-from SOURCE   Source profile to clone from; implies --clone unless
+                        --clone-all is set
+  --no-alias            Skip wrapper script creation
+  --no-skills           Create an empty profile with no bundled skills (opts
+                        out of `hermes update` skill sync)
+  --description DESCRIPTION
+                        One- or two-sentence description of what this profile
+                        is good at. Used by the kanban decomposer to route
+                        tasks based on role instead of profile name alone.
+                        Skip and add later via `hermes profile describe`.
+

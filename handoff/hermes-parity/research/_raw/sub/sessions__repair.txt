@@ -1,0 +1,13 @@
+﻿usage: hermes sessions repair [-h] [--check-only] [--no-backup]
+
+Recover a state.db whose schema is malformed (e.g. 'table messages_fts already
+exists'), which makes Desktop/Dashboard show no sessions. A backup is made
+first; sessions and messages are preserved and the FTS search index is rebuilt
+if needed.
+
+options:
+  -h, --help    show this help message and exit
+  --check-only  Only report whether the database opens cleanly; do not modify
+                it
+  --no-backup   Skip the timestamped backup copy (not recommended)
+

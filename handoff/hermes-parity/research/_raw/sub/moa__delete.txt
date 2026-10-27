@@ -1,0 +1,8 @@
+﻿usage: hermes moa delete [-h] name
+
+positional arguments:
+  name        Preset name to delete
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,15 @@
+﻿usage: hermes pets show [-h] [--state STATE] [--cycle] [--once] [--mode MODE]
+                        [--scale SCALE]
+                        [slug]
+
+positional arguments:
+  slug           Pet slug (default: active)
+
+options:
+  -h, --help     show this help message and exit
+  --state STATE  Single state: idle/run/review/failed/wave/jump
+  --cycle        Cycle through all states
+  --once         Play once instead of looping
+  --mode MODE    Override render mode (kitty/iterm/sixel/unicode/auto)
+  --scale SCALE  Override scale (0 = config)
+

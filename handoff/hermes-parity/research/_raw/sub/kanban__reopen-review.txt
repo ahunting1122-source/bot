@@ -1,0 +1,11 @@
+﻿usage: hermes kanban reopen-review [-h] [--reason REASON]
+                                   task_ids [task_ids ...]
+
+positional arguments:
+  task_ids
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  Optional reason/note — recorded as a comment before
+                   reopening. Quote multi-word reasons.
+

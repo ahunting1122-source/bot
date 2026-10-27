@@ -1,0 +1,6 @@
+﻿usage: hermes checkpoints clear-legacy [-h] [-f]
+
+options:
+  -h, --help   show this help message and exit
+  -f, --force  Skip confirmation prompt
+

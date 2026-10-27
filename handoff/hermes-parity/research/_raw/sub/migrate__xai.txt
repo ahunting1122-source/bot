@@ -1,0 +1,11 @@
+﻿usage: hermes migrate xai [-h] [--apply] [--no-backup]
+
+Scan config.yaml for references to xAI models retiring on May 15, 2026 and,
+with --apply, rewrite them in-place to the official replacements per the xAI
+migration guide. The original config.yaml is backed up before any rewrite.
+
+options:
+  -h, --help   show this help message and exit
+  --apply      Rewrite config.yaml in-place (default: dry-run, no writes)
+  --no-backup  Skip the timestamped backup of config.yaml when applying
+

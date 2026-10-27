@@ -1,0 +1,27 @@
+﻿usage: hermes sessions recover [-h] --source SOURCE [--output OUTPUT]
+                               [--inspect-only] [--work-dir WORK_DIR]
+                               [--chunk-size CHUNK_SIZE] [--allow-partial]
+                               [--report REPORT]
+
+Offline, non-destructive recovery for a damaged state.db. The source database
+and its WAL/SHM/rollback-journal sidecars are copied before SQLite opens
+anything. Canonical rows are rebuilt into a new output database; derived
+search indexes are recreated and the active database is never replaced
+automatically.
+
+options:
+  -h, --help            show this help message and exit
+  --source SOURCE       Source state.db or preserved backup to inspect/recover
+  --output OUTPUT       New recovery database path (required unless --inspect-
+                        only)
+  --inspect-only        Only report canonical table readability; do not create
+                        an output database
+  --work-dir WORK_DIR   Existing directory for the disposable source copy
+                        (defaults beside the output)
+  --chunk-size CHUNK_SIZE
+                        Rows committed per recovery batch (default: 1000)
+  --allow-partial       Best-effort salvage across damaged row ranges; the
+                        output remains separate and every skipped range is
+                        recorded
+  --report REPORT       JSON report path (defaults to <output>.recovery.json)
+

@@ -1,0 +1,13 @@
+﻿usage: hermes peer run [-h] [--idempotency-key IDEMPOTENCY_KEY] [--json]
+                       target [message]
+
+positional arguments:
+  target                <peer> or <peer>/<agent> (named profile on a
+                        multiplexed peer)
+  message               Message text (or stdin)
+
+options:
+  -h, --help            show this help message and exit
+  --idempotency-key IDEMPOTENCY_KEY
+                        Stable retry key (generated when omitted)
+  --json                Emit a JSON result

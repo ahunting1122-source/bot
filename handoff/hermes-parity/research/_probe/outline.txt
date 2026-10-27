@@ -1,0 +1,34 @@
+total chars=44034 lines=615
+--- section markers ---
+    5 | # Finishing the job
+    9 | # Parallel tool calls
+   15 | ## Skill Safety Rule
+   18 | ## Mid-turn user steering
+   25 | # Tool-use enforcement
+   30 | # Execution discipline
+  124 | # Project Context
+  128 | ## AGENTS.md
+  130 | # AGENTS.md - Your Workspace
+  134 | ## First Run
+  138 | ## Session Startup
+  149 | ## Memory
+  177 | ## Red Lines
+  184 | ## External vs Internal
+  198 | ## Group Chats
+  245 | ## Tools
+  257 | ## 💓 Heartbeats - Be Proactive!
+  339 | ## Make It Yours
+  343 | ## Skills
+  348 | <available_skills>
+  542 | </available_skills>
+  546 | ══════════════════════════════════════════════
+  548 | ══════════════════════════════════════════════
+  589 | ══════════════════════════════════════════════
+  591 | ══════════════════════════════════════════════
+offset <available_skills>                 = 24200
+offset MEMORY (your personal notes)       = 40080
+offset USER PROFILE (who the user is)     = 42424
+offset # Project Context                  = 15227
+offset Conversation started:              = 43906
+offset Skills                             = 19527
+offset SKILL                              = 3538

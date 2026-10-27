@@ -1,0 +1,7 @@
+﻿usage: hermes sync device [-h] [--name DEVICE_NAME]
+
+options:
+  -h, --help          show this help message and exit
+  --name DEVICE_NAME  Set a human-friendly label for this device (e.g. "Ben's
+                      Laptop"). Omit to print the current label.
+

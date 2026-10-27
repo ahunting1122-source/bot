@@ -1,0 +1,22 @@
+﻿usage: hermes mcp add [-h] [--url URL] [--command MCP_COMMAND] [--args ...]
+                      [--auth {oauth,header}] [--preset PRESET]
+                      [--connect-timeout CONNECT_TIMEOUT] [--env [ENV ...]]
+                      name
+
+positional arguments:
+  name                  Server name (used as config key)
+
+options:
+  -h, --help            show this help message and exit
+  --url URL             HTTP/SSE endpoint URL
+  --command MCP_COMMAND
+                        Stdio command (e.g. npx)
+  --args ...            Arguments for stdio command; must be the last option
+  --auth {oauth,header}
+                        Auth method
+  --preset PRESET       Known MCP preset name
+  --connect-timeout CONNECT_TIMEOUT
+                        Timeout in seconds for initial connection and tool
+                        discovery
+  --env [ENV ...]       Environment variables for stdio servers (KEY=VALUE)
+

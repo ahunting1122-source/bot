@@ -1,0 +1,8 @@
+﻿usage: hermes sessions unpin [-h] session_ids [session_ids ...]
+
+positional arguments:
+  session_ids  Session ID(s) or unique prefix(es) to unpin
+
+options:
+  -h, --help   show this help message and exit
+

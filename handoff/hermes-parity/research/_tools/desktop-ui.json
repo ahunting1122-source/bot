@@ -1,0 +1,639 @@
+{
+ "pragma_journal": "delete",
+ "page_size": 4096,
+ "freelist_count": 3,
+ "page_count": 82,
+ "encoding": "UTF-8",
+ "fk_enabled": 0,
+ "user_version": 0,
+ "schema_version": 9,
+ "application_id": 0,
+ "views": [],
+ "triggers": [],
+ "tables": [
+  {
+   "name": "session_ui_state",
+   "sql": "CREATE TABLE session_ui_state (\n            session_id TEXT PRIMARY KEY,\n            title_override TEXT,\n            archived INTEGER NOT NULL DEFAULT 0,\n            pinned INTEGER NOT NULL DEFAULT 0,\n            tags_json TEXT,\n            workspace_path TEXT,\n            updated_at INTEGER NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "title_override",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "archived",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "pinned",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "tags_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "workspace_path",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "updated_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_session_ui_state_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_session_ui_state_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "session_id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "turn_stats",
+   "sql": "CREATE TABLE turn_stats (\n            id TEXT PRIMARY KEY,\n            session_id TEXT NOT NULL,\n            gateway_session_id TEXT,\n            client_message_id TEXT,\n            backend_message_id INTEGER,\n            turn_index INTEGER,\n            content_hash TEXT,\n            metadata_json TEXT,\n            model TEXT,\n            provider TEXT,\n            started_at INTEGER,\n            first_token_at INTEGER,\n            completed_at INTEGER,\n            ttft_ms INTEGER,\n            duration_ms INTEGER,\n            tokens_input INTEGER,\n            tokens_output INTEGER,\n            tokens_total INTEGER,\n            cache_read INTEGER,\n            cache_write INTEGER,\n            reasoning_tokens INTEGER,\n            context_used INTEGER,\n            context_max INTEGER,\n            api_calls INTEGER,\n            cost_usd REAL,\n            cost_status TEXT,\n            finish_reason TEXT,\n            status TEXT,\n            created_at INTEGER NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "gateway_session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "client_message_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "backend_message_id",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "turn_index",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "content_hash",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "metadata_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "model",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "provider",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "started_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 11,
+     "name": "first_token_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 12,
+     "name": "completed_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 13,
+     "name": "ttft_ms",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 14,
+     "name": "duration_ms",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 15,
+     "name": "tokens_input",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 16,
+     "name": "tokens_output",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 17,
+     "name": "tokens_total",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 18,
+     "name": "cache_read",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 19,
+     "name": "cache_write",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 20,
+     "name": "reasoning_tokens",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 21,
+     "name": "context_used",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 22,
+     "name": "context_max",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 23,
+     "name": "api_calls",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 24,
+     "name": "cost_usd",
+     "type": "REAL",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 25,
+     "name": "cost_status",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 26,
+     "name": "finish_reason",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 27,
+     "name": "status",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 28,
+     "name": "created_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_turn_stats_hash",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "idx_turn_stats_session",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "sqlite_autoindex_turn_stats_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_turn_stats_hash": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 6,
+      "name": "content_hash"
+     }
+    ],
+    "idx_turn_stats_session": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "session_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 12,
+      "name": "completed_at"
+     },
+     {
+      "seqno": 2,
+      "cid": 28,
+      "name": "created_at"
+     }
+    ],
+    "sqlite_autoindex_turn_stats_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 336
+  },
+  {
+   "name": "ui_events",
+   "sql": "CREATE TABLE ui_events (\n            id TEXT PRIMARY KEY,\n            ts INTEGER NOT NULL,\n            session_id TEXT,\n            event_name TEXT NOT NULL,\n            source TEXT,\n            props_json TEXT,\n            app_version TEXT\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "ts",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "session_id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "event_name",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "source",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "props_json",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "app_version",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_ui_events_name",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "idx_ui_events_ts",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "sqlite_autoindex_ui_events_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_ui_events_name": [
+     {
+      "seqno": 0,
+      "cid": 3,
+      "name": "event_name"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "ts"
+     }
+    ],
+    "idx_ui_events_ts": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "ts"
+     }
+    ],
+    "sqlite_autoindex_ui_events_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "ui_kv",
+   "sql": "CREATE TABLE ui_kv (\n            key TEXT PRIMARY KEY,\n            value_json TEXT NOT NULL,\n            updated_at INTEGER NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "value_json",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "updated_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_ui_kv_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_ui_kv_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 17
+  },
+  {
+   "name": "ui_schema_migrations",
+   "sql": "CREATE TABLE ui_schema_migrations (\n            version INTEGER PRIMARY KEY,\n            applied_at INTEGER NOT NULL\n        )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "version",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "applied_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [],
+   "index_columns": {},
+   "fks": [],
+   "rows": 1
+  }
+ ],
+ "indexes_all": [
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_session_ui_state_1",
+   "tbl_name": "session_ui_state",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_turn_stats_hash",
+   "tbl_name": "turn_stats",
+   "sql": "CREATE INDEX idx_turn_stats_hash ON turn_stats(session_id, content_hash)"
+  },
+  {
+   "type": "index",
+   "name": "idx_turn_stats_session",
+   "tbl_name": "turn_stats",
+   "sql": "CREATE INDEX idx_turn_stats_session ON turn_stats(session_id, completed_at, created_at)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_turn_stats_1",
+   "tbl_name": "turn_stats",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_ui_events_name",
+   "tbl_name": "ui_events",
+   "sql": "CREATE INDEX idx_ui_events_name ON ui_events(event_name, ts)"
+  },
+  {
+   "type": "index",
+   "name": "idx_ui_events_ts",
+   "tbl_name": "ui_events",
+   "sql": "CREATE INDEX idx_ui_events_ts ON ui_events(ts)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_ui_events_1",
+   "tbl_name": "ui_events",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_ui_kv_1",
+   "tbl_name": "ui_kv",
+   "sql": null
+  }
+ ]
+}

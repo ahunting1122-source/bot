@@ -1,0 +1,8 @@
+﻿usage: hermes pets scale [-h] factor
+
+positional arguments:
+  factor      Scale factor, e.g. 0.5 (clamped 0.1–3.0)
+
+options:
+  -h, --help  show this help message and exit
+

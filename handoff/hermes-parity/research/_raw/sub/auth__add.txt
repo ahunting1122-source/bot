@@ -1,0 +1,30 @@
+﻿usage: hermes auth add [-h] [--type {oauth,api-key,api_key}] [--label LABEL]
+                       [--api-key API_KEY] [--portal-url PORTAL_URL]
+                       [--inference-url INFERENCE_URL] [--client-id CLIENT_ID]
+                       [--scope SCOPE] [--no-browser] [--timeout TIMEOUT]
+                       [--insecure] [--ca-bundle CA_BUNDLE]
+                       provider
+
+positional arguments:
+  provider              Provider id (for example: anthropic, openai-codex,
+                        openrouter)
+
+options:
+  -h, --help            show this help message and exit
+  --type {oauth,api-key,api_key}
+                        Credential type to add
+  --label LABEL         Optional display label
+  --api-key API_KEY     API key value (otherwise prompted securely)
+  --portal-url PORTAL_URL
+                        Nous portal base URL
+  --inference-url INFERENCE_URL
+                        Nous inference base URL
+  --client-id CLIENT_ID
+                        OAuth client id
+  --scope SCOPE         OAuth scope override
+  --no-browser          Do not auto-open a browser for OAuth login
+  --timeout TIMEOUT     OAuth/network timeout in seconds
+  --insecure            Disable TLS verification for OAuth login
+  --ca-bundle CA_BUNDLE
+                        Custom CA bundle for OAuth login
+

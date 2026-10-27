@@ -1,0 +1,6 @@
+﻿usage: hermes cron list [-h] [--all]
+
+options:
+  -h, --help  show this help message and exit
+  --all       Include disabled jobs
+

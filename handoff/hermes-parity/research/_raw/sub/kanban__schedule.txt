@@ -1,0 +1,11 @@
+﻿usage: hermes kanban schedule [-h] [--ids IDS [IDS ...]] task_id [reason ...]
+
+positional arguments:
+  task_id
+  reason               Reason/timing note (also appended as a comment)
+
+options:
+  -h, --help           show this help message and exit
+  --ids IDS [IDS ...]  Additional task ids to schedule with the same reason
+                       (bulk mode)
+

@@ -1,0 +1,8 @@
+﻿usage: hermes mcp install [-h] identifier
+
+positional arguments:
+  identifier  Catalog entry name (or `official/<name>`)
+
+options:
+  -h, --help  show this help message and exit
+

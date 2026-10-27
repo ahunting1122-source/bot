@@ -1,0 +1,9 @@
+﻿usage: hermes kanban log [-h] [--tail TAIL] task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help   show this help message and exit
+  --tail TAIL  Only print the last N bytes
+

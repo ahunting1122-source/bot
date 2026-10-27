@@ -1,0 +1,16 @@
+﻿usage: hermes kanban show [-h] [--json] [--state-type {status,outcome}]
+                          [--state-name VALUE]
+                          task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help            show this help message and exit
+  --json
+  --state-type {status,outcome}
+                        With --state-name: filter listed runs by task_runs
+                        column
+  --state-name VALUE    With --state-type: keep runs whose column equals this
+                        value
+

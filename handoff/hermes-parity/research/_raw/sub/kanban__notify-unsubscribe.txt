@@ -1,0 +1,14 @@
+﻿usage: hermes kanban notify-unsubscribe [-h] --platform PLATFORM
+                                        --chat-id CHAT_ID
+                                        [--thread-id THREAD_ID]
+                                        task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help            show this help message and exit
+  --platform PLATFORM
+  --chat-id CHAT_ID
+  --thread-id THREAD_ID
+

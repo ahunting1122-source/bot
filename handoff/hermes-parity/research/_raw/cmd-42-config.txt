@@ -1,0 +1,22 @@
+﻿### CMD: config
+### EXITCODE: 0
+usage: hermes config [-h]
+                     {show,edit,get,set,unset,path,env-path,check,migrate} ...
+
+Manage Hermes Agent configuration
+
+positional arguments:
+  {show,edit,get,set,unset,path,env-path,check,migrate}
+    show                Show current configuration
+    edit                Open config file in editor
+    get                 Print a resolved configuration value
+    set                 Set a configuration value
+    unset               Remove a configuration value
+    path                Print config file path
+    env-path            Print .env file path
+    check               Check for missing/outdated config
+    migrate             Update config with new options
+
+options:
+  -h, --help            show this help message and exit
+

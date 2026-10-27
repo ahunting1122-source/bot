@@ -1,0 +1,28 @@
+﻿### CMD: sync
+### EXITCODE: 0
+usage: hermes sync [-h]
+                   {status,pull,push,now,enable,disable,device,propose} ...
+
+Skill Sync keeps your skills with you. Personal sync moves your own skills between your devices; if you belong to an organisation, you also get its shared skills and can propose your own back to the team.
+
+positional arguments:
+  {status,pull,push,now,enable,disable,device,propose}
+    status              Show what is synced, and from where
+    pull                Pull your synced skills (and your organisation's)
+    push                Push your opted-in skills
+    now                 Reconcile now: pull then push
+    enable              Include a skill in your sync
+    disable             Exclude a skill from your sync
+    device              Show or set this device's label (shown in the sync
+                        console)
+    propose             Share a skill with your organisation
+
+options:
+  -h, --help            show this help message and exit
+
+Examples:
+  hermes sync status            what is synced, and from where
+  hermes sync enable my-skill   include a skill in your sync
+  hermes sync now               pull, then push
+  hermes sync propose my-skill  share a skill with your team
+

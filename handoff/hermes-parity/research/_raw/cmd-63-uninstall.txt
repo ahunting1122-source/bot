@@ -1,0 +1,16 @@
+﻿### CMD: uninstall
+### EXITCODE: 0
+usage: hermes uninstall [-h] [--full] [--gui] [--gui-summary] [--yes]
+                        [--dry-run]
+
+Remove Hermes Agent from your system. Can keep configs/data for reinstall.
+
+options:
+  -h, --help     show this help message and exit
+  --full         Full uninstall - remove everything including configs and data
+  --gui          Uninstall only the desktop Chat GUI, leaving the agent intact
+  --gui-summary  Print a JSON summary of installed GUI/agent artifacts and
+                 exit (used by the desktop app to gate uninstall options)
+  --yes, -y      Skip confirmation prompts
+  --dry-run      Print what uninstall would remove without changing anything
+

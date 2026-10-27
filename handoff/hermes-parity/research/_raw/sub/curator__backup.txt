@@ -1,0 +1,6 @@
+﻿usage: hermes curator backup [-h] [--reason REASON]
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  Free-text label stored in manifest.json (default: 'manual')
+

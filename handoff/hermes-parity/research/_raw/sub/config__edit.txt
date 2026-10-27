@@ -1,0 +1,5 @@
+﻿usage: hermes config edit [-h]
+
+options:
+  -h, --help  show this help message and exit
+

@@ -1,0 +1,9 @@
+﻿usage: hermes skills list [-h] [--source {all,hub,builtin,local}]
+                          [--enabled-only]
+
+options:
+  -h, --help            show this help message and exit
+  --source {all,hub,builtin,local}
+  --enabled-only        Hide disabled skills. Use with -p <profile> to see
+                        exactly which skills will load for that profile.
+

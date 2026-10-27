@@ -1,0 +1,11 @@
+﻿usage: hermes skills list-modified [-h] [--json]
+
+Show the bundled skills whose local copy differs from the version last synced,
+i.e. the ones `hermes update` reports as user-modified and skips. Use `hermes
+skills diff <name>` to see changes and `hermes skills reset <name>` to resume
+updates.
+
+options:
+  -h, --help  show this help message and exit
+  --json      Output the list as JSON
+

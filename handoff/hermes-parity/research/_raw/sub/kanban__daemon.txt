@@ -1,0 +1,12 @@
+﻿usage: hermes kanban daemon [-h] [--interval INTERVAL] [--max MAX]
+                            [--failure-limit FAILURE_LIMIT]
+                            [--pidfile PIDFILE] [--verbose]
+
+options:
+  -h, --help            show this help message and exit
+  --interval INTERVAL   Seconds between dispatch ticks (default: 60)
+  --max MAX             Cap number of spawns per tick
+  --failure-limit FAILURE_LIMIT
+  --pidfile PIDFILE     Write the daemon's PID to this file on start
+  --verbose, -v         Log each tick's outcome to stdout
+

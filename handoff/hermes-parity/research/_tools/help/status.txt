@@ -1,0 +1,8 @@
+﻿usage: hermes status [-h] [--all] [--deep]
+
+Display status of Hermes Agent components
+
+options:
+  -h, --help  show this help message and exit
+  --all       Show all details (redacted for sharing)
+  --deep      Run deep checks (may take longer)

@@ -1,0 +1,10 @@
+﻿usage: hermes worktree prune [-h] [--repo REPO] [--dry-run] [--trees-only]
+                             [--branches-only]
+
+options:
+  -h, --help       show this help message and exit
+  --repo REPO      Repo root (default: current repo)
+  --dry-run        Show the plan without changing anything
+  --trees-only     Only remove worktrees; leave local branches alone
+  --branches-only  Only delete merged local branches; leave worktrees alone
+

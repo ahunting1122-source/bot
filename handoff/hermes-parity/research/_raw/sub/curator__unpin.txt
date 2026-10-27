@@ -1,0 +1,8 @@
+﻿usage: hermes curator unpin [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+

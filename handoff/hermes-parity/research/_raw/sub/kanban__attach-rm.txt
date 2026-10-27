@@ -1,0 +1,8 @@
+﻿usage: hermes kanban attach-rm [-h] attachment_id
+
+positional arguments:
+  attachment_id
+
+options:
+  -h, --help     show this help message and exit
+

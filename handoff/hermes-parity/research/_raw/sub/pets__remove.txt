@@ -1,0 +1,8 @@
+﻿usage: hermes pets remove [-h] slug
+
+positional arguments:
+  slug        Pet slug
+
+options:
+  -h, --help  show this help message and exit
+

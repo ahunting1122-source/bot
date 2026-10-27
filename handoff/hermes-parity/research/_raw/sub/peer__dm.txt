@@ -1,0 +1,10 @@
+﻿usage: hermes peer dm [-h] [--json] target [message]
+
+positional arguments:
+  target      <peer> or <peer>/<agent> (named profile on a multiplexed peer)
+  message     Message text (or stdin)
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit a JSON result
+

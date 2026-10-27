@@ -1,0 +1,28 @@
+﻿### CMD: login
+### EXITCODE: 0
+usage: hermes login [-h] [--provider PROVIDER] [--portal-url PORTAL_URL]
+                    [--inference-url INFERENCE_URL] [--client-id CLIENT_ID]
+                    [--scope SCOPE] [--no-browser] [--timeout TIMEOUT]
+                    [--ca-bundle CA_BUNDLE] [--insecure]
+
+Deprecated. Use `hermes auth` to manage credentials, `hermes model` to select
+a provider, or `hermes setup` for full setup.
+
+options:
+  -h, --help            show this help message and exit
+  --provider PROVIDER   (deprecated) Provider name; ignored — see `hermes
+                        model`
+  --portal-url PORTAL_URL
+                        Portal base URL (default: production portal)
+  --inference-url INFERENCE_URL
+                        Inference API base URL (default: production inference
+                        API)
+  --client-id CLIENT_ID
+                        OAuth client id to use (default: hermes-cli)
+  --scope SCOPE         OAuth scope to request
+  --no-browser          Do not attempt to open the browser automatically
+  --timeout TIMEOUT     HTTP request timeout in seconds (default: 15)
+  --ca-bundle CA_BUNDLE
+                        Path to CA bundle PEM file for TLS verification
+  --insecure            Disable TLS verification (testing only)
+

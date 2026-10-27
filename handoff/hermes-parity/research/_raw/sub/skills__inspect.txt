@@ -1,0 +1,8 @@
+﻿usage: hermes skills inspect [-h] identifier
+
+positional arguments:
+  identifier  Skill identifier
+
+options:
+  -h, --help  show this help message and exit
+

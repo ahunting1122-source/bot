@@ -1,0 +1,67 @@
+﻿usage: hermes cron create [-h] [--name NAME] [--deliver DELIVER]
+                          [--repeat REPEAT] [--skill SKILLS] [--script SCRIPT]
+                          [--no-agent] [--monitor-script MONITOR_SCRIPT]
+                          [--monitor-url MONITOR_URL] [--workdir WORKDIR]
+                          [--model MODEL] [--provider MODEL_PROVIDER]
+                          [--reasoning-effort REASONING_EFFORT] [--continuity]
+                          schedule [prompt]
+
+positional arguments:
+  schedule              Schedule like '30m', 'every 2h', or '0 9 * * *'
+  prompt                Optional self-contained prompt or task instruction
+
+options:
+  -h, --help            show this help message and exit
+  --name NAME           Optional human-friendly job name
+  --deliver DELIVER     Delivery target: origin, local, telegram, discord,
+                        signal, platform:chat_id, or bot-chat[:profile]
+                        (inject output into a local profile's canonical Bot
+                        Chat as a message the bot responds to)
+  --repeat REPEAT       Optional repeat count
+  --skill SKILLS        Attach a skill. Repeat to add multiple skills.
+  --script SCRIPT       Path to a script under ~/.hermes/scripts/. Default
+                        mode: script stdout is injected into the agent's
+                        prompt each run. With --no-agent: the script IS the
+                        job and its stdout is delivered verbatim. .sh/.bash
+                        files run via bash, everything else via Python.
+  --no-agent            Skip the LLM entirely — run --script on schedule and
+                        deliver its stdout directly. Empty stdout = silent.
+                        Classic watchdog pattern (memory alerts, disk alerts,
+                        CI pings).
+  --monitor-script MONITOR_SCRIPT
+                        Monitor mode: path to a cheap source script under
+                        ~/.hermes/scripts/ that runs each tick BEFORE the
+                        agent. Unchanged output (exact-bytes hash) suppresses
+                        the agent run entirely; changed output injects a
+                        MONITOR CHANGE DETECTED diff into the prompt. Script
+                        output must be stable (no timestamps). Mutually
+                        exclusive with --monitor-url; incompatible with --no-
+                        agent.
+  --monitor-url MONITOR_URL
+                        Monitor mode: http(s) URL fetched with a bounded GET
+                        each tick instead of a script. Same hash-suppression
+                        semantics as --monitor-script.
+  --workdir WORKDIR     Absolute path for the job to run from. Injects
+                        AGENTS.md / CLAUDE.md / .cursorrules from that
+                        directory and uses it as the cwd for
+                        terminal/file/code_exec tools. Omit to preserve old
+                        behaviour (no project context files).
+  --model MODEL         Pin this job to a specific inference model (user-
+                        owned; the agent's cronjob tool cannot set this). Omit
+                        to follow cron.model / model.default from config.yaml.
+  --provider MODEL_PROVIDER
+                        Inference provider paired with --model (e.g.
+                        'openrouter', 'nous').
+  --reasoning-effort REASONING_EFFORT
+                        Pin this job's reasoning (thinking) effort: none,
+                        minimal, low, medium, high, xhigh, max, or ultra.
+                        Overrides agent.reasoning_effort and
+                        agent.reasoning_overrides for this job; unsupported
+                        levels are clamped by the provider at request time.
+                        Omit to follow config.
+  --continuity          Each run wakes up with the job's own previous output
+                        injected into its prompt, so it can dedupe against
+                        what was already reported and continue where the last
+                        run left off (scouts, monitors, incremental digests).
+                        First run is unchanged.
+

@@ -1,0 +1,6 @@
+﻿usage: hermes gateway uninstall [-h] [--system]
+
+options:
+  -h, --help  show this help message and exit
+  --system    Target the Linux system-level gateway service
+

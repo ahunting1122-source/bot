@@ -1,0 +1,18 @@
+﻿usage: hermes computer-use permissions [-h] {status,grant} ...
+
+Computer Use drives the Mac through cua-driver, whose TCC grants attach to
+cua-driver's own identity (com.trycua.driver) — not the terminal or the Hermes
+app. `status` reports the driver's grant state; `grant` launches CuaDriver via
+LaunchServices so the macOS permission dialog is attributed to the process
+that does the work.
+
+positional arguments:
+  {status,grant}
+    status        Report Accessibility + Screen Recording grant state (read-
+                  only)
+    grant         Request the grants (opens the dialog attributed to
+                  CuaDriver)
+
+options:
+  -h, --help      show this help message and exit
+

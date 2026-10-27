@@ -1,0 +1,11 @@
+﻿usage: hermes kanban watch [-h] [--assignee ASSIGNEE] [--tenant TENANT]
+                           [--kinds KINDS] [--interval INTERVAL]
+
+options:
+  -h, --help           show this help message and exit
+  --assignee ASSIGNEE  Only show events for tasks assigned to this profile
+  --tenant TENANT      Only show events from tasks in this tenant
+  --kinds KINDS        Comma-separated event kinds to include (e.g.
+                       'completed,blocked,gave_up,crashed,timed_out')
+  --interval INTERVAL  Poll interval in seconds (default: 0.5)
+

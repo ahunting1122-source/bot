@@ -1,0 +1,14 @@
+﻿usage: hermes kanban repair [-h] [--json]
+
+Runs PRAGMA integrity_check on the board's DB and reports the result. When the
+failure consists only of index-scoped errors ('wrong # of entries in index
+<name>' / 'row N missing from index <name>'), the corrupt file is quarantined
+to a .corrupt.<hash>.bak sibling first and the damaged indexes are rebuilt
+with REINDEX — the same narrow auto-repair the connect-time guard applies. Any
+other corruption class is reported and left untouched (fail-closed). Exits 0
+when the DB is healthy or was repaired, non-zero when it is still corrupt.
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit the repair report as JSON
+

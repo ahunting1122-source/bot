@@ -1,0 +1,39 @@
+﻿### CMD: gui
+### EXITCODE: 0
+usage: hermes desktop [-h] [--source] [--build-only] [--fake-boot]
+                      [--ignore-existing] [--hermes-root HERMES_ROOT]
+                      [--cwd CWD] [--skip-build] [--force-build]
+                      [--setup-tcc-identity] [--identity IDENTITY]
+
+Launch the Hermes Electron desktop app. By default this installs workspace
+Node dependencies, builds the current OS's unpacked Electron app, then
+launches that packaged artifact.
+
+options:
+  -h, --help            show this help message and exit
+  --source              Launch via `electron .` against apps/desktop/dist
+                        instead of the packaged app
+  --build-only          Build the desktop app but do not launch it (used by
+                        the installer's --update flow)
+  --fake-boot           Enable deterministic desktop boot delays for
+                        validating startup UI
+  --ignore-existing     Force Desktop to ignore any hermes CLI already on PATH
+                        during backend resolution
+  --hermes-root HERMES_ROOT
+                        Override the Hermes source root used by Desktop (sets
+                        HERMES_DESKTOP_HERMES_ROOT)
+  --cwd CWD             Initial project directory for Desktop chat sessions
+                        (sets HERMES_DESKTOP_CWD)
+  --skip-build          Skip npm install/package and launch the existing
+                        unpacked app from apps/desktop/release
+  --force-build         Force a full rebuild even if the content stamp matches
+  --setup-tcc-identity  macOS only: create/import a self-signed code-signing
+                        certificate in the login keychain and point
+                        desktop.macos_signing_identity at it, then re-sign the
+                        packaged app. Makes macOS TCC grants (Full Disk
+                        Access, Accessibility, Files and Folders, microphone)
+                        survive rebuilds with a certificate-anchored identity.
+                        Idempotent — safe to re-run after updates.
+  --identity IDENTITY   Certificate name to create/use for --setup-tcc-
+                        identity (default: Hermes Local Signing)
+

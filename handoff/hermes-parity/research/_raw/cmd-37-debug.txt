@@ -1,0 +1,25 @@
+﻿### CMD: debug
+### EXITCODE: 0
+usage: hermes debug [-h] {share,delete} ...
+
+Debug utilities for Hermes Agent. Use 'hermes debug share' to upload a debug report (system info + recent logs) to a paste service and get a shareable URL.
+
+positional arguments:
+  {share,delete}
+    share         Upload debug report to a paste service and print a shareable
+                  URL
+    delete        Delete a paste uploaded by 'hermes debug share'
+
+options:
+  -h, --help      show this help message and exit
+
+Examples:
+    hermes debug share              Upload debug report (asks for confirmation)
+    hermes debug share --yes        Skip confirmation (for scripts/CI)
+    hermes debug share --lines 500  Include more log lines
+    hermes debug share --expire 30  Keep paste for 30 days
+    hermes debug share --local      Print report locally (no upload)
+    hermes debug share --no-redact  Disable upload-time secret redaction
+    hermes debug share --nous       Upload to Nous-internal storage (private)
+    hermes debug delete <url>       Delete a previously uploaded paste
+

@@ -1,0 +1,16 @@
+﻿usage: hermes kanban boards import [-h] [--as AS_SLUG] [--switch] [--json]
+                                   archive
+
+Import a .tar.gz produced by `hermes kanban boards export`. The board always
+lands as a NEW board — the slug gains a numeric suffix if it is already taken
+— so an import can never overwrite or merge into a board you already have.
+
+positional arguments:
+  archive       Path to the .tar.gz archive
+
+options:
+  -h, --help    show this help message and exit
+  --as AS_SLUG  Slug for the imported board (default: from the archive)
+  --switch      Switch to the imported board afterwards
+  --json
+

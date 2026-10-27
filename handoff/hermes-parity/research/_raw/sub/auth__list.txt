@@ -1,0 +1,8 @@
+﻿usage: hermes auth list [-h] [provider]
+
+positional arguments:
+  provider    Optional provider filter
+
+options:
+  -h, --help  show this help message and exit
+

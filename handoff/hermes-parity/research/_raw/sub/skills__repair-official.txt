@@ -1,0 +1,16 @@
+﻿usage: hermes skills repair-official [-h] [--restore] [--yes] name
+
+Repair official optional skill provenance. By default, only backfills hub
+metadata for exact matches. Pass --restore to replace missing or mutated
+active copies from optional-skills/, moving existing copies to a restore
+backup first. Use name 'all' to repair every optional skill.
+
+positional arguments:
+  name        Official optional skill folder/frontmatter name, or 'all'
+
+options:
+  -h, --help  show this help message and exit
+  --restore   Restore from official optional source, backing up existing
+              matching copies
+  --yes, -y   Skip confirmation prompt when using --restore
+

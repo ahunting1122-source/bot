@@ -1,0 +1,22 @@
+﻿usage: hermes kanban boards create [-h] [--name NAME]
+                                   [--description DESCRIPTION] [--icon ICON]
+                                   [--color COLOR] [--switch]
+                                   [--default-workdir DEFAULT_WORKDIR]
+                                   slug
+
+positional arguments:
+  slug                  Board slug (kebab-case, e.g. atm10-server)
+
+options:
+  -h, --help            show this help message and exit
+  --name NAME           Human-readable display name (defaults to Title Case of
+                        slug)
+  --description DESCRIPTION
+                        Optional description
+  --icon ICON           Optional emoji or single-character icon for the
+                        dashboard
+  --color COLOR         Optional hex color (e.g. '#8b5cf6') for the dashboard
+  --switch              Switch to the new board after creating it
+  --default-workdir DEFAULT_WORKDIR
+                        Default workspace path for tasks created on this board
+

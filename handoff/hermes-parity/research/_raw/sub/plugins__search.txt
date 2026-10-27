@@ -1,0 +1,14 @@
+﻿usage: hermes plugins search [-h] [--json] [--capability CAP] [--refresh]
+                             [term]
+
+positional arguments:
+  term              Search term matched fuzzily against name, description, and
+                    tags (omit to browse the full index)
+
+options:
+  -h, --help        show this help message and exit
+  --json            Print machine-readable JSON
+  --capability CAP  Filter by declared capability (e.g. tools, platform,
+                    commands)
+  --refresh         Bypass the local cache and re-fetch the index
+

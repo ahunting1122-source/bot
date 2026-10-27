@@ -1,0 +1,8 @@
+﻿usage: hermes skills check [-h] [name]
+
+positional arguments:
+  name        Specific skill to check (default: all)
+
+options:
+  -h, --help  show this help message and exit
+

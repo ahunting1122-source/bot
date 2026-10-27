@@ -1,0 +1,8 @@
+﻿usage: hermes computer-use install [-h] [--upgrade]
+
+options:
+  -h, --help  show this help message and exit
+  --upgrade   Re-run the upstream installer even if cua-driver is already on
+              PATH. The upstream install.sh always pulls the latest release,
+              so this performs an in-place upgrade.
+

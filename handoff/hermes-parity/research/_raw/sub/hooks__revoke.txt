@@ -1,0 +1,8 @@
+﻿usage: hermes hooks revoke [-h] command
+
+positional arguments:
+  command     The exact command string to revoke (as declared in config.yaml)
+
+options:
+  -h, --help  show this help message and exit
+

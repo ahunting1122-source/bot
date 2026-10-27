@@ -1,0 +1,12 @@
+﻿usage: hermes kanban archive [-h] [--rm PURGE_IDS [PURGE_IDS ...]]
+                             [task_ids ...]
+
+positional arguments:
+  task_ids              Task ids to archive (default mode)
+
+options:
+  -h, --help            show this help message and exit
+  --rm PURGE_IDS [PURGE_IDS ...]
+                        Permanently delete already-archived task ids from the
+                        board
+

@@ -1,0 +1,8 @@
+﻿usage: hermes curator restore [-h] skill
+
+positional arguments:
+  skill       Skill name
+
+options:
+  -h, --help  show this help message and exit
+

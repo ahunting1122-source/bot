@@ -1,0 +1,25 @@
+﻿usage: hermes plugins [-h]
+                      {install,search,update,remove,rm,uninstall,list,ls,enable,disable,capabilities,doctor,pack,show,info} ...
+
+Install, update, remove, list, or validate native Hermes plugins and portable
+Agent Plugins v1 packages. Portable packages install disabled.
+
+positional arguments:
+  {install,search,update,remove,rm,uninstall,list,ls,enable,disable,capabilities,doctor,pack,show,info}
+    install             Install a plugin from a Git URL, owner/repo, or index
+                        name
+    search              Search the community plugin index
+    update              Pull latest changes for an installed plugin
+    remove (rm, uninstall)
+                        Remove an installed plugin
+    list (ls)           List installed plugins
+    enable              Enable a disabled plugin
+    disable             Disable a plugin without removing it
+    capabilities        Show declared vs granted capabilities per plugin
+    doctor              Validate a plugin with the real runtime contracts
+    pack                Declarative, shareable plugin sets (hermes-pack.yaml)
+    show (info)         Show details for a single plugin (including
+                        emits/listens)
+
+options:
+  -h, --help            show this help message and exit

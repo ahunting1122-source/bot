@@ -1,0 +1,14 @@
+﻿### CMD: __gateway-restart-watch
+### EXITCODE: 0
+usage: hermes __gateway-restart-watch [-h] [--deadline DEADLINE] pid ...
+
+Internal: poll a PID then respawn the gateway (hidden).
+
+positional arguments:
+  pid
+  cmd
+
+options:
+  -h, --help           show this help message and exit
+  --deadline DEADLINE
+

@@ -1,0 +1,7 @@
+﻿usage: hermes plugins pack export [-h] [--enabled-only] [--name NAME]
+
+options:
+  -h, --help      show this help message and exit
+  --enabled-only  Only include plugins currently in plugins.enabled
+  --name NAME     Pack name to embed in the exported YAML
+

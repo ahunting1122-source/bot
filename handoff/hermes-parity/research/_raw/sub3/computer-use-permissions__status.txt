@@ -1,0 +1,6 @@
+﻿usage: hermes computer-use permissions status [-h] [--json]
+
+options:
+  -h, --help  show this help message and exit
+  --json      Emit the normalized permission payload as JSON.
+

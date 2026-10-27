@@ -1,0 +1,9 @@
+﻿usage: hermes mcp serve [-h] [-v] [--accept-hooks]
+
+options:
+  -h, --help      show this help message and exit
+  -v, --verbose   Enable verbose logging on stderr
+  --accept-hooks  Auto-approve unseen shell hooks without a TTY prompt
+                  (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept:
+                  true).
+

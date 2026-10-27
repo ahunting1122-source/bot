@@ -1,0 +1,9 @@
+﻿usage: hermes kanban unlink [-h] parent_id child_id
+
+positional arguments:
+  parent_id
+  child_id
+
+options:
+  -h, --help  show this help message and exit
+

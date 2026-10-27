@@ -1,0 +1,6 @@
+﻿usage: hermes kanban stats [-h] [--json]
+
+options:
+  -h, --help  show this help message and exit
+  --json
+

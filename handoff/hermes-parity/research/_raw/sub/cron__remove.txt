@@ -1,0 +1,8 @@
+﻿usage: hermes cron remove [-h] job_id
+
+positional arguments:
+  job_id      Job ID to remove
+
+options:
+  -h, --help  show this help message and exit
+

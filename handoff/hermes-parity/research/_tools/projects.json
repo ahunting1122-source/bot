@@ -1,0 +1,361 @@
+{
+ "pragma_journal": "delete",
+ "page_size": 4096,
+ "freelist_count": 0,
+ "page_count": 11,
+ "encoding": "UTF-8",
+ "fk_enabled": 0,
+ "user_version": 0,
+ "schema_version": 5,
+ "application_id": 0,
+ "views": [],
+ "triggers": [],
+ "tables": [
+  {
+   "name": "discovered_repos",
+   "sql": "CREATE TABLE discovered_repos (\n    root          TEXT PRIMARY KEY,\n    label         TEXT,\n    last_seen     INTEGER NOT NULL\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "root",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "label",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "last_seen",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_discovered_repos_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_discovered_repos_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "root"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "project_folders",
+   "sql": "CREATE TABLE project_folders (\n    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,\n    path        TEXT NOT NULL,\n    label       TEXT,\n    is_primary  INTEGER NOT NULL DEFAULT 0,\n    added_at    INTEGER NOT NULL,\n    PRIMARY KEY (project_id, path)\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "project_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "path",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 2
+    },
+    {
+     "cid": 2,
+     "name": "label",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "is_primary",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "added_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_project_folders_path",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_project_folders_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_project_folders_path": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "path"
+     }
+    ],
+    "sqlite_autoindex_project_folders_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "project_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 1,
+      "name": "path"
+     }
+    ]
+   },
+   "fks": [
+    {
+     "id": 0,
+     "seq": 0,
+     "table": "projects",
+     "from": "project_id",
+     "to": "id",
+     "on_update": "NO ACTION",
+     "on_delete": "CASCADE",
+     "match": "NONE"
+    }
+   ],
+   "rows": 0
+  },
+  {
+   "name": "project_meta",
+   "sql": "CREATE TABLE project_meta (\n    key    TEXT PRIMARY KEY,\n    value  TEXT\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "key",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "value",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_project_meta_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_project_meta_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "key"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  },
+  {
+   "name": "projects",
+   "sql": "CREATE TABLE projects (\n    id            TEXT PRIMARY KEY,\n    slug          TEXT NOT NULL UNIQUE,\n    name          TEXT NOT NULL,\n    description   TEXT,\n    icon          TEXT,\n    color         TEXT,\n    board_slug    TEXT,\n    primary_path  TEXT,\n    created_at    INTEGER NOT NULL,\n    archived      INTEGER NOT NULL DEFAULT 0\n)",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "slug",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "name",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "description",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "icon",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "color",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "board_slug",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "primary_path",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "created_at",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "archived",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": "0",
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "sqlite_autoindex_projects_2",
+     "unique": 1,
+     "origin": "u",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "sqlite_autoindex_projects_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "sqlite_autoindex_projects_2": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "slug"
+     }
+    ],
+    "sqlite_autoindex_projects_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  }
+ ],
+ "indexes_all": [
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_discovered_repos_1",
+   "tbl_name": "discovered_repos",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "idx_project_folders_path",
+   "tbl_name": "project_folders",
+   "sql": "CREATE INDEX idx_project_folders_path\n    ON project_folders(path)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_project_folders_1",
+   "tbl_name": "project_folders",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_project_meta_1",
+   "tbl_name": "project_meta",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_projects_1",
+   "tbl_name": "projects",
+   "sql": null
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_projects_2",
+   "tbl_name": "projects",
+   "sql": null
+  }
+ ]
+}

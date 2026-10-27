@@ -1,0 +1,13 @@
+﻿usage: hermes sessions pin [-h] session_ids [session_ids ...]
+
+Set the durable 'keep' flag on one or more sessions. Pinned sessions are
+exempt from the sessions.auto_archive stale sweep and always appear in
+listings. The same flag drives the Desktop sidebar's Pinned section — pin from
+either surface, both see it.
+
+positional arguments:
+  session_ids  Session ID(s) or unique prefix(es) to pin
+
+options:
+  -h, --help   show this help message and exit
+

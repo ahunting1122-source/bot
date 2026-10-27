@@ -1,0 +1,1503 @@
+{
+ "tools": [
+  {
+   "name": "agent_swarm",
+   "toolset": "swarm",
+   "description": null,
+   "schema_const": null,
+   "file": "agent_swarm.py",
+   "line": 405
+  },
+  {
+   "name": "annotate_preview",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "annotate_preview_tool.py",
+   "line": 127
+  },
+  {
+   "name": "apply_layout",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "apply_layout_tool.py",
+   "line": 65
+  },
+  {
+   "name": "browser_cdp",
+   "toolset": "browser-cdp",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_cdp_tool.py",
+   "line": 741
+  },
+  {
+   "name": "browser_dialog",
+   "toolset": "browser-cdp",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_dialog_tool.py",
+   "line": 132
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 2381
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 2793
+  },
+  {
+   "name": "browser_navigate",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6384
+  },
+  {
+   "name": "browser_snapshot",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6397
+  },
+  {
+   "name": "browser_click",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6411
+  },
+  {
+   "name": "browser_type",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6424
+  },
+  {
+   "name": "browser_scroll",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6437
+  },
+  {
+   "name": "browser_back",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6450
+  },
+  {
+   "name": "browser_press",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6463
+  },
+  {
+   "name": "browser_get_images",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6477
+  },
+  {
+   "name": "browser_vision",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6490
+  },
+  {
+   "name": "browser_console",
+   "toolset": "browser",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_tool.py",
+   "line": 6503
+  },
+  {
+   "name": "browser_exec",
+   "toolset": "browser-use",
+   "description": null,
+   "schema_const": null,
+   "file": "browser_use_cli.py",
+   "line": 1056
+  },
+  {
+   "name": "clarify",
+   "toolset": "clarify",
+   "description": null,
+   "schema_const": null,
+   "file": "clarify_tool.py",
+   "line": 504
+  },
+  {
+   "name": "close_terminal",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "close_terminal_tool.py",
+   "line": 58
+  },
+  {
+   "name": "execute_code",
+   "toolset": "code_execution",
+   "description": null,
+   "schema_const": null,
+   "file": "code_execution_tool.py",
+   "line": 2505
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "code_kernel.py",
+   "line": 401
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "code_kernel_remote.py",
+   "line": 222
+  },
+  {
+   "name": "computer_use",
+   "toolset": "computer_use",
+   "description": "Universal desktop control via cua-driver (macOS, Windows, Linux). Works with any tool-capable model (Anthropic, OpenAI, OpenRouter, local vLLM, etc.). Background computer-use: does NOT steal the user's cursor or keyboard focus.",
+   "schema_const": null,
+   "file": "computer_use_tool.py",
+   "line": 20
+  },
+  {
+   "name": "context_usage",
+   "toolset": "context_engine",
+   "description": null,
+   "schema_const": null,
+   "file": "context_engine_tools.py",
+   "line": 92
+  },
+  {
+   "name": "compact",
+   "toolset": "context_engine",
+   "description": null,
+   "schema_const": null,
+   "file": "context_engine_tools.py",
+   "line": 101
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "credential_files.py",
+   "line": 342
+  },
+  {
+   "name": "cronjob",
+   "toolset": "cronjob",
+   "description": null,
+   "schema_const": null,
+   "file": "cronjob_tools.py",
+   "line": 2098
+  },
+  {
+   "name": "delegate_task",
+   "toolset": "delegation",
+   "description": null,
+   "schema_const": null,
+   "file": "delegate_tool.py",
+   "line": 5348
+  },
+  {
+   "name": "discord",
+   "toolset": "discord",
+   "description": null,
+   "schema_const": null,
+   "file": "discord_tool.py",
+   "line": 1105
+  },
+  {
+   "name": "discord_admin",
+   "toolset": "discord_admin",
+   "description": null,
+   "schema_const": null,
+   "file": "discord_tool.py",
+   "line": 1114
+  },
+  {
+   "name": "drive_preview",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "drive_preview_tool.py",
+   "line": 201
+  },
+  {
+   "name": "feishu_doc_read",
+   "toolset": "feishu_doc",
+   "description": "Read Feishu document content",
+   "schema_const": null,
+   "file": "feishu_doc_tool.py",
+   "line": 128
+  },
+  {
+   "name": "feishu_drive_list_comments",
+   "toolset": "feishu_drive",
+   "description": "List document comments",
+   "schema_const": null,
+   "file": "feishu_drive_tool.py",
+   "line": 385
+  },
+  {
+   "name": "feishu_drive_list_comment_replies",
+   "toolset": "feishu_drive",
+   "description": "List comment replies",
+   "schema_const": null,
+   "file": "feishu_drive_tool.py",
+   "line": 397
+  },
+  {
+   "name": "feishu_drive_reply_comment",
+   "toolset": "feishu_drive",
+   "description": "Reply to a document comment",
+   "schema_const": null,
+   "file": "feishu_drive_tool.py",
+   "line": 409
+  },
+  {
+   "name": "feishu_drive_add_comment",
+   "toolset": "feishu_drive",
+   "description": "Add a whole-document comment",
+   "schema_const": null,
+   "file": "feishu_drive_tool.py",
+   "line": 421
+  },
+  {
+   "name": "read_file",
+   "toolset": "file",
+   "description": null,
+   "schema_const": null,
+   "file": "file_tools.py",
+   "line": 2918
+  },
+  {
+   "name": "write_file",
+   "toolset": "file",
+   "description": null,
+   "schema_const": null,
+   "file": "file_tools.py",
+   "line": 2919
+  },
+  {
+   "name": "patch",
+   "toolset": "file",
+   "description": null,
+   "schema_const": null,
+   "file": "file_tools.py",
+   "line": 2942
+  },
+  {
+   "name": "search_files",
+   "toolset": "file",
+   "description": null,
+   "schema_const": null,
+   "file": "file_tools.py",
+   "line": 2943
+  },
+  {
+   "name": "focus_pane",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "focus_pane_tool.py",
+   "line": 63
+  },
+  {
+   "name": "ha_list_entities",
+   "toolset": "homeassistant",
+   "description": null,
+   "schema_const": null,
+   "file": "homeassistant_tool.py",
+   "line": 480
+  },
+  {
+   "name": "ha_get_state",
+   "toolset": "homeassistant",
+   "description": null,
+   "schema_const": null,
+   "file": "homeassistant_tool.py",
+   "line": 489
+  },
+  {
+   "name": "ha_list_services",
+   "toolset": "homeassistant",
+   "description": null,
+   "schema_const": null,
+   "file": "homeassistant_tool.py",
+   "line": 498
+  },
+  {
+   "name": "ha_call_service",
+   "toolset": "homeassistant",
+   "description": null,
+   "schema_const": null,
+   "file": "homeassistant_tool.py",
+   "line": 507
+  },
+  {
+   "name": "image_generate",
+   "toolset": "image_gen",
+   "description": null,
+   "schema_const": null,
+   "file": "image_generation_tool.py",
+   "line": 2144
+  },
+  {
+   "name": "kanban_show",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2357
+  },
+  {
+   "name": "kanban_list",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2366
+  },
+  {
+   "name": "kanban_complete",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2375
+  },
+  {
+   "name": "kanban_block",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2384
+  },
+  {
+   "name": "kanban_request_review",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2393
+  },
+  {
+   "name": "kanban_request_changes",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2402
+  },
+  {
+   "name": "kanban_heartbeat",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2411
+  },
+  {
+   "name": "kanban_comment",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2420
+  },
+  {
+   "name": "kanban_attach",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2429
+  },
+  {
+   "name": "kanban_attach_url",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2438
+  },
+  {
+   "name": "kanban_attachments",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2447
+  },
+  {
+   "name": "kanban_create",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2456
+  },
+  {
+   "name": "kanban_unblock",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2465
+  },
+  {
+   "name": "kanban_link",
+   "toolset": "kanban",
+   "description": null,
+   "schema_const": null,
+   "file": "kanban_tools.py",
+   "line": 2474
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "mcp_tool.py",
+   "line": 7385
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "mcp_tool.py",
+   "line": 7542
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "mcp_tool.py",
+   "line": 7575
+  },
+  {
+   "name": "memory",
+   "toolset": "memory",
+   "description": null,
+   "schema_const": null,
+   "file": "memory_tool.py",
+   "line": 1381
+  },
+  {
+   "name": "desktop_preview",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "preview_tool.py",
+   "line": 79
+  },
+  {
+   "name": "process",
+   "toolset": "terminal",
+   "description": null,
+   "schema_const": null,
+   "file": "process_registry.py",
+   "line": 4008
+  },
+  {
+   "name": "desktop_project",
+   "toolset": "project",
+   "description": null,
+   "schema_const": null,
+   "file": "project_tools.py",
+   "line": 159
+  },
+  {
+   "name": "react_to_message",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "react_to_message_tool.py",
+   "line": 182
+  },
+  {
+   "name": "read_terminal",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "read_terminal_tool.py",
+   "line": 78
+  },
+  {
+   "name": "read_window_below",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "read_window_tool.py",
+   "line": 60
+  },
+  {
+   "name": "session_search",
+   "toolset": "session_search",
+   "description": null,
+   "schema_const": null,
+   "file": "session_search_tool.py",
+   "line": 1254
+  },
+  {
+   "name": "setup_mcp",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "setup_mcp_tool.py",
+   "line": 107
+  },
+  {
+   "name": "skill_manage",
+   "toolset": "skills",
+   "description": null,
+   "schema_const": null,
+   "file": "skill_manager_tool.py",
+   "line": 2201
+  },
+  {
+   "name": "skills_list",
+   "toolset": "skills",
+   "description": null,
+   "schema_const": null,
+   "file": "skills_tool.py",
+   "line": 1998
+  },
+  {
+   "name": "skill_view",
+   "toolset": "skills",
+   "description": null,
+   "schema_const": null,
+   "file": "skills_tool.py",
+   "line": 2161
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "terminal_tool.py",
+   "line": 2651
+  },
+  {
+   "name": "terminal",
+   "toolset": "terminal",
+   "description": null,
+   "schema_const": null,
+   "file": "terminal_tool.py",
+   "line": 4753
+  },
+  {
+   "name": "tip",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "tip_tool.py",
+   "line": 98
+  },
+  {
+   "name": "todo",
+   "toolset": "todo",
+   "description": null,
+   "schema_const": null,
+   "file": "todo_tool.py",
+   "line": 882
+  },
+  {
+   "name": "tour",
+   "toolset": "desktop_ui",
+   "description": null,
+   "schema_const": null,
+   "file": "tour_tool.py",
+   "line": 182
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "tts_streaming.py",
+   "line": 220
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "tts_streaming.py",
+   "line": 264
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "tts_streaming.py",
+   "line": 313
+  },
+  {
+   "name": null,
+   "toolset": null,
+   "description": null,
+   "schema_const": null,
+   "file": "tts_streaming.py",
+   "line": 400
+  },
+  {
+   "name": "text_to_speech",
+   "toolset": "tts",
+   "description": null,
+   "schema_const": null,
+   "file": "tts_tool.py",
+   "line": 4628
+  },
+  {
+   "name": "video_generate",
+   "toolset": "video_gen",
+   "description": null,
+   "schema_const": null,
+   "file": "video_generation_tool.py",
+   "line": 604
+  },
+  {
+   "name": "vision_analyze",
+   "toolset": "vision",
+   "description": null,
+   "schema_const": null,
+   "file": "vision_tools.py",
+   "line": 1892
+  },
+  {
+   "name": "video_analyze",
+   "toolset": "video",
+   "description": null,
+   "schema_const": null,
+   "file": "vision_tools.py",
+   "line": 2309
+  },
+  {
+   "name": "web_search",
+   "toolset": "web",
+   "description": null,
+   "schema_const": null,
+   "file": "web_tools.py",
+   "line": 1671
+  },
+  {
+   "name": "web_extract",
+   "toolset": "web",
+   "description": null,
+   "schema_const": null,
+   "file": "web_tools.py",
+   "line": 1681
+  },
+  {
+   "name": "x_search",
+   "toolset": "x_search",
+   "description": null,
+   "schema_const": null,
+   "file": "x_search_tool.py",
+   "line": 542
+  },
+  {
+   "name": "xai_video_edit",
+   "toolset": "video_gen",
+   "description": null,
+   "schema_const": null,
+   "file": "xai_video_tools.py",
+   "line": 189
+  },
+  {
+   "name": "xai_video_extend",
+   "toolset": "video_gen",
+   "description": null,
+   "schema_const": null,
+   "file": "xai_video_tools.py",
+   "line": 200
+  },
+  {
+   "name": "yb_query_group_info",
+   "toolset": "hermes-yuanbao",
+   "description": null,
+   "schema_const": null,
+   "file": "yuanbao_tools.py",
+   "line": 502
+  },
+  {
+   "name": "yb_query_group_members",
+   "toolset": "hermes-yuanbao",
+   "description": null,
+   "schema_const": null,
+   "file": "yuanbao_tools.py",
+   "line": 528
+  },
+  {
+   "name": "yb_send_dm",
+   "toolset": "hermes-yuanbao",
+   "description": null,
+   "schema_const": null,
+   "file": "yuanbao_tools.py",
+   "line": 580
+  },
+  {
+   "name": "yb_search_sticker",
+   "toolset": "hermes-yuanbao",
+   "description": null,
+   "schema_const": null,
+   "file": "yuanbao_tools.py",
+   "line": 654
+  },
+  {
+   "name": "yb_send_sticker",
+   "toolset": "hermes-yuanbao",
+   "description": null,
+   "schema_const": null,
+   "file": "yuanbao_tools.py",
+   "line": 691
+  }
+ ],
+ "schemas": {
+  "AGENT_SWARM_SCHEMA": {
+   "name": "agent_swarm",
+   "description": "Launch multiple subagents from one prompt template with {{item}} placeholder.",
+   "_params": [
+    "description",
+    "subagent_type",
+    "prompt_template",
+    "items",
+    "resume_agent_ids"
+   ],
+   "_file": "agent_swarm.py"
+  },
+  "ANNOTATE_PREVIEW_SCHEMA": {
+   "name": "annotate_preview",
+   "description": "Leave a LASTING mark on the preview-pane page (drive_preview's own marks fade; annotations stay until removed) — point at findings, flag what you're about to change, keep your place. Use the refs from drive_preview action='elements'. add: outline one element (optional short label — a word or two, drawn on the page). hold: freeze the whole visible field, every element outlined and named. remove/clear: take one/all down. Marks follow their element on scroll; navigation clears them.",
+   "_params": [
+    "action",
+    "ref",
+    "selector",
+    "label"
+   ],
+   "_file": "annotate_preview_tool.py"
+  },
+  "APPLY_LAYOUT_SCHEMA": {
+   "name": "apply_layout",
+   "description": "Apply a saved layout preset to the Hermes desktop app when the user asks to rearrange the workspace. Built-ins: default (chat + sidebars), focus (chat only), terminal-deck, quad; plugin/user presets by id. To reveal ONE pane, use focus_pane instead.",
+   "_params": [
+    "preset"
+   ],
+   "_file": "apply_layout_tool.py"
+  },
+  "BROWSER_EXEC_SCHEMA": {
+   "name": "browser_exec",
+   "_params": [
+    "code",
+    "session",
+    "timeout_s"
+   ],
+   "_file": "browser_use_cli.py"
+  },
+  "CLARIFY_SCHEMA": {
+   "name": "clarify",
+   "_params": [
+    "questions"
+   ],
+   "_file": "clarify_tool.py"
+  },
+  "CLOSE_PREVIEW_SCHEMA": {
+   "name": "close_preview",
+   "description": "Close the preview pane beside the chat in the Hermes desktop app, or one tab inside it. Use this when the user asks to close, hide, or dismiss the preview — e.g. \"close the preview pane\", \"close cnn.com\", \"hide the preview\". Omit url to close the whole pane (every tab). Pass a web URL, localhost address, or file path to close only that tab. Counterpart of open_preview.",
+   "_params": [
+    "url"
+   ],
+   "_file": "close_preview_tool.py"
+  },
+  "CLOSE_TERMINAL_SCHEMA": {
+   "name": "close_terminal",
+   "description": "Close the read-only terminal tab for one of your background processes in the Hermes desktop GUI (the tabs mirroring terminal(background=true) runs). This does NOT kill the process — it only drops the tab/view; the output keeps buffering and the user can reopen it from the status stack. Use it to tidy up when a background process's live terminal is no longer worth showing. To actually stop the process, use process(action='kill') instead.",
+   "_params": [
+    "process_id"
+   ],
+   "_file": "close_terminal_tool.py"
+  },
+  "CRONJOB_SCHEMA": {
+   "name": "cronjob",
+   "description": "Manage scheduled cron jobs: action='create' schedules a job from a prompt and/or skills; 'list' inspects jobs; 'update'/'pause'/'resume'/'remove' manage one by job_id (always list first — never guess job IDs); 'run' fires a job immediately in the BACKGROUND (returns a handle at once, outcome re-enters the conversation when done — do not wait or poll; optional 'prompt' adds transient context for that fire only).\n\nJobs run in a fresh session with no current-chat context, so prompts must be self-contained, and the agent's FINAL RESPONSE is what gets delivered — cron runs are autonomous and cannot ask questions. Prefer updating an existing job over creating near-duplicates.",
+   "_params": [
+    "action",
+    "job_id",
+    "prompt",
+    "schedule",
+    "name",
+    "repeat",
+    "deliver",
+    "skills",
+    "script",
+    "monitor",
+    "no_agent",
+    "context_from",
+    "continuity",
+    "enabled_toolsets",
+    "workdir",
+    "attach_to_session"
+   ],
+   "_file": "cronjob_tools.py"
+  },
+  "DELEGATE_TASK_SCHEMA": {
+   "name": "delegate_task",
+   "description": "Spawn one or more subagents in isolated contexts. Rebuilt at every get_definitions() call to reflect the user's current delegation limits.",
+   "_params": [
+    "tasks",
+    "action",
+    "subagent_id",
+    "message"
+   ],
+   "_file": "delegate_tool.py"
+  },
+  "ACT_PREVIEW_SCHEMA": {
+   "name": "drive_preview",
+   "description": "Use the web page open in the desktop preview pane (the one `desktop_preview` opens): log in, fill forms, click through flows. ALWAYS start with action='elements' — it inventories clickable/typable things as refs ('btn-sign-in') with role/label/value; act by ref, not guessed selectors. Refs survive re-renders and only die on navigation (you'll be told they're stale — call elements again). After the first full inventory, actions answer with a DELTA: 'added' in full, 'changed' as ref + moved fields, 'removed'/'rebound' as ref lists ('rebound' needs nothing from you — the ref already follows the rebuilt element). Anything unmentioned is unchanged; do not re-read to check. Input is real (pointer travels, hover menus open). Actions: elements, click, hover (park the pointer — opens dropdowns before clicking in), type (submit=true also presses Enter), scroll, press, strobe (visual flourish only — one call runs a multi-second burst; never loop it), back/forward/reload. Moves draw live and fade; annotate_preview leaves a lasting mark. Page text only: desktop_preview action=read. Separate automated browser: browser_* tools.",
+   "_params": [
+    "action",
+    "ref",
+    "selector",
+    "text",
+    "submit",
+    "key",
+    "amount",
+    "to",
+    "max",
+    "full"
+   ],
+   "_file": "drive_preview_tool.py"
+  },
+  "FEISHU_DOC_READ_SCHEMA": {
+   "name": "feishu_doc_read",
+   "description": "Read the full content of a Feishu/Lark document as plain text. Useful when you need more context beyond the quoted text in a comment.",
+   "_params": [
+    "doc_token"
+   ],
+   "_file": "feishu_doc_tool.py"
+  },
+  "FEISHU_DRIVE_LIST_COMMENTS_SCHEMA": {
+   "name": "feishu_drive_list_comments",
+   "description": "List comments on a Feishu document. Use is_whole=true to list whole-document comments only.",
+   "_params": [
+    "file_token",
+    "file_type",
+    "is_whole",
+    "page_size",
+    "page_token"
+   ],
+   "_file": "feishu_drive_tool.py"
+  },
+  "FEISHU_DRIVE_LIST_REPLIES_SCHEMA": {
+   "name": "feishu_drive_list_comment_replies",
+   "description": "List all replies in a comment thread on a Feishu document.",
+   "_params": [
+    "file_token",
+    "comment_id",
+    "file_type",
+    "page_size",
+    "page_token"
+   ],
+   "_file": "feishu_drive_tool.py"
+  },
+  "FEISHU_DRIVE_REPLY_SCHEMA": {
+   "name": "feishu_drive_reply_comment",
+   "description": "Reply to a local comment thread on a Feishu document. Use this for local (quoted-text) comments. For whole-document comments, use feishu_drive_add_comment instead.",
+   "_params": [
+    "file_token",
+    "comment_id",
+    "content",
+    "file_type"
+   ],
+   "_file": "feishu_drive_tool.py"
+  },
+  "FEISHU_DRIVE_ADD_COMMENT_SCHEMA": {
+   "name": "feishu_drive_add_comment",
+   "description": "Add a new whole-document comment on a Feishu document. Use this for whole-document comments or as a fallback when reply_comment fails with code 1069302.",
+   "_params": [
+    "file_token",
+    "content",
+    "file_type"
+   ],
+   "_file": "feishu_drive_tool.py"
+  },
+  "READ_FILE_SCHEMA": {
+   "name": "read_file",
+   "description": "Read a text file with line numbers and pagination. Use this instead of cat/head/tail in terminal. Output format: 'LINE_NUM|CONTENT'. Suggests similar filenames if not found. Use offset and limit for large files. Reads exceeding ~100K characters are truncated on a line boundary and return a next_offset; continue with offset to read the rest. Documents auto-extract to readable text: .ipynb, Office (.docx/.xlsx/.pptx and legacy .doc/.ppt/.xls), PDF (text layer), OpenDocument, RTF, EPUB. Cannot read images/binary — use vision_analyze for images.",
+   "_params": [
+    "path",
+    "offset",
+    "limit"
+   ],
+   "_file": "file_tools.py"
+  },
+  "WRITE_FILE_SCHEMA": {
+   "name": "write_file",
+   "description": "Write content to a file, completely replacing existing content. Use this instead of echo/cat heredoc in terminal. Creates parent directories automatically. OVERWRITES the entire file — use 'patch' for targeted edits. Auto-runs syntax checks on .py/.json/.yaml/.toml and other linted languages; only NEW errors introduced by this write are surfaced (pre-existing errors are filtered out). The result's verified:true means the on-disk content hash was confirmed — do NOT re-read the file to check the write landed.",
+   "_params": [
+    "path",
+    "content"
+   ],
+   "_file": "file_tools.py"
+  },
+  "PATCH_SCHEMA": {
+   "name": "patch",
+   "description": "Targeted find-and-replace edits in files. Use this instead of sed/awk in terminal. Uses fuzzy matching (9 strategies) so minor whitespace/indentation differences won't break it. Returns a unified diff. Auto-runs syntax checks after editing. Finds a unique string and replaces it.",
+   "_params": [
+    "path",
+    "old_string",
+    "new_string",
+    "replace_all"
+   ],
+   "_file": "file_tools.py"
+  },
+  "SEARCH_FILES_SCHEMA": {
+   "name": "search_files",
+   "description": "Search file contents or find files by name. Use this instead of grep/rg/find/ls in terminal. Ripgrep-backed, faster than shell equivalents. On macOS, broad searches above the user home automatically skip TCC-protected folders (Desktop, Documents, Downloads, Library, Movies, Music, Pictures); target one directly when access is intentional.\n\nContent search (target='content'): Regex search inside files. Output modes: full matches with line numbers, file paths only, or match counts.\n\nFile search (target='files'): Find files by glob pattern (e.g., '*.py', '*config*'). Also use this instead of ls — results sorted by modification time.",
+   "_params": [
+    "pattern",
+    "target",
+    "path",
+    "file_glob",
+    "limit",
+    "offset",
+    "output_mode",
+    "context"
+   ],
+   "_file": "file_tools.py"
+  },
+  "FOCUS_PANE_SCHEMA": {
+   "name": "focus_pane",
+   "description": "Reveal and focus a Hermes desktop pane when the user asks to see it: chat, files, terminal, review (git diff), or sessions. For URLs/files use the desktop_preview tool instead.",
+   "_params": [
+    "pane"
+   ],
+   "_file": "focus_pane_tool.py"
+  },
+  "HA_LIST_ENTITIES_SCHEMA": {
+   "name": "ha_list_entities",
+   "description": "List Home Assistant entities. Optionally filter by domain (light, switch, climate, sensor, binary_sensor, cover, fan, etc.) or by area name (living room, kitchen, bedroom, etc.).",
+   "_params": [
+    "domain",
+    "area"
+   ],
+   "_file": "homeassistant_tool.py"
+  },
+  "HA_GET_STATE_SCHEMA": {
+   "name": "ha_get_state",
+   "description": "Get the detailed state of a single Home Assistant entity, including all attributes (brightness, color, temperature setpoint, sensor readings, etc.).",
+   "_params": [
+    "entity_id"
+   ],
+   "_file": "homeassistant_tool.py"
+  },
+  "HA_LIST_SERVICES_SCHEMA": {
+   "name": "ha_list_services",
+   "description": "List available Home Assistant services (actions) for device control. Shows what actions can be performed on each device type and what parameters they accept. Use this to discover how to control devices found via ha_list_entities.",
+   "_params": [
+    "domain"
+   ],
+   "_file": "homeassistant_tool.py"
+  },
+  "HA_CALL_SERVICE_SCHEMA": {
+   "name": "ha_call_service",
+   "description": "Call a Home Assistant service to control a device. Use ha_list_services to discover available services and their parameters for each domain.",
+   "_params": [
+    "domain",
+    "service",
+    "entity_id",
+    "data"
+   ],
+   "_file": "homeassistant_tool.py"
+  },
+  "IMAGE_GENERATE_SCHEMA": {
+   "name": "image_generate",
+   "description": "Generate images from text prompts. The active model's edit/reference capabilities are rendered at serving time.",
+   "_params": [
+    "prompt",
+    "aspect_ratio"
+   ],
+   "_file": "image_generation_tool.py"
+  },
+  "KANBAN_SHOW_SCHEMA": {
+   "name": "kanban_show",
+   "description": "Read a task's full state — title, body, assignee, parent task handoffs, your prior attempts on this task if any, comments, and recent events. Use this to (re)orient yourself before starting work, especially on retries. The response includes a pre-formatted ``worker_context`` string suitable for inclusion verbatim in your reasoning.",
+   "_params": [
+    "task_id",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_LIST_SCHEMA": {
+   "name": "kanban_list",
+   "description": "List Kanban task summaries so an orchestrator profile can discover work to route. Supports the same core filters as the CLI: assignee, status, tenant, include_archived, and limit. Returns compact rows with ids, title, status, assignee, priority, parent/child ids, and counts. Bounded to 50 rows by default, 200 max, with truncation metadata. Also recomputes ready tasks before listing, matching the CLI. Orchestrator-only — dispatcher-spawned task workers never see this tool.",
+   "_params": [
+    "assignee",
+    "status",
+    "tenant",
+    "include_archived",
+    "limit",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_COMPLETE_SCHEMA": {
+   "name": "kanban_complete",
+   "description": "Mark your current task done with a structured handoff for downstream workers and humans. Prefer ``summary`` for a human-readable 1-3 sentence description of what you did; put machine-readable facts in ``metadata`` (changed_files, tests_run, decisions, findings, etc). At least one of ``summary`` or ``result`` is required. If you created new tasks via ``kanban_create`` during this run, list their ids in ``created_cards`` — the kernel verifies them so phantom references are caught before they leak into downstream automation. If you produced deliverable files (charts, PDFs, spreadsheets, generated images), list their absolute paths in ``artifacts`` — the gateway notifier will upload them as native attachments to the human who subscribed to the task, so the deliverable lands in their chat alongside the summary instead of being a path they have to fetch by hand.",
+   "_params": [
+    "task_id",
+    "summary",
+    "metadata",
+    "result",
+    "created_cards",
+    "artifacts",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_BLOCK_SCHEMA": {
+   "name": "kanban_block",
+   "description": "Stop work on this task and route it according to WHY you're stuck. Set ``kind`` to say which: 'dependency' (waiting on another task — goes to todo and auto-resumes when that task finishes, no human needed), 'needs_input' (you need a human decision/answer), 'capability' (a hard wall: no access, missing credentials, an action no agent can do), or 'transient' (a flaky failure that may clear). ``reason`` is shown to the human on the board. If a task keeps getting unblocked and re-blocked for the same reason, it is auto-escalated to triage. Use for genuine blockers only — don't block on things you can resolve yourself.",
+   "_params": [
+    "task_id",
+    "reason",
+    "kind",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_REQUEST_REVIEW_SCHEMA": {
+   "name": "kanban_request_review",
+   "description": "Hand the task off for review: implementation, self-review, and verification are complete and you want a human (or reviewer) to look before it is marked done. Moves the task to the 'review' column and notifies the subscriber. Unlike ``kanban_block`` this is NOT a blocker — it never counts toward unblock-loop detection, so a task can cycle through review across follow-ups without ever being falsely escalated to triage. Use this instead of blocking with a free-form 'review-required:' reason.",
+   "_params": [
+    "task_id",
+    "summary",
+    "reviewer",
+    "metadata",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_REQUEST_CHANGES_SCHEMA": {
+   "name": "kanban_request_changes",
+   "description": "Reviewer verdict: return the current review run to the original implementer with concrete required changes. This closes the review run, reapplies parent dependency gating, and requeues the task without using block-loop accounting. Only use from a task claimed from the review column; use kanban_block only for a genuine external blocker.",
+   "_params": [
+    "task_id",
+    "reason",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_HEARTBEAT_SCHEMA": {
+   "name": "kanban_heartbeat",
+   "description": "Signal that you're still alive during a long operation (training, encoding, large crawls). Call every few minutes so humans see liveness separately from PID checks. Pure side effect — no work changes.",
+   "_params": [
+    "task_id",
+    "note",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_COMMENT_SCHEMA": {
+   "name": "kanban_comment",
+   "description": "Append a comment to a task's thread. Use for durable notes that should outlive this run (questions for the next worker, partial findings, rationale). Ephemeral reasoning doesn't belong here — use your normal response instead.",
+   "_params": [
+    "task_id",
+    "body",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_ATTACH_SCHEMA": {
+   "name": "kanban_attach",
+   "description": "Attach a file to a task by passing its bytes inline (base64). Use for genuine file artifacts the next worker or a human should be able to download — generated reports, images, exports. The file is stored as a real attachment (not a comment link) under the task's attachments dir, capped at 25 MB. Prefer kanban_attach_url when you only have a URL.",
+   "_params": [
+    "task_id",
+    "filename",
+    "content_base64",
+    "content_type",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_ATTACH_URL_SCHEMA": {
+   "name": "kanban_attach_url",
+   "description": "Attach a file to a task by URL — Hermes downloads it server-side and stores it as a real attachment (capped at 25 MB). Use when you have a link rather than the bytes. Only http/https URLs are accepted.",
+   "_params": [
+    "task_id",
+    "url",
+    "filename",
+    "content_type",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_ATTACHMENTS_SCHEMA": {
+   "name": "kanban_attachments",
+   "description": "List the files attached to a task: id, filename, content_type, size, who uploaded it, and the absolute on-disk path you can read.",
+   "_params": [
+    "task_id",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_CREATE_SCHEMA": {
+   "name": "kanban_create",
+   "description": "Create a new kanban task, optionally as a child of the current one (pass the current task id in ``parents``). Used by orchestrator workers to fan out — decompose work into child tasks with specific assignees, link them into a pipeline, then complete your own task. The dispatcher picks up the new tasks on its next tick and spawns the assigned profiles.",
+   "_params": [
+    "title",
+    "assignee",
+    "body",
+    "parents",
+    "tenant",
+    "priority",
+    "workspace_kind",
+    "workspace_path",
+    "project",
+    "triage",
+    "idempotency_key",
+    "max_runtime_seconds",
+    "initial_status",
+    "skills",
+    "goal_mode",
+    "goal_max_turns",
+    "model",
+    "provider",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_UNBLOCK_SCHEMA": {
+   "name": "kanban_unblock",
+   "description": "Unblock a Kanban task. It moves to ready when all parents are done, or todo while any parent remains open. Orchestrator-only — only profiles with the kanban toolset can unblock routed work; dispatcher-spawned task workers never see this tool.",
+   "_params": [
+    "task_id",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "KANBAN_LINK_SCHEMA": {
+   "name": "kanban_link",
+   "description": "Add a parent→child dependency edge after both tasks already exist. The child won't promote to 'ready' until all parents are 'done'. Cycles and self-links are rejected.",
+   "_params": [
+    "parent_id",
+    "child_id",
+    "board"
+   ],
+   "_file": "kanban_tools.py"
+  },
+  "MEMORY_SCHEMA": {
+   "name": "memory",
+   "description": "Save durable, high-signal facts that survive across sessions (injected every turn).\n\nHOW: batch ALL changes in ONE call via 'operations' ({action, content?, old_text?}) — atomic; char limit checked on the FINAL result only, so one call can remove/replace stale entries to free room and add. Don't repeat it; bare fields for one change.\n\nWHEN: save proactively on stated preferences, corrections, personal details, or stable facts about environment/conventions/workflow.\n\nIF FULL: add is rejected showing current entries — reissue as ONE batch that removes/shortens stale entries and adds the new one.\n\nTARGETS: 'user' = who the user is; 'memory' = your notes (environment, conventions, tool quirks, lessons).\n\nSKIP: trivial info, re-discoverable facts, raw dumps, task progress, completed-work logs, temporary todo state (use session_search). Procedures belong in a skill, not memory.",
+   "_params": [
+    "action",
+    "target",
+    "content",
+    "old_text",
+    "new_text",
+    "operations"
+   ],
+   "_file": "memory_tool.py"
+  },
+  "OPEN_PREVIEW_SCHEMA": {
+   "name": "open_preview",
+   "description": "Open something in the preview pane beside the chat in the Hermes desktop app. Use this when the user asks to see a page, dev server, or file in the preview pane — e.g. \"open cnn.com in the preview pane\" or \"preview localhost:3000\". Accepts a web URL (a bare domain like www.cnn.com is fine), a localhost dev-server URL, or a file path (HTML renders live; other files show their contents). The pane opens for the current window only. To close the pane or a tab, use close_preview.",
+   "_params": [
+    "url",
+    "label"
+   ],
+   "_file": "open_preview_tool.py"
+  },
+  "PREVIEW_SCHEMA": {
+   "name": "desktop_preview",
+   "description": "The preview pane beside the chat in the Hermes desktop app. open: show a web URL (bare domains fine), a localhost dev server, or a file path (HTML renders live) — opens for the current window only. close: dismiss the whole pane, or one tab via url. read: what the pane currently shows — returns {kind, url, title, text, start, end, total_chars}; a Browser tab's text is the rendered page's visible text, paged with start/count (char offsets); a file tab answers identity only (read the file with read_file).",
+   "_params": [
+    "action",
+    "url",
+    "label",
+    "start",
+    "count"
+   ],
+   "_file": "preview_tool.py"
+  },
+  "PROCESS_SCHEMA": {
+   "name": "process",
+   "description": "Manage background processes (terminal background=true). Actions: list all; poll status+new output (optionally from a line offset); log full output (paginated, optionally exported to a file); wait until done / pattern match / timeout / output-silence; kill; write stdin (no newline); submit data+Enter (prompts); close stdin. Prefer wait with pattern= for mid-process signals (server readiness, migration-done) instead of blind polling. Any unique process ID prefix is accepted.",
+   "_params": [
+    "action",
+    "session_id",
+    "data",
+    "timeout",
+    "pattern",
+    "inactivity_timeout",
+    "block",
+    "output_path",
+    "offset",
+    "limit"
+   ],
+   "_file": "process_registry.py"
+  },
+  "REACT_TO_MESSAGE_SCHEMA": {
+   "name": "react_to_message",
+   "description": "React to a message with a single emoji, the way you'd tapback in iMessage. Reach for it when a reaction is what a person would do: something funny gets a 😂, warmth gets a ❤️, a plan you're on board with gets a 👍 — then just carry on with whatever the message actually needs. If a reaction says it all, it can BE the reply (skip the redundant 'sounds good!' turn). Use it like a person would: occasionally, when felt — not on every message, and never as a status signal. NEVER narrate or explain a reaction ('I reacted with...', 'Reacting now') — the emoji appearing on the bubble is the whole point, and commentary kills it. Defaults to the user's most recent message. One reaction per message: a different emoji replaces yours, an empty string retracts it.",
+   "_params": [
+    "emoji",
+    "message_row_id",
+    "messages_back"
+   ],
+   "_file": "react_to_message_tool.py"
+  },
+  "READ_PREVIEW_SCHEMA": {
+   "name": "read_preview",
+   "description": "Read what's currently shown in the in-app browser / preview pane of the Hermes desktop GUI (the pane open_preview opens beside this chat). Call with no arguments for the first window of the active tab's content. Returns JSON {kind, url, title, text, start, end, total_chars, note?}: a URL (Browser) tab's text is the rendered page's visible text — page through longer pages with `start`/`count` (character offsets, capped per read); a file tab answers identity only (read the file with read_file); an artifact tab points back at the conversation. Use after open_preview, or whenever the user refers to what's on screen in the browser ('what does this page say?'). To close the pane, use close_preview.",
+   "_params": [
+    "start",
+    "count"
+   ],
+   "_file": "read_preview_tool.py"
+  },
+  "READ_TERMINAL_SCHEMA": {
+   "name": "read_terminal",
+   "description": "Read the in-app terminal pane beside this chat. No args = visible screen + total_lines; page scrollback with start_line (0 = oldest) + count. JSON: {total_lines, start, end, viewport_rows, cursor_row, text}.",
+   "_params": [
+    "start_line",
+    "count"
+   ],
+   "_file": "read_terminal_tool.py"
+  },
+  "READ_WINDOW_BELOW_SCHEMA": {
+   "name": "read_window_below",
+   "description": "Identify the app window directly behind the Hermes desktop window (what the user is working in). JSON: {window: {app, title, bounds, id}, frontmost, platform}. title may be empty when the OS withholds it (noted in `note`); where windows cannot be enumerated at all, {error, platform} says what would fix it — relay that instead of retrying. Metadata only; never captures pixels.",
+   "_params": [],
+   "_file": "read_window_tool.py"
+  },
+  "SEND_MESSAGE_SCHEMA": {
+   "name": "send_message",
+   "description": "Send a message to a connected messaging platform, or list available targets.\n\nIMPORTANT: When the user asks to send to a specific channel or person (not just a bare platform name), call send_message(action='list') FIRST to see available targets, then send to the correct one.\nIf the user just says a platform name like 'send to telegram', send directly to the home channel without listing first.",
+   "_params": [
+    "action",
+    "target",
+    "message",
+    "emoji",
+    "message_id"
+   ],
+   "_file": "send_message_tool.py"
+  },
+  "SESSION_SEARCH_SCHEMA": {
+   "name": "session_search",
+   "description": "Search past Hermes sessions (FTS5 over the local session DB), or read/scroll inside one. Four shapes, picked by args: `query` = discovery (top-N matching sessions, top result fully hydrated); `session_id` + `around_message_id` = scroll (window of messages around an anchor); `session_id` alone = read a whole session — how you resolve an `@session:<profile>/<id>` link (split on '/' into profile + id); no args = browse recent sessions. Results are actual DB messages, no LLM. Searches conversation history ONLY — when the user gave a direct source (URL, file, contact, live system), inspect that first; never conclude 'not found' from history alone. Use for questions about past conversations: 'what did we do about X', 'where did we leave Y'. When referring the user to a session, write its `link` value verbatim inline (it renders as a titled link).",
+   "_params": [
+    "query",
+    "limit",
+    "sort",
+    "detail",
+    "session_id",
+    "around_message_id",
+    "window",
+    "role_filter",
+    "profile"
+   ],
+   "_file": "session_search_tool.py"
+  },
+  "SETUP_MCP_SCHEMA": {
+   "name": "setup_mcp",
+   "description": "Propose an MCP server as an inline consent card (install a catalog entry, re-enable a disabled server, or run OAuth); blocks until the user acts. Use when they ask to add an MCP or a task clearly needs a missing one. Never hand-edit mcp_servers config for them — always use this tool. Never re-ask after a decline — on declined/unanswered, continue without it. Catalog names: `hermes mcp catalog` in the terminal.",
+   "_params": [
+    "server",
+    "action",
+    "reason"
+   ],
+   "_file": "setup_mcp_tool.py"
+  },
+  "SKILL_MANAGE_SCHEMA": {
+   "name": "skill_manage",
+   "_params": [
+    "operations"
+   ],
+   "_file": "skill_manager_tool.py"
+  },
+  "SKILLS_LIST_SCHEMA": {
+   "name": "skills_list",
+   "description": "List available skills (name + description). Use skill_view(name) to load full content.",
+   "_params": [
+    "category"
+   ],
+   "_file": "skills_tool.py"
+  },
+  "SKILL_VIEW_SCHEMA": {
+   "name": "skill_view",
+   "description": "Load a skill's full content or linked files (references, templates, scripts). First call returns SKILL.md + a 'linked_files' dict of available files; call again with file_path to open one. Use for specific tasks/workflows.",
+   "_params": [
+    "name",
+    "file_path"
+   ],
+   "_file": "skills_tool.py"
+  },
+  "TERMINAL_SCHEMA": {
+   "name": "terminal",
+   "_params": [
+    "command",
+    "mode",
+    "interactive",
+    "process_id",
+    "background",
+    "timeout",
+    "promote_on_timeout",
+    "wait_for_pattern",
+    "inactivity_timeout",
+    "workdir",
+    "pty",
+    "notify_on_complete",
+    "watch_patterns",
+    "token_kill",
+    "max_lines",
+    "notify"
+   ],
+   "_file": "terminal_tool.py"
+  },
+  "TIP_SCHEMA": {
+   "name": "tip",
+   "description": "Point at one thing in the desktop UI with a small arrow bubble (no dimming, no tour chrome) — for when a sentence is clearer with a finger on its subject. Get selectors from tour(action='targets'), prefer stable:true, never guess. One tip at a time (new replaces last); say the same thing in chat too — the bubble is a pointer, not the message. Sparingly: a bubble every turn stops being read.",
+   "_params": [
+    "text",
+    "selector",
+    "title",
+    "side"
+   ],
+   "_file": "tip_tool.py"
+  },
+  "TODO_SCHEMA": {
+   "name": "todo",
+   "description": "Manage the session's task list. Use for complex tasks (3+ steps) or multiple user tasks; no args = read.\n\nWriting: 'todos' items ({id, content, status: pending|in_progress|completed|cancelled, notes?, code?}). merge=false (default) replaces the list; merge=true updates by id, adds new. Order = priority; ONE in_progress at a time; complete items when done; cancel failed ones and add revised.\n\nBehavior:\n- auto_fix=true (default) auto-completes extra in_progress; false rejects the write\n- Done items cannot be re-opened (clamped)\n- Replace-dropped done items are archived\n- `code` items verified on completion; failure reverts to pending with error in notes\n- All-done returns a reminder in 'message'\n\nAlways returns the full list + 'warnings' and 'message'. Break large phases into nested subtasks using parent.",
+   "_params": [
+    "todos",
+    "merge",
+    "auto_fix"
+   ],
+   "_file": "todo_tool.py"
+  },
+  "_STEP_SCHEMA": {
+   "type": "object",
+   "_file": "tour_tool.py"
+  },
+  "TOUR_SCHEMA": {
+   "name": "tour",
+   "description": "Guided tour in the desktop GUI: dim the screen, highlight an element, attach a titled popover. Surfaces: 'app' (Hermes itself) or 'preview' (the page in the preview pane). ALWAYS call action='targets' first — prefer targets marked stable:true (their selectors survive re-renders); re-scan if one stops matching. Then narrate with action='show' (one highlight per call, replaces the last — pair each with a chat message) or hand over with action='start' + steps (user gets Next/Prev; 'next'/'prev' also page it). 'stop' clears. Use for how-does-X-work / where-is-Y walkthroughs.",
+   "_params": [
+    "action",
+    "surface",
+    "selector",
+    "title",
+    "text",
+    "side",
+    "steps",
+    "step_index"
+   ],
+   "_file": "tour_tool.py"
+  },
+  "TTS_SCHEMA": {
+   "name": "text_to_speech",
+   "description": "Convert text to speech audio. Returns a MEDIA: path that the platform delivers as native audio. Compatible providers render as a voice bubble on Telegram; otherwise audio is sent as a regular attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider are user-configured (built-in providers like edge/openai or custom command providers under tts.providers.<name>), not model-selected.",
+   "_params": [
+    "text",
+    "output_path",
+    "speed",
+    "instructions",
+    "provider"
+   ],
+   "_file": "tts_tool.py"
+  },
+  "VISION_ANALYZE_SCHEMA": {
+   "name": "vision_analyze",
+   "description": "Load an image into the conversation so you can see it. Call it any time the user references an image — then answer from what you see.",
+   "_params": [
+    "image_url",
+    "question",
+    "region"
+   ],
+   "_file": "vision_tools.py"
+  },
+  "VIDEO_ANALYZE_SCHEMA": {
+   "name": "video_analyze",
+   "description": "Analyze a video from a URL or local file path using a multimodal AI model. Sends the video to a video-capable model (e.g. Gemini) for understanding. Use this for video files — for images, use vision_analyze instead. Supports mp4, webm, mov, avi, mkv, mpeg formats. Note: large videos (>20 MB) may be slow; max ~50 MB.",
+   "_params": [
+    "video_url",
+    "question"
+   ],
+   "_file": "vision_tools.py"
+  },
+  "WEB_SEARCH_SCHEMA": {
+   "name": "web_search",
+   "description": "Search the web — up to 5 results (title/URL/description). Operators (site:, filetype:pdf, intitle:, -term, \"exact phrase\") work if the backend supports them.",
+   "_params": [
+    "query",
+    "limit"
+   ],
+   "_file": "web_tools.py"
+  },
+  "WEB_EXTRACT_SCHEMA": {
+   "name": "web_extract",
+   "description": "Extract page content from URLs as markdown/text (no LLM). PDF URLs work — pass the PDF link. Within char budget (default 15000) pages return whole; larger pages head+tail truncate, footer points to the full text's saved file path (page with read_file). On failure/timeout use the browser tool.",
+   "_params": [
+    "urls",
+    "char_limit"
+   ],
+   "_file": "web_tools.py"
+  },
+  "X_SEARCH_SCHEMA": {
+   "name": "x_search",
+   "description": "Search X (Twitter) posts, profiles, and threads using xAI's built-in X Search tool. Read-only discovery only: use this for current discussion, reactions, or claims on public X rather than general web pages. Do not use it to post, reply, like, DM, upload media, delete, or inspect the user's authenticated X account — those require a separate authenticated X API surface outside this tool. Available when xAI credentials are configured (SuperGrok OAuth or XAI_API_KEY).",
+   "_params": [
+    "query",
+    "allowed_x_handles",
+    "excluded_x_handles",
+    "from_date",
+    "to_date",
+    "enable_image_understanding",
+    "enable_video_understanding"
+   ],
+   "_file": "x_search_tool.py"
+  }
+ },
+ "errors": []
+}

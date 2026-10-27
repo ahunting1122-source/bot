@@ -1,0 +1,10 @@
+﻿usage: hermes skills snapshot [-h] {export,import} ...
+
+positional arguments:
+  {export,import}
+    export         Export installed skills to a file
+    import         Import and install skills from a file
+
+options:
+  -h, --help       show this help message and exit
+

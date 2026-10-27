@@ -1,0 +1,8 @@
+﻿usage: hermes skills tap add [-h] repo
+
+positional arguments:
+  repo        GitHub repo (e.g. owner/repo)
+
+options:
+  -h, --help  show this help message and exit
+

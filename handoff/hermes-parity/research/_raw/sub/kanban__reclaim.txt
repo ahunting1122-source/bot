@@ -1,0 +1,9 @@
+﻿usage: hermes kanban reclaim [-h] [--reason REASON] task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  Human-readable reason (recorded on the reclaimed event)
+

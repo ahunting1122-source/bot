@@ -1,0 +1,10 @@
+﻿usage: hermes pets install [-h] [--force] [--select] slug
+
+positional arguments:
+  slug        Pet slug (e.g. boba)
+
+options:
+  -h, --help  show this help message and exit
+  --force     Re-download even if present
+  --select    Make it the active pet
+

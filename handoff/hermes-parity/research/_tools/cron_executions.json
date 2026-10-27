@@ -1,0 +1,197 @@
+{
+ "pragma_journal": "delete",
+ "page_size": 4096,
+ "freelist_count": 0,
+ "page_count": 5,
+ "encoding": "UTF-8",
+ "fk_enabled": 0,
+ "user_version": 0,
+ "schema_version": 3,
+ "application_id": 0,
+ "views": [],
+ "triggers": [],
+ "tables": [
+  {
+   "name": "executions",
+   "sql": "CREATE TABLE executions (\n             id TEXT PRIMARY KEY,\n             job_id TEXT NOT NULL,\n             source TEXT NOT NULL,\n             process_id TEXT NOT NULL,\n             pid INTEGER NOT NULL,\n             process_started_at INTEGER,\n             status TEXT NOT NULL CHECK(status IN\n               ('claimed','running','completed','failed','unknown')),\n             claimed_at TEXT NOT NULL,\n             started_at TEXT,\n             finished_at TEXT,\n             error TEXT\n           )",
+   "columns": [
+    {
+     "cid": 0,
+     "name": "id",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 1
+    },
+    {
+     "cid": 1,
+     "name": "job_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 2,
+     "name": "source",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 3,
+     "name": "process_id",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 4,
+     "name": "pid",
+     "type": "INTEGER",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 5,
+     "name": "process_started_at",
+     "type": "INTEGER",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 6,
+     "name": "status",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 7,
+     "name": "claimed_at",
+     "type": "TEXT",
+     "notnull": 1,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 8,
+     "name": "started_at",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 9,
+     "name": "finished_at",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    },
+    {
+     "cid": 10,
+     "name": "error",
+     "type": "TEXT",
+     "notnull": 0,
+     "dflt": null,
+     "pk": 0
+    }
+   ],
+   "indexes": [
+    {
+     "seq": 0,
+     "name": "idx_executions_status_claimed",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 1,
+     "name": "idx_executions_job_claimed",
+     "unique": 0,
+     "origin": "c",
+     "partial": 0
+    },
+    {
+     "seq": 2,
+     "name": "sqlite_autoindex_executions_1",
+     "unique": 1,
+     "origin": "pk",
+     "partial": 0
+    }
+   ],
+   "index_columns": {
+    "idx_executions_status_claimed": [
+     {
+      "seqno": 0,
+      "cid": 6,
+      "name": "status"
+     },
+     {
+      "seqno": 1,
+      "cid": 7,
+      "name": "claimed_at"
+     },
+     {
+      "seqno": 2,
+      "cid": 0,
+      "name": "id"
+     }
+    ],
+    "idx_executions_job_claimed": [
+     {
+      "seqno": 0,
+      "cid": 1,
+      "name": "job_id"
+     },
+     {
+      "seqno": 1,
+      "cid": 7,
+      "name": "claimed_at"
+     },
+     {
+      "seqno": 2,
+      "cid": 0,
+      "name": "id"
+     }
+    ],
+    "sqlite_autoindex_executions_1": [
+     {
+      "seqno": 0,
+      "cid": 0,
+      "name": "id"
+     }
+    ]
+   },
+   "fks": [],
+   "rows": 0
+  }
+ ],
+ "indexes_all": [
+  {
+   "type": "index",
+   "name": "idx_executions_job_claimed",
+   "tbl_name": "executions",
+   "sql": "CREATE INDEX idx_executions_job_claimed ON executions(job_id, claimed_at DESC, id DESC)"
+  },
+  {
+   "type": "index",
+   "name": "idx_executions_status_claimed",
+   "tbl_name": "executions",
+   "sql": "CREATE INDEX idx_executions_status_claimed ON executions(status, claimed_at DESC, id DESC)"
+  },
+  {
+   "type": "index",
+   "name": "sqlite_autoindex_executions_1",
+   "tbl_name": "executions",
+   "sql": null
+  }
+ ]
+}

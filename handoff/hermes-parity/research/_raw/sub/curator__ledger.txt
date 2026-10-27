@@ -1,0 +1,7 @@
+﻿usage: hermes curator ledger [-h] [--skill SKILL] [--limit LIMIT]
+
+options:
+  -h, --help     show this help message and exit
+  --skill SKILL  Only show entries for this skill
+  --limit LIMIT  Max entries to show (default: 20)
+

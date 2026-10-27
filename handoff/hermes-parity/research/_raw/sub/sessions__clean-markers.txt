@@ -1,0 +1,16 @@
+﻿usage: hermes sessions clean-markers [-h] [--dry-run] [--no-backup]
+
+Before the #78148 fix, a local tool-call template could persist a bare
+bracketed marker (e.g. "[memory]") as an assistant turn's content instead of
+real text. This is already repaired in memory on every session load, so
+running this is optional — it rewrites the affected rows once, in place, so
+long-lived sessions stop re-scanning/re-repairing the same rows on every
+resume. Only the content column is touched; tool_calls and every other column
+on the row are left untouched.
+
+options:
+  -h, --help   show this help message and exit
+  --dry-run    Report the affected row count without writing
+  --no-backup  Skip the timestamped state.db backup taken before writing (not
+               recommended)
+

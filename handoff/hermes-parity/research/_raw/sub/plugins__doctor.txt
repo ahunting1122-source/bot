@@ -1,0 +1,9 @@
+﻿usage: hermes plugins doctor [-h] [--ci] [target]
+
+positional arguments:
+  target      Plugin path or installed plugin id (default: current directory)
+
+options:
+  -h, --help  show this help message and exit
+  --ci        Exit non-zero when validation reports an error
+

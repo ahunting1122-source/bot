@@ -1,0 +1,12 @@
+﻿usage: hermes curator rollback [-h] [--list] [--id BACKUP_ID] [-y] [entry_id]
+
+positional arguments:
+  entry_id        Ledger entry id for single-mutation rollback (from `hermes
+                  curator ledger`). Omit for whole-tree snapshot rollback.
+
+options:
+  -h, --help      show this help message and exit
+  --list          List available snapshots and exit without restoring
+  --id BACKUP_ID  Snapshot id to restore (see `--list`); default: newest
+  -y, --yes       Skip confirmation prompt
+

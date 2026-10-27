@@ -1,0 +1,75 @@
+﻿usage: hermes kanban create [-h] [--body BODY] [--assignee ASSIGNEE]
+                            [--parent PARENT] [--workspace WORKSPACE]
+                            [--branch BRANCH] [--project PROJECT]
+                            [--tenant TENANT] [--priority PRIORITY] [--triage]
+                            [--idempotency-key IDEMPOTENCY_KEY]
+                            [--max-runtime MAX_RUNTIME]
+                            [--created-by CREATED_BY] [--skill SKILLS]
+                            [--max-retries N] [--model MODEL_OVERRIDE]
+                            [--provider PROVIDER_OVERRIDE] [--goal]
+                            [--goal-max-turns N]
+                            [--initial-status {blocked,running}] [--json]
+                            title
+
+positional arguments:
+  title                 Task title
+
+options:
+  -h, --help            show this help message and exit
+  --body BODY           Optional opening post
+  --assignee ASSIGNEE   Profile name to assign
+  --parent PARENT       Parent task id (repeatable)
+  --workspace WORKSPACE
+                        scratch | worktree | worktree:<path> | dir:<path>
+                        (default: scratch)
+  --branch BRANCH       Branch name for worktree tasks, e.g. wt/t6-wire
+  --project PROJECT     Link to a project (id or slug). Anchors the task's
+                        worktree under the project's primary repo with a
+                        deterministic branch. See `hermes project list`.
+  --tenant TENANT       Tenant namespace
+  --priority PRIORITY   Priority tiebreaker
+  --triage              Park in triage — a specifier will flesh out the spec
+                        and promote to todo
+  --idempotency-key IDEMPOTENCY_KEY
+                        Dedup key. If a non-archived task with this key
+                        exists, its id is returned instead of creating a
+                        duplicate.
+  --max-runtime MAX_RUNTIME
+                        Per-task runtime cap. Accepts seconds (300) or
+                        durations (90s, 30m, 2h, 1d). When exceeded, the
+                        dispatcher SIGTERMs (then SIGKILLs) the worker and re-
+                        queues the task.
+  --created-by CREATED_BY
+                        Author name recorded on the task (default: user)
+  --skill SKILLS        Skill to force-load into the worker (repeatable). The
+                        kanban lifecycle is already injected automatically.
+                        Example: --skill translation --skill github-code-
+                        review
+  --max-retries N       Per-task override for the consecutive-failure circuit
+                        breaker. Trip on the Nth failure — e.g. --max-retries
+                        1 blocks on the first failure (no retries), --max-
+                        retries 3 allows two retries. Omit to use the
+                        dispatcher's kanban.failure_limit config (default 2).
+  --model MODEL_OVERRIDE
+                        Pin the worker to this model (passed as -m <model>)
+                        without changing the profile's configured model.
+                        Combine with --provider when the model belongs to a
+                        different backend than the profile's default.
+  --provider PROVIDER_OVERRIDE
+                        Provider the --model belongs to (passed as --provider
+                        <name> to the worker). Requires --model.
+  --goal                Run the worker in a goal loop: after each turn a judge
+                        checks the response against the card title/body and,
+                        if not done, the worker keeps going in the same
+                        session until the judge agrees it's complete (or the
+                        turn budget runs out, which blocks the card for
+                        review). Best for open-ended cards one shot rarely
+                        finishes.
+  --goal-max-turns N    Turn budget for --goal workers (default 20). Ignored
+                        without --goal.
+  --initial-status {blocked,running}
+                        Initial card status. Use 'blocked' for cards that
+                        require immediate human ops (R3 gate) to skip the
+                        brief running-to-blocked transition.
+  --json                Emit JSON output
+

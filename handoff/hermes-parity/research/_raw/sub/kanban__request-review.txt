@@ -1,0 +1,19 @@
+﻿usage: hermes kanban request-review [-h] [--summary SUMMARY]
+                                    [--reviewer REVIEWER]
+                                    [--metadata METADATA] [--force]
+                                    task_id
+
+positional arguments:
+  task_id
+
+options:
+  -h, --help           show this help message and exit
+  --summary SUMMARY    What was implemented and how it was verified — shown to
+                       the reviewer.
+  --reviewer REVIEWER  Optional reviewer profile; reassigns the task before
+                       review dispatch.
+  --metadata METADATA  JSON object with structured reviewer handoff facts.
+  --force              Override the live-claim guard: move a running, claimed
+                       task to review even without owning its run (clears the
+                       worker's claim).
+

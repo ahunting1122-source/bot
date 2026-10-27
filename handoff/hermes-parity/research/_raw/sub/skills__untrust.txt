@@ -1,0 +1,8 @@
+﻿usage: hermes skills untrust [-h] [path]
+
+positional arguments:
+  path        Project root to untrust (default: enclosing git checkout of cwd)
+
+options:
+  -h, --help  show this help message and exit
+

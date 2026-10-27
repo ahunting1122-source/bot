@@ -1,0 +1,17 @@
+﻿usage: hermes plugins enable [-h] [--allow-tool-override |
+                             --no-allow-tool-override]
+                             name
+
+positional arguments:
+  name                  Plugin name to enable
+
+options:
+  -h, --help            show this help message and exit
+  --allow-tool-override
+                        Grant this plugin permission to replace built-in tools
+                        (e.g. shell_exec, write_file). Skips the confirmation
+                        prompt.
+  --no-allow-tool-override
+                        Enable without granting built-in tool override (skip
+                        prompt).
+

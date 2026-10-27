@@ -1,0 +1,7 @@
+﻿usage: hermes kanban boards list [-h] [--json] [--all]
+
+options:
+  -h, --help  show this help message and exit
+  --json
+  --all       Include archived boards too
+

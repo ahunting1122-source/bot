@@ -1,0 +1,18 @@
+﻿usage: hermes profile install [-h] [--name NAME] [--alias] [--force] [-y]
+                              source
+
+Install a Hermes profile distribution. SOURCE can be a git URL
+(github.com/user/repo, https://..., git@...) or a local directory containing
+distribution.yaml at its root.
+
+positional arguments:
+  source       Distribution source (git URL or local directory)
+
+options:
+  -h, --help   show this help message and exit
+  --name NAME  Override profile name (default: read from manifest)
+  --alias      Create a shell wrapper alias for the installed profile
+  --force      Overwrite an existing profile of the same name (user data
+               preserved)
+  -y, --yes    Skip manifest preview confirmation
+

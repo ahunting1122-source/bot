@@ -1,0 +1,13 @@
+﻿usage: hermes plugins capabilities [-h] [name]
+
+Show each plugin's declared capabilities (from plugin.yaml) against what the
+user has granted. Capabilities are a consent and audit layer over host API
+surfaces — NOT a sandbox.
+
+positional arguments:
+  name        Plugin id to inspect (omit to list all plugins with
+              capabilities)
+
+options:
+  -h, --help  show this help message and exit
+

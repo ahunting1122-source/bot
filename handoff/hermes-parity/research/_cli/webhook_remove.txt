@@ -1,0 +1,7 @@
+﻿usage: hermes webhook remove [-h] name
+
+positional arguments:
+  name        Subscription name to remove
+
+options:
+  -h, --help  show this help message and exit

@@ -1,0 +1,12 @@
+﻿usage: hermes gateway migrate-legacy [-h] [--dry-run] [-y]
+
+Stop, disable, and remove legacy Hermes gateway unit files (e.g.
+hermes.service) left over from older installs. Profile units (hermes-
+gateway-<profile>.service) and unrelated third-party services are never
+touched.
+
+options:
+  -h, --help  show this help message and exit
+  --dry-run   List what would be removed without doing it
+  -y, --yes   Skip the confirmation prompt
+

@@ -1,0 +1,11 @@
+﻿usage: hermes peer add [-h] --url URL [--key KEY] [--note NOTE] name
+
+positional arguments:
+  name         Peer name (lowercase slug, e.g. spark, homelab)
+
+options:
+  -h, --help   show this help message and exit
+  --url URL    Peer gateway base URL, e.g. http://spark.lan:8377
+  --key KEY    The peer's API_SERVER_KEY (stored in ~/.hermes/.env)
+  --note NOTE  Optional description
+

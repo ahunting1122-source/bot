@@ -1,0 +1,30 @@
+﻿usage: hermes webhook subscribe [-h] [--prompt PROMPT] [--events EVENTS]
+                                [--description DESCRIPTION] [--skills SKILLS]
+                                [--deliver DELIVER]
+                                [--deliver-chat-id DELIVER_CHAT_ID]
+                                [--secret SECRET] [--deliver-only]
+                                [--script SCRIPT]
+                                name
+
+positional arguments:
+  name                  Route name (used in URL: /webhooks/<name>)
+
+options:
+  -h, --help            show this help message and exit
+  --prompt PROMPT       Prompt template with {dot.notation} payload refs
+  --events EVENTS       Comma-separated event types to accept
+  --description DESCRIPTION
+                        What this subscription does
+  --skills SKILLS       Comma-separated skill names to load
+  --deliver DELIVER     Delivery target: log, telegram, discord, slack, etc.
+  --deliver-chat-id DELIVER_CHAT_ID
+                        Target chat ID for cross-platform delivery
+  --secret SECRET       HMAC secret (auto-generated if omitted)
+  --deliver-only        Skip the agent — deliver the rendered prompt directly
+                        as the message. Zero LLM cost. Requires --deliver to
+                        be a real target (not 'log').
+  --script SCRIPT       Filter/transform script under ~/.hermes/scripts/. The
+                        route payload is passed as JSON on stdin; empty
+                        stdout, [SILENT], or a nonzero exit code ignores the
+                        webhook.
+

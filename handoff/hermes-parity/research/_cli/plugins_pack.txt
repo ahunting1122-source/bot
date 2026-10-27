@@ -1,0 +1,16 @@
+﻿usage: hermes plugins pack [-h] {install,export,show} ...
+
+Install, export, or inspect plugin packs — a single YAML file pinning a set of
+plugins to exact commit SHAs, with optional non-secret config seeds.
+Installing a pack fans out to ordinary pinned installs; capability consent
+stays per-plugin.
+
+positional arguments:
+  {install,export,show}
+    install             Review and install a pack from a file path or https
+                        URL
+    export              Emit a pack YAML for the current install on stdout
+    show                Dry-run: parse and display a pack without installing
+
+options:
+  -h, --help            show this help message and exit

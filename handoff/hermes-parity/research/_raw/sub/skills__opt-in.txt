@@ -1,0 +1,9 @@
+﻿usage: hermes skills opt-in [-h] [--sync]
+
+Remove the .no-bundled-skills marker so bundled skills are seeded again on the
+next `hermes update`. Pass --sync to re-seed now.
+
+options:
+  -h, --help  show this help message and exit
+  --sync      Re-seed bundled skills immediately instead of waiting for update
+

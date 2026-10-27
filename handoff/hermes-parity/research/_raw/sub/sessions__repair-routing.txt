@@ -1,0 +1,18 @@
+﻿usage: hermes sessions repair-routing [-h] [--apply]
+                                      [--max-gap-seconds MAX_GAP_SECONDS]
+
+Find gateway conversations stranded in session rows whose routing identity
+(session_key/chat_id/origin) was never written — the damage a corrupt state.db
+write path leaves behind (#82616). Such a row is invisible to restart
+recovery, so the chat resumes an older session instead. Re-stamps each orphan
+from the keyed predecessor it continues, and only when that predecessor is
+unambiguous. Reports without touching the database unless --apply is given.
+
+options:
+  -h, --help            show this help message and exit
+  --apply               Perform the adoptions (default: report only)
+  --max-gap-seconds MAX_GAP_SECONDS
+                        Window between a keyed predecessor's last activity and
+                        an orphan's start for them to count as the same
+                        conversation (default: 900)
+

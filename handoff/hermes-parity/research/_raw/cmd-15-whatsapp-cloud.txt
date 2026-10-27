@@ -1,0 +1,11 @@
+﻿### CMD: whatsapp-cloud
+### EXITCODE: 0
+usage: hermes whatsapp-cloud [-h]
+
+Configure the official Meta WhatsApp Business Cloud API adapter (Business
+account required, public webhook URL required). Distinct from `hermes
+whatsapp` which sets up the Baileys bridge for personal accounts.
+
+options:
+  -h, --help  show this help message and exit
+

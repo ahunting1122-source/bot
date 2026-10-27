@@ -1,0 +1,12 @@
+﻿usage: hermes cron incidents [-h] [--state {detected,alerted,closed}]
+                             [{list,ack}] [incident_id]
+
+positional arguments:
+  {list,ack}            Action (default: list)
+  incident_id           Incident ID to acknowledge (ack)
+
+options:
+  -h, --help            show this help message and exit
+  --state {detected,alerted,closed}
+                        Filter incidents by lifecycle state
+

@@ -1,0 +1,11 @@
+﻿usage: hermes skills tap [-h] {list,add,remove} ...
+
+positional arguments:
+  {list,add,remove}
+    list             List configured taps
+    add              Add a GitHub repo as skill source
+    remove           Remove a tap
+
+options:
+  -h, --help         show this help message and exit
+

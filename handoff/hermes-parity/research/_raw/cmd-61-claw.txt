@@ -1,0 +1,14 @@
+﻿### CMD: claw
+### EXITCODE: 0
+usage: hermes claw [-h] {migrate,cleanup,clean} ...
+
+Migrate settings, memories, skills, and API keys from OpenClaw to Hermes
+
+positional arguments:
+  {migrate,cleanup,clean}
+    migrate             Migrate from OpenClaw to Hermes
+    cleanup (clean)     Archive leftover OpenClaw directories after migration
+
+options:
+  -h, --help            show this help message and exit
+
