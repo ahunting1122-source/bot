@@ -173,3 +173,42 @@ def test_option_help_is_documented():
 
     missing = undocumented_options(SPECS)
     assert missing == [], f"{len(missing)} 条选项缺说明，例如：{missing[:10]}"
+
+
+# ── 全局选项在嵌套子命令上的可用性 ────────────────────────────────────────
+
+
+def test_global_flags_work_after_nested_subcommands(tmp_path):
+    """回归：``--json`` 放在三级子命令之后也必须能用。
+
+    人写命令时习惯把 ``--json`` 放最后（``orbit approvals allow list --json``）。
+    早先只有顶层命令挂了全局 parent，二级/三级没挂，于是这种写法报
+    ``unrecognized arguments``——同一件事有两种拼法、其中一种失败，是最容易
+    让人放弃 CLI 的那类不一致。
+    """
+    code = main(
+        ["--data-dir", str(tmp_path / "data"), "approvals", "allow", "list", "--json"]
+    )
+    assert code == 0
+
+
+def test_global_flag_conflict_is_skipped_not_fatal():
+    """子命令自己声明了 ``--json`` 时，挂全局 parent 不能把命令树编译炸掉。
+
+    实测踩过：直接 ``parents=[global_parser]`` 会让 ``approvals allow list``
+    （它自己就有 ``--json``）抛 ``conflicting option string: --json``，
+    整个 ``build_parser()`` 失败——所有命令一起不可用。
+    """
+    from app.cli.main import build_parser
+
+    parser = build_parser()  # 不抛异常即通过
+    parsed = parser.parse_args(["approvals", "allow", "list", "--json"])
+    assert parsed.json is True
+    assert getattr(parsed, "_command_path", "") == "approvals allow list"
+
+
+def test_global_flag_after_third_level_subcommand_sets_the_value(tmp_path):
+    from app.cli.main import build_parser
+
+    parsed = build_parser().parse_args(["security", "audit", "--quiet"])
+    assert parsed.quiet is True

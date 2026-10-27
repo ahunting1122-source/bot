@@ -72,7 +72,41 @@ def _global_options() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_command(parser: argparse.ArgumentParser, command: Command, prefix: str) -> None:
+def _attach_globals(
+    parser: argparse.ArgumentParser,
+    command: Command,
+    global_parser: argparse.ArgumentParser | None,
+) -> None:
+    """把全局选项挂到子命令上，**跳过与子命令自己声明的 flag 冲突的那些**。
+
+    为什么不能直接用 ``parents=[global_parser]``：Hermes 的很多子命令**自己就有**
+    ``--json``（实测 ``approvals allow list`` 就是），再挂一份全局 parent 会直接
+    ``argparse.ArgumentError: conflicting option string: --json``，整个命令树编译不出来。
+
+    为什么要挂：不挂的话 ``orbit security audit --json`` 报
+    ``unrecognized arguments``，只有 ``orbit --json security audit`` 能用——
+    而人写命令时习惯把 ``--json`` 放最后。这个不对称是实测出来的。
+
+    共享 action 对象本身没问题：argparse 的 ``parents`` 机制做的就是这件事，
+    而全局选项的默认值是 ``SUPPRESS``，挂上去不会反过来覆盖父级已解析的值。
+    """
+    if global_parser is None:
+        return
+    taken = {flag for option in command.options for flag in option.flags}
+    for action in global_parser._actions:
+        if isinstance(action, argparse._HelpAction):
+            continue
+        if taken & set(action.option_strings):
+            continue
+        parser._add_action(action)
+
+
+def _add_command(
+    parser: argparse.ArgumentParser,
+    command: Command,
+    prefix: str,
+    global_parser: argparse.ArgumentParser | None = None,
+) -> None:
     """把一个 Command 挂到 parser 的 subparsers 上，并递归处理子命令。
 
     ``prefix`` 一路往下传，是为了让报错能显示**完整命令路径**（``approvals allow add``），
@@ -92,10 +126,11 @@ def _add_command(parser: argparse.ArgumentParser, command: Command, prefix: str)
             aliases=list(sub.aliases),
         )
         child.set_defaults(_command=sub, _command_path=path)
+        _attach_globals(child, sub, global_parser)
         for option in sub.options:
             option.add(child)
         if sub.subcommands:
-            _add_command(child, sub, path)
+            _add_command(child, sub, path, global_parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -127,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
         for option in command.options:
             option.add(child)
         if command.subcommands:
-            _add_command(child, command, command.name)
+            _add_command(child, command, command.name, global_parser)
     return parser
 
 
