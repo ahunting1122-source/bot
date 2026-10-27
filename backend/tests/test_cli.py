@@ -131,3 +131,49 @@ def test_logs_without_files_is_not_an_error(tmp_path, capsys):
     code = main(["--data-dir", str(tmp_path / "data"), "logs"])
     assert code == 0
     assert "没有 .log" in capsys.readouterr().out
+
+
+# ── 命令面覆盖度 ────────────────────────────────────────────────────────────
+
+#: Hermes 的顶层独立命令数（74 个名字含 2 组别名 → 77 个名字）。
+#: 依据 `handoff/hermes-parity/research/01-cli-surface.md` §0。
+HERMES_TOP_LEVEL = 74
+
+
+def test_top_level_surface_covers_hermes():
+    """顶层命令面必须覆盖 Hermes 的全部独立命令。
+
+    这条测试是"命令面即功能面"的门禁：少一个命令就等于少一块功能，
+    而 `--help` 里看不见的东西，没人会想起来补。
+    """
+    names = {command.name for command in REGISTRY.all()}
+    assert len(names) >= HERMES_TOP_LEVEL, f"只有 {len(names)} 条顶层命令，少于 Hermes 的 {HERMES_TOP_LEVEL}"
+
+
+def test_every_command_help_renders():
+    """每条命令（含子命令）的 `--help` 都必须能渲染。
+
+    比"命令登记了"更强的一层保证：登记了但 `--help` 崩掉，等于没有。
+    """
+    parser = build_parser()
+    for command in REGISTRY.all():
+        with pytest.raises(SystemExit) as excinfo:
+            parser.parse_args([command.name, "--help"])
+        assert excinfo.value.code == 0, command.name
+
+
+@pytest.mark.xfail(
+    reason="W2 收口中：命令面已抄全，884 条选项说明正在批量补（见 handoff/hermes-parity/README.md 协作规矩 1）",
+    strict=False,
+)
+def test_option_help_is_documented():
+    """所有选项都要有中文说明。
+
+    `--help` 里只有 `--source SOURCE` 这种光秃秃的选项，等于抄了命令名没抄语义——
+    这是本项目实际踩过的坑（884 条选项一开始全是空的）。
+    """
+    from app.cli.commands._table import undocumented_options
+    from app.cli.commands.hermes_parity import SPECS
+
+    missing = undocumented_options(SPECS)
+    assert missing == [], f"{len(missing)} 条选项缺说明，例如：{missing[:10]}"
