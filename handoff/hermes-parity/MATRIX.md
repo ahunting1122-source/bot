@@ -23,7 +23,7 @@
 | 1.4 | 顶层命令面**已登记**（74 个独立命令，77 个名字含别名） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 74；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
 | 1.5 | 二级子命令面**已登记**（298 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 407；`undocumented_options(SPECS) == 0` |
 | 1.6 | 三级子命令面**已登记**（35 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
-| 1.16 | 上述 407 条里**有真实现**的比例（当前 45 条：approvals 9 / status…config 25 / model·fallback·auth 等 11） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；其余 362 条 `state="todo"`，调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.16 | 上述 407 条里**有真实现**的比例（当前 **46 / 407**：approvals 9 / status…config 25 / model·fallback·auth·moa·login 等 12） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布（46 done / 2 partial / 359 todo）；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.7 | 全局运行 flags 完整（23 个：`-z` / `-m` / `--provider` / `-t` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | ⬜ | — |
 | 1.7 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ⬜ | — |
 | 1.8 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ⬜ | — |
