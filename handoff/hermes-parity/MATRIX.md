@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 73 · 🟡 29 · ⬜ 79（完成度 40.3%，截至 W3/W4/W13 收口）
+条目合计 **181**。当前：✅ 73 · 🟡 30 · ⬜ 78（完成度 40.3%，截至 W4/W5 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -96,7 +96,7 @@
 | 5.8 | 危险命令两级：**18 条 hardline 硬地板**（无条件拦）+ **38 条 dangerous**（其中 35 条标破坏类，永不自动加白） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` / `DANGEROUS_PATTERNS` | W13 | ✅ | `app/approvals.py:60,96`；`tests/test_approvals.py` 89 条用例覆盖 |
 | 5.9 | Windows 破坏性操作清单（diskpart / Format / Clear-Disk / vssadmin / bcdedit / reg delete / icacls / iwr\|iex / EncodedCommand） | 【实证】`app/approvals.py` | W13 | ✅ | 同上 |
 | 5.10 | 自终止保护（`pkill hermes\|orbit` / `hermes gateway stop` / `hermes update`） | 【实证】`app/approvals.py` `self_kill` / `self_modify` | W13 | ✅ | 同上 |
-| 5.11 | `tool_search` 分级披露（core/GUI 永不延迟；listing 4,000 token；Tier0/1/2） | 【实证】`tools/tool_search.py` | W4 | ⬜ | — |
+| 5.11 | `tool_search` 分级披露（core/GUI 永不延迟；listing 4,000 token；Tier0/1/2） | 【实证】`tools/tool_search.py` | W4 | 🟡 | **检索面已实现**：`app/tools.py::ToolRegistry.search_tools`（名字 / 中文描述 / toolset 三路匹配，名字命中优先，只搜已暴露工具，空查询返回空）+ `tool_search` 工具本体（归 `core` toolset，不会被「禁用 web」连带关掉）；`tests/test_tool_search.py` 13 条。**缺分级披露**：Tier0/1/2 的延迟暴露、listing 4,000 token 预算、core/GUI 永不延迟——这些要在 `graph/nodes.py` 里按需收窄暴露面，本轮没做（Orbit 现 28 个工具全塞得下，优先级低于覆盖新功能） |
 | 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ⬜ | — |
 | 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | ⬜ | — |
 | 5.14 | 内置工具数量对齐（94 个；Orbit 现 28 个） | 【实证】调研 02 口径说明 | W4 | ⬜ | — |
