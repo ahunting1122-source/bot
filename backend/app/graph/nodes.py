@@ -23,6 +23,7 @@ from langgraph.types import interrupt
 from pydantic import Field
 from sqlalchemy import select
 
+from app.budget import TurnBudget
 from app.context import FROZEN_PREFIX_KEY, PROMPT_VERSION, frozen_prefix, prefix_of
 from app.indexing import chunks_for_tool_result
 from app.policies import estimate_tokens, normalized_origin
@@ -548,6 +549,18 @@ class Nodes:
             }
         # 模型只看得到 project() 之后的结果：结构化正文等大字段不进上下文。
         projected = self.policies.tool_results.project(call["name"], result)
+        # 第三层（整轮预算）的累加器：一次 assistant 轮次里的工具结果在这里累计，
+        # 超过 turn_budget 就按大小降序把最大的先落盘（见 app/budget.py）。
+        # 挂在实例字典上而不是 state 里：state 要过 checkpoint 序列化，塞自定义对象
+        # 会破坏任务恢复；按 task_id 分开是因为一个 Nodes 实例被同进程的多个并发任务共用。
+        turns = getattr(self, "_turn_budgets", None)
+        if turns is None:
+            turns = {}
+            self._turn_budgets = turns
+        turn = turns.get(task_id)
+        if turn is None:
+            turn = TurnBudget(data_dir=getattr(self.settings, "data_dir", None))
+            turns[task_id] = turn
         messages: list[Any] = [
             ToolMessage(content=as_tool_text(projected), tool_call_id=call["id"])
         ]
@@ -606,6 +619,8 @@ class Nodes:
         host = str(last.get("host") or "")
         projected = self.policies.tool_results.project(name, result)
         text = as_tool_text(projected)
+        # 本轮累加器（execute 里创建）：交给 record 去做第三层结算。
+        turn = (getattr(self, "_turn_budgets", None) or {}).get(task_id)
         meta = await self.policies.tool_results.record(
             self.store,
             task_id=task_id,
@@ -614,7 +629,11 @@ class Nodes:
             status=status,
             host=host,
             text=text,
+            turn=turn,
         )
+        if turn is not None and not state.get("calls"):
+            # 本轮最后一个工具结果已经落库：累加器归零，下一轮重新计数。
+            turn.reset()
         await self.store.event(
             task_id,
             "tool_result_stored",

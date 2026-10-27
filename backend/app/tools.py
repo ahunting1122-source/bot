@@ -5,7 +5,7 @@ import logging
 import os
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import approvals
+from app import approvals, toolsets
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Operation, Store, Task, serialize
 
@@ -24,6 +24,9 @@ RETRIEVER_CALL_LIMIT = 4
 #: 工具执行并发闸。单 worker 串行下现在天然不超，是给 MCP 工具并发上升预留的上限：
 #: 资源面最窄的是浏览器（一个进程一个页面），并发放开时必须先有闸。
 TOOL_CONCURRENCY = 4
+#: MCP 动态工具的名字前缀。遮蔽门禁对它们**整体豁免**：动态发现的工具在重连/换实现后
+#: 同名不同源是常态，走 override 流程只会把正常刷新卡死（照 Hermes 的 `mcp-*` 豁免）。
+MCP_TOOL_PREFIX = "mcp__"
 
 
 class Args(BaseModel):
@@ -631,6 +634,11 @@ class ToolRegistry:
         #: 路由到远程 prompt 正文。无 MCP 时保持 None（测试/降级路径）。
         self.mcp: Any = None
         self._retriever: Any = None
+        #: 已注销但原 owner 仍需记住的工具名（`name -> source`）。
+        #:
+        #: 存在的唯一理由：堵住"先 unregister_source 再 register"绕过遮蔽门禁的路。
+        #: 槽位被合法填回时清除，所以它只记"最近一次被摘掉的名字"，不会无限增长。
+        self._shadows: dict[str, str] = {}
         self.slots = asyncio.Semaphore(TOOL_CONCURRENCY)
 
     def retriever(self):
@@ -687,37 +695,131 @@ class ToolRegistry:
             return False
         return name in load_grants(self.settings.granted_actions).get(host, [])
 
-    def register(self, tools: list[Tool], executor):
-        """注册一批工具。
+    # ── 注册 / 注销 / 列举（暴露面的唯一入口，改之前先读这三段注释）────────────
 
-        同名阴影规则（照 Hermes 的 registry）：**同 source 重复注册允许**（重连刷新需要，
-        工具清单本就可能变），**跨 source 遮蔽拒绝并记日志**——MCP 服务与内置工具同名时
-        静默覆盖会让"模型调的是谁"变成一个查不出来的问题。
+    def register(
+        self,
+        tools: list[Tool],
+        executor,
+        source: str | None = None,
+        override: bool = False,
+    ) -> None:
+        """注册一批工具。同名遮蔽门禁照 Hermes ``registry.register()`` 的语义。
+
+        四条规则，每条都有它挡的那个具体事故：
+
+        1. **同 source 重复注册允许**。MCP 重连 / 刷新时工具清单本就会变，重新注册是
+           正常路径；拦下来等于"服务重启一次，它的工具就永远回不来"。
+        2. **跨 source 同名默认拒绝，且不抛异常**——只 ``log.error`` 并跳过。不抛是因为
+           注册发生在模块导入、服务连接这些启动链路上，一个插件抢名不该把 agent 带崩；
+           只记日志是因为静默覆盖会让"模型调到的到底是谁"变成查不出来的问题。
+        3. **``override=True`` 且操作员显式授权**才放行。两道闸分开：``override`` 是
+           调用方的意图声明，``data/tools.json`` 的 ``allow_tool_override`` 是授权。
+           只有意图没有授权 = 拒绝（照 Hermes 的 ``plugins.entries.*.allow_tool_override``）。
+        4. **``mcp__`` 前缀豁免**。MCP 工具是动态发现的，同一服务换实现后同名不同源是
+           常态，走 override 流程只会把正常刷新卡死。
+
+        ``source`` 留空 = 沿用每个 :class:`Tool` 自带的 ``source``（MCP 就是这么传的：
+        工具自带 ``mcp:<server>``）。**故意不给 ``source="builtin"`` 这种默认字符串**：
+        那会把 MCP 工具全洗成 builtin，遮蔽门禁的 source 维度当场失效。
         """
         for tool in tools:
             if tool.parameters is not None and not isinstance(tool.parameters, dict):
                 log.warning("工具 %s 的参数声明不是 dict，已跳过注册", tool.name)
                 continue
-            existing = self.tools.get(tool.name)
-            if existing is not None and existing.source != tool.source:
-                log.warning(
-                    "工具 %s 已被 %s 注册，来自 %s 的同名注册被拒绝",
-                    tool.name,
-                    existing.source,
-                    tool.source,
-                )
+            incoming = source or tool.source
+            if incoming != tool.source:
+                tool = replace(tool, source=incoming)
+            if not self._may_register(tool, override=override):
                 continue
             self.tools[tool.name] = tool
             self.external[tool.name] = executor
+            # 槽位被合法填上后墓碑就没意义了，清掉免得下次误判。
+            self._shadows.pop(tool.name, None)
+
+    def _may_register(self, tool: Tool, *, override: bool) -> bool:
+        """遮蔽门禁本体。返回 False = 这次注册被拒（**不抛异常**）。"""
+        if tool.name.startswith(MCP_TOOL_PREFIX):
+            return True
+        existing = self.tools.get(tool.name)
+        # 槽位空了也可能有主：`unregister_source` 会把原 owner 记成墓碑。
+        owner = existing.source if existing is not None else self._shadows.get(tool.name, "")
+        if not owner or owner == tool.source:
+            return True
+        if not override:
+            log.error(
+                "工具 %s 已被 %s 注册，来自 %s 的同名注册被拒绝（要替换请传 override=True，"
+                "并在 data/tools.json 的 allow_tool_override 里授权）",
+                tool.name,
+                owner,
+                tool.source,
+            )
+            return False
+        if not self._override_allowed(tool.source):
+            log.error(
+                "工具 %s 的 override=True 被拒：%s 未获操作员授权。"
+                "把 %r 加进 data/tools.json 的 allow_tool_override 列表才放行。",
+                tool.name,
+                tool.source,
+                tool.source,
+            )
+            return False
+        log.info(
+            "工具 %s：%s 覆盖了 %s 的注册（override=True 且已授权）",
+            tool.name,
+            tool.source,
+            owner,
+        )
+        return True
+
+    def _override_allowed(self, source: str) -> bool:
+        """操作员是否授权某个 source 覆盖别人已注册的工具。
+
+        授权来源与 Hermes 的 ``allow_tool_override`` 对齐，但落在 Orbit 的数据目录里：
+        ``data/tools.json`` 的 ``allow_tool_override`` 列表（支持 ``"*"`` 通配），
+        另认 ``ORBIT_ALLOW_TOOL_OVERRIDE=1`` 供临时排查（不必改文件、改完记得撤销）。
+        """
+        if os.environ.get("ORBIT_ALLOW_TOOL_OVERRIDE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return True
+        allowed = self.toolsets_config().get("allow_tool_override")
+        if not isinstance(allowed, list):
+            return False
+        return "*" in allowed or source in allowed
+
+    def toolsets_config(self) -> dict[str, Any]:
+        """读 ``data/tools.json``（带 mtime 缓存）。坏文件按"全开"处理，见 toolsets.load_config。"""
+        return toolsets.load_config(toolsets.config_path(self.settings.data_dir))
 
     def unregister_source(self, source: str) -> None:
-        """Drop every tool that came from one source, e.g. an MCP server that went away."""
-        for name in [n for n, tool in self.tools.items() if tool.source == source]:
-            self.tools.pop(name, None)
-            self.external.pop(name, None)
+        """摘掉某个 source 注册的全部工具（MCP 服务下线 / 重连前清理）。
 
-    def specs(self):
-        return [tool.specification() for tool in self.tools.values()]
+        同一道门禁：**"先删再注册"不能成为绕过遮蔽检查的后门**。``register()`` 只在
+        "槽位里已有东西"时才做冲突检查，于是"先 deregister 别人的工具，再普通 register
+        自己的"就能零成本抢名——Hermes 的 ``deregister()`` 注释专门点了这条路径。
+        这里用墓碑（``self._shadows``）堵住：删掉的非 MCP 名字会记住原 owner，
+        之后跨 source 注册同名仍然要过 override 门禁。
+        ``mcp__*`` 豁免：动态发现本来就是 nuke-and-repave。
+        """
+        for name in [n for n, tool in self.tools.items() if tool.source == source]:
+            dropped = self.tools.pop(name)
+            self.external.pop(name, None)
+            if not name.startswith(MCP_TOOL_PREFIX):
+                self._shadows[name] = dropped.source
+
+    def specs(self, platform: str = toolsets.DEFAULT_PLATFORM):
+        """当前暴露给模型的工具 schema，按 ``app/toolsets.resolve()`` 过滤。
+
+        硬要求：``platform="cli"`` 且没有 ``data/tools.json`` 时**行为与引入过滤层之前
+        完全一致**（全开、同顺序）。否则既有测试与真实行为会一起漂——过滤层必须先是
+        "能关"，才谈得上"该关"。
+        """
+        exposed = set(toolsets.resolve(list(self.tools), platform, self.toolsets_config()))
+        return [tool.specification() for name, tool in self.tools.items() if name in exposed]
 
     def validate(self, name: str, args: dict) -> dict:
         tool = self.tools.get(name)

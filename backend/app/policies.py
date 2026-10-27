@@ -16,6 +16,7 @@ from typing import Protocol
 from langchain_core.messages import AnyMessage
 from sqlalchemy import select
 
+from app.budget import Cut, govern
 from app.context import build_context, build_prefix
 from app.storage import Store, Task, ToolResult
 
@@ -233,9 +234,27 @@ class DefaultContextSource:
 
 
 class DefaultToolResultPolicy:
-    """原文落库 + 引用登记 + 大小观测；模型看到的仍是全量（剥离不进上下文的字段）。"""
+    """原文落库 + 引用登记 + 大小观测；模型看到的仍是全量（剥离不进上下文的字段）。
+
+    结果治理走 `app/budget.py` 的三层（输出层上限 / 落盘层 / 整轮层），但**只在
+    显式注入 `data_dir` / `config` / `turn` 时才启用**：
+
+    * `project` 是同步纯函数、不做 IO，而落盘要写盘——所以治理只能放在 `record`
+      里（`record` 本来就是 async 的落库口），`project` 保持"只剥 OFF_CONTEXT_KEYS"。
+    * 零参构造（现有调用点、`Policies.default`）必须**逐字保持**旧的单阈值行为：
+      `limit` 仍是 `TOOL_RESULT_LIMIT`，超出就砍尾巴。这是向后兼容的底线——
+      换治理策略不该让既有调用点看到不同的正文长度。
+    * 显式传 `config` 时 `limit` 取 `config.default_result_size`（三层治理的
+      100_000），落库正文是**模型看到的那份治理后正文**，不再二次硬截断。
+    """
 
     limit = TOOL_RESULT_LIMIT
+
+    def __init__(self, data_dir=None, config=None):
+        self.data_dir = data_dir
+        self.config = config
+        # 零参构造 = 旧行为；显式给 config = 三层治理的默认阈值。
+        self.limit = config.default_result_size if config is not None else TOOL_RESULT_LIMIT
 
     def project(self, name: str, result: dict) -> dict:
         if not isinstance(result, dict):
@@ -260,11 +279,41 @@ class DefaultToolResultPolicy:
         status: str,
         host: str,
         text: str,
+        turn=None,
     ) -> dict:
+        """落库一条工具结果；给了 `turn` 就把它算进本轮合计（第三层）。
+
+        `turn`（`app/budget.py:TurnBudget`）是可选的新参数：不传时行为与改动前
+        逐字一致。传了之后正文先过三层治理，落库的是**模型看到的那份**正文，
+        并在返回 dict 里多带 `spill_path` / `cut` / `degraded` 三个观测字段
+        （既有键一个都没动，调用方不需要改）。
+        """
         body = text or ""
-        truncated = len(body) > self.limit
-        if truncated:
-            body = body[: self.limit]
+        governed = None
+        #: 预算账按**模型收到的原文体积**记（`bytes`/`tokens`），不按落库副本记：
+        #: 落盘之后存下来的是预览，用预览去记账会让 token 预算严重低估真实消耗。
+        #: 宁可高估（预算提前一格）也不能低估——低估等于闸门失效。
+        accounted = body
+        if self.config is not None or self.data_dir is not None or turn is not None:
+            governed = govern(name, body, data_dir=self.data_dir, turn=turn, config=self.config)
+            body = governed.text
+            # `truncated` 的口径从"被砍了尾巴"扩成"治理动过正文"：
+            # 落盘、行/字节裁剪、降级硬截断都算，否则落盘这种"没丢但换了形态"
+            # 在观测里会显示成没截断，与实际不符。
+            truncated = bool(
+                governed.cut.touched() or governed.spill is not None or governed.degraded
+            )
+        else:
+            truncated = len(body) > self.limit
+            if truncated:
+                body = body[: self.limit]
+            accounted = body
+        # 观测字段：新增键，不动既有键（`cut` 给 JSON 安全形态，事件负载要能序列化）
+        extra = {
+            "spill_path": str(governed.spill.path) if governed and governed.spill else None,
+            "cut": governed.cut.to_dict() if governed else Cut().to_dict(),
+            "degraded": bool(governed.degraded) if governed else False,
+        }
         checksum = hashlib.sha256(f"{name}|{body}".encode()).hexdigest()
         existing = await store.rows(
             select(ToolResult).where(ToolResult.operation_id == operation_id)
@@ -277,6 +326,7 @@ class DefaultToolResultPolicy:
                 "tokens": row.tokens,
                 "truncated": bool(row.truncated),
                 "duplicate": True,
+                **extra,
             }
         saved = await store.save(
             ToolResult(
@@ -286,8 +336,8 @@ class DefaultToolResultPolicy:
                 status=status,
                 host=host,
                 text=body,
-                bytes=len(body.encode("utf-8")),
-                tokens=estimate_tokens(body),
+                bytes=len(accounted.encode("utf-8")),
+                tokens=estimate_tokens(accounted),
                 truncated=int(truncated),
                 hash=checksum,
             )
@@ -298,6 +348,7 @@ class DefaultToolResultPolicy:
             "tokens": saved.tokens,
             "truncated": truncated,
             "duplicate": False,
+            **extra,
         }
 
 
