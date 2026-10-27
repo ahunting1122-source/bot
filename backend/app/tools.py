@@ -498,6 +498,52 @@ def clip_text(text: str, limit: int = 8000) -> tuple[str, bool]:
     return f"{text[:head]}\n…（中间省略 {omitted} 字符）…\n{text[-tail:]}", True
 
 
+def schema_problems(spec: dict) -> list[str]:
+    """检查一份工具 schema 是否会被供应商拒绝。返回问题列表（空 = 合法）。
+
+    为什么要在**暴露之前**查而不是等供应商报错：畸形 schema 会让整次请求 400，
+    而错误信息通常只说「第 N 个函数的参数非法」，定位成本极高。常见畸形有：
+    `parameters.type` 不是 `"object"`（OpenAI 系硬要求）、`required` 里写了
+    `properties` 里不存在的键、`properties` 不是对象。这些在本地一秒就能查出来。
+
+    两种形状都吃：Orbit 内部发的是 OpenAI 函数调用形状
+    （``{"type": "function", "function": {...}}``），裸形状（直接 ``{name, ...}``）
+    也兼容——将来换 transport 时不必改这里。
+    """
+    problems: list[str] = []
+    if not isinstance(spec, dict):
+        return [f"schema 不是 dict，而是 {type(spec).__name__}"]
+    body: dict = spec
+    candidate = spec.get("function")
+    if isinstance(candidate, dict):
+        body = candidate
+    if not body.get("name"):
+        problems.append("缺 name")
+    if not isinstance(body.get("description"), str) or not body.get("description"):
+        problems.append("缺 description")
+    parameters = body.get("parameters")
+    if parameters is None:
+        # 无参工具允许省略 parameters（调用方按空对象处理），不算问题。
+        return problems
+    if not isinstance(parameters, dict):
+        problems.append(f"parameters 不是 dict，而是 {type(parameters).__name__}")
+        return problems
+    if parameters.get("type") != "object":
+        problems.append(f"parameters.type 必须是 'object'，实际是 {parameters.get('type')!r}")
+    properties = parameters.get("properties", {})
+    if not isinstance(properties, dict):
+        problems.append("parameters.properties 必须是 dict")
+        properties = {}
+    required = parameters.get("required", [])
+    if not isinstance(required, list):
+        problems.append("parameters.required 必须是 list")
+    else:
+        unknown = [key for key in required if key not in properties]
+        if unknown:
+            problems.append(f"required 里有 properties 不存在的键：{'、'.join(map(str, unknown))}")
+    return problems
+
+
 def terminate_tree(process: subprocess.Popen) -> None:
     """终止整棵进程树。
 
@@ -817,9 +863,24 @@ class ToolRegistry:
         硬要求：``platform="cli"`` 且没有 ``data/tools.json`` 时**行为与引入过滤层之前
         完全一致**（全开、同顺序）。否则既有测试与真实行为会一起漂——过滤层必须先是
         "能关"，才谈得上"该关"。
+
+        另外做一次**schema 前置校验**（见 :func:`schema_problems`）：畸形 schema 会让
+        整次请求被供应商 400 拒掉，而错误信息往往只说"第 N 个工具参数非法"，很难定位。
+        坏工具**排除并记 error 日志**——排除一个工具比让整轮对话发不出去损失小得多，
+        而日志会点名是哪个。
         """
         exposed = set(toolsets.resolve(list(self.tools), platform, self.toolsets_config()))
-        return [tool.specification() for name, tool in self.tools.items() if name in exposed]
+        result = []
+        for name, tool in self.tools.items():
+            if name not in exposed:
+                continue
+            spec = tool.specification()
+            problems = schema_problems(spec)
+            if problems:
+                log.error("工具 %s 的 schema 不合法，已从暴露面移除：%s", name, "；".join(problems))
+                continue
+            result.append(spec)
+        return result
 
     def validate(self, name: str, args: dict) -> dict:
         tool = self.tools.get(name)
