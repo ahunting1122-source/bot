@@ -25,10 +25,33 @@ from dataclasses import dataclass, field
 
 from app.cli.context import CliError, Context
 from app.cli.shorthand import to_option
-from app.cli.spec import REGISTRY, Command
+from app.cli.spec import REGISTRY, Command, Handler
 
 #: 选项声明的两种形态：短字符串，或 (短字符串, 中文说明)。
 OptionSpec = str | tuple[str, str]
+
+
+#: 命令路径 → handler。让**声明表里的命令**可以被功能域模块接管实现。
+#:
+#: 为什么需要这个机制：`sessions` 在表里有 19 个子命令，本轮只实现其中 6 个。
+#: 如果把这 6 个"搬出表"另立一个 `sessions` Command，表里剩下 13 条会整片消失
+#: ——命令面反而缩水，矩阵也会跟着丢条目。正确的做法是：表不动，实现方只声明
+#: "这个路径我接了"，`register_specs` 组装时把 handler 填进去、状态改 `done`。
+#:
+#: 使用方式（在功能域模块里，导入顺序必须在 `hermes_parity` 之前）：
+#:
+#:     from app.cli.commands._table import register_handler
+#:     register_handler("sessions list", run_list)
+#:     register_handler("sessions browse", run_browse)
+HANDLERS: dict[str, Handler] = {}
+
+
+def register_handler(path: str, handler: Handler) -> None:
+    """登记某条命令路径的真实现。路径写法与 `orbit --help` 里的层级一致。"""
+    key = " ".join(path.split())
+    if key in HANDLERS:
+        raise ValueError(f"命令实现重复登记：{key}")
+    HANDLERS[key] = handler
 
 
 @dataclass
@@ -50,16 +73,22 @@ class Spec:
 
     def build(self, prefix: str = "") -> Command:
         path = f"{prefix} {self.name}".strip()
+        # 叶子命令才有 handler；有子命令的中间节点只做分组。
+        implemented = bool(not self.subcommands and path in HANDLERS)
+        if self.subcommands:
+            handler = None
+        else:
+            handler = HANDLERS.get(path) or _pending(path, self.wave)
         return Command(
             name=self.name,
             help=self.help,
-            handler=None if self.subcommands else _pending(path, self.wave),
+            handler=handler,
             options=[_option(item) for item in self.options],
             subcommands=[sub.build(path) for sub in self.subcommands],
             group=self.group,
             hermes=self.hermes or path,
             parity=self.parity,
-            state="todo",
+            state="done" if implemented else "todo",
             aliases=self.aliases,
             needs_store=self.needs_store,
         )
