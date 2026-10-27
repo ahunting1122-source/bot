@@ -162,10 +162,6 @@ def test_every_command_help_renders():
         assert excinfo.value.code == 0, command.name
 
 
-@pytest.mark.xfail(
-    reason="W2 收口中：命令面已抄全，884 条选项说明正在批量补（见 handoff/hermes-parity/README.md 协作规矩 1）",
-    strict=False,
-)
 def test_option_help_is_documented():
     """所有选项都要有中文说明。
 

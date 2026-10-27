@@ -63,13 +63,18 @@ def _global_options() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_command(parser: argparse.ArgumentParser, command: Command) -> None:
-    """把一个 Command 挂到 parser 的 subparsers 上，并递归处理子命令。"""
+def _add_command(parser: argparse.ArgumentParser, command: Command, prefix: str) -> None:
+    """把一个 Command 挂到 parser 的 subparsers 上，并递归处理子命令。
+
+    ``prefix`` 一路往下传，是为了让报错能显示**完整命令路径**（``approvals allow add``），
+    而不是只显示末级名字（``add``）——后者在 74 个命令的规模下等于没说。
+    """
     subparsers = parser.add_subparsers(
         dest=f"_{command.name}_command",
         metavar="{" + ",".join(sub.name for sub in command.subcommands) + "}",
     )
     for sub in command.subcommands:
+        path = f"{prefix} {sub.name}"
         child = subparsers.add_parser(
             sub.name,
             help=sub.help,
@@ -77,11 +82,11 @@ def _add_command(parser: argparse.ArgumentParser, command: Command) -> None:
             epilog=sub.epilog or None,
             aliases=list(sub.aliases),
         )
-        child.set_defaults(_command=sub)
+        child.set_defaults(_command=sub, _command_path=path)
         for option in sub.options:
             option.add(child)
         if sub.subcommands:
-            _add_command(child, sub)
+            _add_command(child, sub, path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,11 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
             aliases=list(command.aliases),
             parents=[global_parser],
         )
-        child.set_defaults(_command=command)
+        child.set_defaults(_command=command, _command_path=command.name)
         for option in command.options:
             option.add(child)
         if command.subcommands:
-            _add_command(child, command)
+            _add_command(child, command, command.name)
     return parser
 
 
@@ -172,7 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         code = command.handler(context, args) or 0
     except CliError as exc:
-        _report(context, command, str(exc))
+        _report(context, getattr(args, "_command_path", command.name), str(exc))
         code = exc.code
     except KeyboardInterrupt:
         print("已中断", file=sys.stderr)
@@ -194,20 +199,20 @@ def _print_command_help(parser: argparse.ArgumentParser, name: str) -> None:
     parser.print_help()
 
 
-def _report(context: Context, command: Command, message: str) -> None:
+def _report(context: Context, path: str, message: str) -> None:
     """统一错误出口：json 模式给结构化错误，否则给人读的一行。"""
     if context.json:
         import json
 
         print(
             json.dumps(
-                {"ok": False, "command": command.name, "error": message},
+                {"ok": False, "command": path, "error": message},
                 ensure_ascii=False,
                 indent=2,
             )
         )
     else:
-        print(f"orbit {command.name}: {message}", file=sys.stderr)
+        print(f"orbit {path}: {message}", file=sys.stderr)
 
 
 def run(argv: Sequence[str] | None = None) -> Any:

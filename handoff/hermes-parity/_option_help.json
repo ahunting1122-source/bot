@@ -1,0 +1,2240 @@
+{
+ "options": {
+  "__compute-host": {},
+  "__gateway-restart-watch": {
+   "--deadline DEADLINE": ""
+  },
+  "__run-script": {},
+  "__slash-worker": {
+   "--model MODEL": "",
+   "--session-key SESSION_KEY": ""
+  },
+  "__update-gateway-helper": {},
+  "acp": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true).",
+   "--check": "Verify ACP dependencies and adapter imports, then exit",
+   "--setup": "Run interactive Hermes provider/model setup for ACP terminal auth",
+   "--setup-browser": "Install agent-browser + Playwright Chromium into ~/.hermes/node/ for browser tool support (idempotent).",
+   "--version": "Print Hermes ACP version and exit",
+   "--yes, -y": "Accept all prompts (used by --setup-browser to skip the ~400 MB Chromium download confirmation)."
+  },
+  "approvals": {},
+  "approvals suggest": {
+   "--apply N[,M...]": "Merge the numbered proposals (from a prior run) into command_allowlist in config.yaml",
+   "--days DAYS": "How far back to scan session history (default: 90; 0 = all)",
+   "--db DB": "Path to an alternate session database (default: ~/.hermes/state.db)",
+   "--json": "Emit machine-readable JSON instead of human-readable text",
+   "--limit LIMIT": "Maximum number of proposals to show (default: 20)",
+   "--min-count MIN_COUNT": "Minimum approval count for a pattern to be proposed (default: 2)"
+  },
+  "approvals test": {
+   "--env-type ENV_TYPE": "Terminal backend type to evaluate against (default: local; isolated container backends like docker skip the guards)",
+   "--json": "Emit machine-readable JSON instead of human-readable text"
+  },
+  "auth": {},
+  "auth add": {
+   "--api-key API_KEY": "API key value (otherwise prompted securely)",
+   "--ca-bundle CA_BUNDLE": "Custom CA bundle for OAuth login",
+   "--client-id CLIENT_ID": "OAuth client id",
+   "--inference-url INFERENCE_URL": "Nous inference base URL",
+   "--insecure": "Disable TLS verification for OAuth login",
+   "--label LABEL": "Optional display label",
+   "--no-browser": "Do not auto-open a browser for OAuth login",
+   "--portal-url PORTAL_URL": "Nous portal base URL",
+   "--scope SCOPE": "OAuth scope override",
+   "--timeout TIMEOUT": "OAuth/network timeout in seconds",
+   "--type {oauth,api-key,api_key}": "Credential type to add"
+  },
+  "auth list": {},
+  "auth logout": {},
+  "auth remove": {},
+  "auth reset": {},
+  "auth spotify": {
+   "--client-id CLIENT_ID": "Spotify app client_id (or set HERMES_SPOTIFY_CLIENT_ID)",
+   "--no-browser": "Do not attempt to open the browser automatically",
+   "--redirect-uri REDIRECT_URI": "Allow-listed localhost redirect URI for your Spotify app",
+   "--scope SCOPE": "Override requested Spotify scopes",
+   "--timeout TIMEOUT": "Callback/token exchange timeout in seconds"
+  },
+  "auth status": {},
+  "backup": {
+   "-l, --label LABEL": "Label for the snapshot (only used with --quick)",
+   "-o, --output OUTPUT": "Output path for the zip file (default: ~/hermes- backup-<timestamp>.zip)",
+   "-q, --quick": "Quick snapshot: only critical state files (config, state.db, .env, auth, cron)"
+  },
+  "browser": {},
+  "browser close-profile": {
+   "--browser BROWSER": "Override detected default browser (chrome/edge/brave/brave-origin/chromium)"
+  },
+  "bundles": {},
+  "bundles create": {
+   "--description, -d DESCRIPTION": "Human-readable description shown in /help and `hermes bundles list`",
+   "--force, -f": "Overwrite an existing bundle with the same name",
+   "--instruction, -i INSTRUCTION": "Extra guidance prepended to the loaded skill content",
+   "--skill, -s SKILL": "Skill name to include (repeat for multiple)"
+  },
+  "bundles delete": {},
+  "bundles list": {},
+  "bundles reload": {},
+  "bundles show": {},
+  "chat": {
+   "--accept-hooks": "Auto-approve any unseen shell hooks declared in config.yaml without a TTY prompt (see also HERMES_ACCEPT_HOOKS env var and hooks_auto_accept: in config.yaml).",
+   "--checkpoints": "Enable filesystem checkpoints before destructive file operations (use /rollback to restore)",
+   "--cli": "Force the classic prompt_toolkit REPL (overrides display.interface=tui)",
+   "--continue, -c [SESSION_NAME]": "Resume a session by name, or the most recent if no name given",
+   "--create-if-missing": "With -c/--continue <name>: if no session matches the name, create a new session with that title and proceed (instead of failing with a not-found error). Programmatic callers that want 'send to this named thread, making it if needed'.",
+   "--dev": "With --tui: run TypeScript sources via tsx (skip dist build)",
+   "--ignore-rules": "Skip auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills. Combine with --ignore-user-config for a fully isolated run.",
+   "--ignore-user-config": "Ignore ~/.hermes/config.yaml and fall back to built-in defaults (credentials in .env are still loaded). Useful for isolated CI runs, reproduction, and third- party integrations.",
+   "--image IMAGE": "Optional local image path to attach to a single query",
+   "--in DIR": "Change into DIR before starting or resuming (scopes ' --resume latest' / -c lookups to DIR's workspace).",
+   "--max-turns N": "Maximum tool-calling iterations per conversation turn (default: 500, or agent.max_turns in config)",
+   "--no-restore-cwd": "Don't cd into a resumed session's recorded working directory.",
+   "--oneshot": "With -q/--query-file: answer the query and exit (legacy single-query behavior) instead of seeding an interactive session. Implied on non-TTY stdio and by -Q/--quiet.",
+   "--pass-session-id": "Include the session ID in the agent's system prompt",
+   "--provider PROVIDER": "Inference provider (default: auto). Built-in or a user-defined name from `providers:` in config.yaml.",
+   "--query-file PATH": "Read the single query from a file instead of the command line ('-' reads stdin). Safe for arbitrary text: nothing is shell-interpreted, so quotes, $(...), and backticks are preserved verbatim. Mutually exclusive with -q.",
+   "--reasoning LEVEL": "Reasoning effort for this session: none, minimal, low, medium, high, xhigh, max, or ultra. Overrides agent.reasoning_effort for this run only (same levels as the /reasoning slash command).",
+   "--resume, -r SESSION_ID": "Resume a previous session by ID (shown on exit), or 'latest' for the most recent session",
+   "--run-budget SECONDS": "Optional wall-clock budget in seconds for each conversation run. At 80% elapsed the agent gets a one- time wrap-up notice, and implicit provider stale timeouts are capped to the remaining budget so one hung call can't consume the run. Unset = off. Also configurable as agent.run_budget_seconds in config.yaml. Intended for one-shot/eval invocations with a hard ceiling.",
+   "--safe-mode": "Troubleshooting mode: disable ALL customizations — user config, AGENTS.md/memory injection, plugins, and MCP servers (implies --ignore-user-config and --ignore-rules). Use to isolate whether a problem comes from your setup or from Hermes itself.",
+   "--source SOURCE": "Session source tag for filtering (default: cli). Use 'tool' for third-party integrations that should not appear in user session lists.",
+   "--tui": "Launch the modern TUI instead of the classic REPL",
+   "--worktree, -w": "Run in an isolated git worktree (for parallel agents on the same repo)",
+   "--yolo": "Bypass all dangerous command approval prompts (use at your own risk)",
+   "-Q, --quiet": "Quiet mode for programmatic use: suppress banner, spinner, and tool previews. Only output the final response and session info.",
+   "-m, --model MODEL": "Model to use (e.g., anthropic/claude-sonnet-4)",
+   "-q, --query QUERY": "Query to run. On a real TTY the prompt seeds an interactive session (submitted literally as the first turn); combined with --oneshot or -Q, or on a non-TTY, it answers and exits.",
+   "-s, --skills SKILLS": "Preload one or more skills for the session (repeat flag or comma-separate)",
+   "-t, --toolsets TOOLSETS": "Comma-separated toolsets to enable",
+   "-v, --verbose": "Verbose output"
+  },
+  "checkpoints": {},
+  "checkpoints clear": {
+   "-f, --force": "Skip confirmation prompt"
+  },
+  "checkpoints clear-legacy": {
+   "-f, --force": "Skip confirmation prompt"
+  },
+  "checkpoints prune": {
+   "--keep-orphans": "Skip deleting projects whose workdir no longer exists",
+   "--max-size-mb MAX_SIZE_MB": "After orphan/stale prune, drop oldest commits per project until total size <= this (default 500)",
+   "--retention-days RETENTION_DAYS": "Drop projects whose last_touch is older than N days (default 7)",
+   "-f, --force": "Skip the orphan-deletion confirmation prompt"
+  },
+  "checkpoints status": {
+   "--limit LIMIT": "Max projects to list (default 20)"
+  },
+  "claw": {},
+  "claw cleanup": {
+   "--dry-run": "Preview what would be archived without making changes",
+   "--source SOURCE": "Path to a specific OpenClaw directory to clean up",
+   "--yes, -y": "Skip confirmation prompts"
+  },
+  "claw migrate": {
+   "--dry-run": "Preview only — stop after showing what would be migrated",
+   "--migrate-secrets": "Include allowlisted secrets (TELEGRAM_BOT_TOKEN, API keys, etc.). Required even under --preset full.",
+   "--no-backup": "Skip the pre-migration zip snapshot of ~/.hermes/ (by default a single restore-point archive is written to ~/.hermes/backups/ before apply; restorable with 'hermes import').",
+   "--overwrite": "Overwrite existing files (default: refuse to apply when the plan has conflicts)",
+   "--preset {user-data,full}": "Migration preset (default: full). Neither preset imports secrets — pass --migrate-secrets to include API keys.",
+   "--skill-conflict {skip,overwrite,rename}": "How to handle skill name conflicts (default: skip)",
+   "--source SOURCE": "Path to OpenClaw directory (default: ~/.openclaw)",
+   "--workspace-target WORKSPACE_TARGET": "Absolute path to copy workspace instructions into",
+   "--yes, -y": "Skip confirmation prompts"
+  },
+  "completion": {},
+  "computer-use": {},
+  "computer-use doctor": {
+   "--include CHECK": "Run only the listed checks. Repeat for multiple (e.g. --include tcc_accessibility --include bundle_identity). Unknown names are reported by cua-driver.",
+   "--json": "Emit the raw structured payload as JSON (same shape as `tools/call`).",
+   "--skip CHECK": "Skip the listed checks. Repeat for multiple. Wins over --include."
+  },
+  "computer-use install": {
+   "--upgrade": "Re-run the upstream installer even if cua-driver is already on PATH. The upstream install.sh always pulls the latest release, so this performs an in-place upgrade."
+  },
+  "computer-use permissions": {},
+  "computer-use permissions grant": {},
+  "computer-use permissions status": {
+   "--json": "Emit the normalized permission payload as JSON."
+  },
+  "computer-use status": {},
+  "config": {},
+  "config check": {},
+  "config edit": {},
+  "config env-path": {},
+  "config get": {
+   "--json": "Print value as JSON"
+  },
+  "config migrate": {},
+  "config path": {},
+  "config set": {
+   "--force": "Skip the unknown-key notice printed after writing a key the running version doesn't recognize (the value is saved either way)."
+  },
+  "config show": {},
+  "config unset": {},
+  "console": {},
+  "cron": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+  },
+  "cron create": {
+   "--continuity": "Each run wakes up with the job's own previous output injected into its prompt, so it can dedupe against what was already reported and continue where the last run left off (scouts, monitors, incremental digests). First run is unchanged.",
+   "--deliver DELIVER": "Delivery target: origin, local, telegram, discord, signal, platform:chat_id, or bot-chat[:profile] (inject output into a local profile's canonical Bot Chat as a message the bot responds to)",
+   "--model MODEL": "Pin this job to a specific inference model (user- owned; the agent's cronjob tool cannot set this). Omit to follow cron.model / model.default from config.yaml.",
+   "--monitor-script MONITOR_SCRIPT": "Monitor mode: path to a cheap source script under ~/.hermes/scripts/ that runs each tick BEFORE the agent. Unchanged output (exact-bytes hash) suppresses the agent run entirely; changed output injects a MONITOR CHANGE DETECTED diff into the prompt. Script output must be stable (no timestamps). Mutually exclusive with --monitor-url; incompatible with --no- agent.",
+   "--monitor-url MONITOR_URL": "Monitor mode: http(s) URL fetched with a bounded GET each tick instead of a script. Same hash-suppression semantics as --monitor-script.",
+   "--name NAME": "Optional human-friendly job name",
+   "--no-agent": "Skip the LLM entirely — run --script on schedule and deliver its stdout directly. Empty stdout = silent. Classic watchdog pattern (memory alerts, disk alerts, CI pings).",
+   "--provider MODEL_PROVIDER": "Inference provider paired with --model (e.g. 'openrouter', 'nous').",
+   "--reasoning-effort REASONING_EFFORT": "Pin this job's reasoning (thinking) effort: none, minimal, low, medium, high, xhigh, max, or ultra. Overrides agent.reasoning_effort and agent.reasoning_overrides for this job; unsupported levels are clamped by the provider at request time. Omit to follow config.",
+   "--repeat REPEAT": "Optional repeat count",
+   "--script SCRIPT": "Path to a script under ~/.hermes/scripts/. Default mode: script stdout is injected into the agent's prompt each run. With --no-agent: the script IS the job and its stdout is delivered verbatim. .sh/.bash files run via bash, everything else via Python.",
+   "--skill SKILLS": "Attach a skill. Repeat to add multiple skills.",
+   "--workdir WORKDIR": "Absolute path for the job to run from. Injects AGENTS.md / CLAUDE.md / .cursorrules from that directory and uses it as the cwd for terminal/file/code_exec tools. Omit to preserve old behaviour (no project context files)."
+  },
+  "cron doctor": {},
+  "cron edit": {
+   "--add-skill ADD_SKILLS": "Append a skill without replacing the existing list. Repeatable.",
+   "--agent": "Disable no-agent mode on this job (reverts to LLM- driven execution).",
+   "--clear-skills": "Remove all attached skills from the job",
+   "--continuity": "Turn on run-to-run continuity: each run sees the job's own previous output (dedupe, continue where it left off).",
+   "--deliver DELIVER": "New delivery target",
+   "--model MODEL": "Pin this job to a specific inference model (user- owned; the agent's cronjob tool cannot set this). Pass empty string to clear the pin and follow cron.model / model.default.",
+   "--monitor-script MONITOR_SCRIPT": "Set/replace the monitor source script (see `hermes cron create --monitor-script`). Pass empty string to clear.",
+   "--monitor-url MONITOR_URL": "Set/replace the monitor source URL. Pass empty string to clear.",
+   "--name NAME": "New job name",
+   "--no-agent": "Enable no-agent mode on this job (requires --script or an existing script on the job).",
+   "--no-continuity": "Turn off run-to-run continuity (other context_from job refs are preserved).",
+   "--prompt PROMPT": "New prompt/task instruction",
+   "--provider MODEL_PROVIDER": "Inference provider paired with --model. Pass empty string to clear.",
+   "--reasoning-effort REASONING_EFFORT": "Pin this job's reasoning (thinking) effort: none, minimal, low, medium, high, xhigh, max, or ultra. Pass empty string to clear the pin and follow config resolution.",
+   "--remove-skill REMOVE_SKILLS": "Remove a specific attached skill. Repeatable.",
+   "--repeat REPEAT": "New repeat count",
+   "--schedule SCHEDULE": "New schedule",
+   "--script SCRIPT": "Path to a script under ~/.hermes/scripts/. Pass empty string to clear. With --no-agent the script IS the job; otherwise its stdout is injected into the agent's prompt each run.",
+   "--skill SKILLS": "Replace the job's skills with this set. Repeat to attach multiple skills.",
+   "--workdir WORKDIR": "Absolute path for the job to run from (injects AGENTS.md etc. and sets terminal cwd). Pass empty string to clear."
+  },
+  "cron incidents": {
+   "--state {detected,alerted,closed}": "Filter incidents by lifecycle state"
+  },
+  "cron list": {
+   "--all": "Include disabled jobs"
+  },
+  "cron notepad": {},
+  "cron pause": {},
+  "cron remove": {},
+  "cron resume": {
+   "--at RUN_AT": "Re-arm at an ISO-8601 time",
+   "--run-now": "Re-arm to run now"
+  },
+  "cron run": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+  },
+  "cron runs": {
+   "--limit LIMIT": "Rows to show (1-500)"
+  },
+  "cron status": {},
+  "cron tick": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+  },
+  "curator": {},
+  "curator adopt": {
+   "--all-unmanaged": "Adopt every curation-eligible skill that has no provenance marker",
+   "--dry-run": "List what would be adopted without writing anything",
+   "--yes": "Skip the confirmation prompt for --all-unmanaged"
+  },
+  "curator archive": {},
+  "curator backup": {
+   "--reason REASON": "Free-text label stored in manifest.json (default: 'manual')"
+  },
+  "curator ledger": {
+   "--limit LIMIT": "Max entries to show (default: 20)",
+   "--skill SKILL": "Only show entries for this skill"
+  },
+  "curator list-archived": {},
+  "curator list-unmanaged": {},
+  "curator pause": {},
+  "curator pin": {},
+  "curator prune": {
+   "--days DAYS": "Archive skills idle for at least N days (default: 90)",
+   "--dry-run": "Show what would be archived without doing it",
+   "-y, --yes": "Skip the confirmation prompt"
+  },
+  "curator purge": {
+   "--days DAYS": "Override curator.archive_ttl_days for this invocation",
+   "--dry-run": "Show what would be purged without deleting",
+   "-y, --yes": "Skip the confirmation prompt"
+  },
+  "curator restore": {},
+  "curator resume": {},
+  "curator rollback": {
+   "--id BACKUP_ID": "Snapshot id to restore (see `--list`); default: newest",
+   "--list": "List available snapshots and exit without restoring",
+   "-y, --yes": "Skip confirmation prompt"
+  },
+  "curator run": {
+   "--background": "Start the LLM review pass in a background thread and return immediately",
+   "--consolidate": "Force the LLM umbrella-building consolidation pass on for this run, overriding the config default (off). Without this flag the run is prune-only unless `curator.consolidate: true` is set.",
+   "--dry-run": "Report only — no state changes, no archives, no consolidation (use this to preview what curator would do)",
+   "--sync, --synchronous": "Wait for the LLM review pass to finish (default for manual runs)"
+  },
+  "curator status": {},
+  "curator unpin": {},
+  "curator usage": {
+   "--json": "Emit the full report as JSON instead of a table",
+   "--provenance {agent,bundled,hub}": "Only show skills of this origin",
+   "--sort {activity,recent,name}": "Sort order: activity (most-used first, default), recent (most-recently-active first), or name (alphabetical)"
+  },
+  "dashboard": {
+   "--host HOST": "Host (default 127.0.0.1)",
+   "--insecure": "DEPRECATED / NO-OP. Formerly bypassed auth on a non-loopback bind. As of the June 2026 hardening it no longer disables authentication — a public bind always requires an auth provider (password or OAuth). Bind 127.0.0.1 + tunnel to keep it local.",
+   "--isolated": "When launched from a named profile, run a dedicated server scoped to that profile instead of routing to the machine-level server. Default behavior is unified: profile launches attach to (or start) ONE machine-level server and preselect the profile.",
+   "--no-open": "Don't open browser automatically",
+   "--port PORT": "Port (default 9119, 0 for auto-assign by OS)",
+   "--skip-build": "Skip the web UI build step and serve the existing dist directly. Useful for non-interactive contexts (Windows Scheduled Tasks, CI) where npm may not be available. Pre-build with: cd web && npm run build",
+   "--status": "List running Hermes web server processes and exit",
+   "--stop": "Stop all running Hermes web server processes and exit"
+  },
+  "dashboard register": {
+   "--name NAME": "Human-readable label for the dashboard (default: an auto-generated name)",
+   "--portal-url PORTAL_URL": "Override the Nous Portal base URL for registration (default: the portal you logged into). The access token must be valid at this portal. Also settable via HERMES_DASHBOARD_PORTAL_URL. Mainly for testing against a staging/preview portal.",
+   "--redirect-uri REDIRECT_URI": "Optional public HTTPS OAuth redirect URI for the dashboard, e.g. https://hermes.example.com/auth/callback. Omit for localhost-only use."
+  },
+  "debug": {},
+  "debug delete": {},
+  "debug share": {
+   "--expire EXPIRE": "Paste expiry in days (default: 7)",
+   "--lines LINES": "Number of log lines to include per log file (default: 200)",
+   "--local": "Print the report locally instead of uploading",
+   "--no-redact": "Disable upload-time secret redaction (default: redact). Logs are normally run through agent.redact.redact_sensitive_text with force=True before upload so credentials are not leaked into the public paste service.",
+   "--nous": "Upload the debug bundle to Nous-internal storage (AWS S3) instead of a public paste service. The bundle is private — viewable only by Nous staff (and allowlisted Discord mods) via a Google-login-gated viewer — and auto-deletes after 14 days. Still force-redacts secrets unless --no-redact is also passed.",
+   "-y, --yes": "Skip the confirmation prompt and upload immediately. Required in non-interactive contexts (scripts/CI); without it, and with no TTY on stdin, the command refuses rather than upload silently."
+  },
+  "desktop": {
+   "--build-only": "Build the desktop app but do not launch it (used by the installer's --update flow)",
+   "--cwd CWD": "Initial project directory for Desktop chat sessions (sets HERMES_DESKTOP_CWD)",
+   "--fake-boot": "Enable deterministic desktop boot delays for validating startup UI",
+   "--force-build": "Force a full rebuild even if the content stamp matches",
+   "--hermes-root HERMES_ROOT": "Override the Hermes source root used by Desktop (sets HERMES_DESKTOP_HERMES_ROOT)",
+   "--identity IDENTITY": "Certificate name to create/use for --setup-tcc- identity (default: Hermes Local Signing)",
+   "--ignore-existing": "Force Desktop to ignore any hermes CLI already on PATH during backend resolution",
+   "--setup-tcc-identity": "macOS only: create/import a self-signed code-signing certificate in the login keychain and point desktop.macos_signing_identity at it, then re-sign the packaged app. Makes macOS TCC grants (Full Disk Access, Accessibility, Files and Folders, microphone) survive rebuilds with a certificate-anchored identity. Idempotent — safe to re-run after updates.",
+   "--skip-build": "Skip npm install/package and launch the existing unpacked app from apps/desktop/release",
+   "--source": "Launch via `electron .` against apps/desktop/dist instead of the packaged app"
+  },
+  "doctor": {
+   "--ack ADVISORY_ID": "Acknowledge a security advisory by ID and exit. After ack, the advisory will no longer trigger startup banners. Run `hermes doctor` first to see active advisories and their IDs.",
+   "--fix": "Attempt to fix issues automatically",
+   "--live": "Opt-in: run one bounded, read-only real-call health probe per configured tool backend (Firecrawl/FAL/browser/MCP/TTS/STT) after the static checks. Makes real network calls."
+  },
+  "dump": {
+   "--show-keys": "Show redacted API key prefixes (first/last 4 chars) instead of just set/not set"
+  },
+  "egress": {},
+  "egress config": {},
+  "egress disable": {},
+  "egress install": {
+   "--force": "Re-download even if a managed copy already exists"
+  },
+  "egress reload": {},
+  "egress restart": {},
+  "egress setup": {
+   "--from-bitwarden": "Treat secrets as managed by Bitwarden — discover provider keys from secrets.bitwarden config instead of the current env. Fails loudly if BW is unreachable rather than silently falling back.",
+   "--no-bitwarden": "Explicitly switch credential_source back to env on re- setup (only meaningful when the previous setup used --from-bitwarden).",
+   "--no-restart": "Do not restart a running daemon after setup; you'll need to run `hermes egress restart` yourself for changes to take effect.",
+   "--restart": "If a daemon is already running, restart it automatically after writing the new config/tokens (non-interactive default on a tty is to ask).",
+   "--rotate-tokens": "Mint fresh proxy tokens for every provider (default is to preserve tokens for providers that already had one — avoids 401-ing already-running sandboxes on re- setup).",
+   "--tunnel-port TUNNEL_PORT": "Override the tunnel port (default 9090)"
+  },
+  "egress start": {},
+  "egress status": {
+   "--show-tokens": "Print the proxy tokens (default: redacted prefix only). Beware: tokens may persist in your shell history."
+  },
+  "egress stop": {},
+  "fallback": {},
+  "fallback add": {},
+  "fallback clear": {},
+  "fallback list": {},
+  "fallback remove": {},
+  "gateway": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+  },
+  "gateway enroll": {
+   "--connector-url CONNECTOR_URL": "The connector base/relay URL, e.g. wss://connector.example.com/relay or https://connector.example.com. Also settable via GATEWAY_RELAY_URL / gateway.relay_url in config.yaml.",
+   "--gateway-id GATEWAY_ID": "A stable id for this gateway instance (kill-switch granularity). Defaults to gw-<hostname>.",
+   "--token TOKEN": "The single-use enrollment token from the connector (delivered with your gateway config). Also settable via GATEWAY_RELAY_ENROLL_TOKEN.",
+   "--wake-url WAKE_URL": "Phase 5 §5.2 wake URL: a reachable URL the connector pokes (payload-free GET) to wake this gateway when buffered work arrives while it's idle/suspended, so it reconnects and drains. Persisted as GATEWAY_RELAY_WAKE_URL in ~/.hermes/.env and forwarded at provision. Optional — without it the gateway still drains whenever it next reconnects on its own."
+  },
+  "gateway install": {
+   "--force": "Force reinstall",
+   "--no-start-now": "Do not start the gateway service after installing",
+   "--no-start-on-login": "Do not enable the service to start on login/boot",
+   "--run-as-user RUN_AS_USER": "User account the Linux system service should run as",
+   "--start-now": "Start the gateway service immediately after installing",
+   "--start-on-login": "Enable the service to start automatically on login/boot",
+   "--system": "Install as a Linux system-level service (starts at boot)"
+  },
+  "gateway list": {},
+  "gateway migrate-legacy": {
+   "--dry-run": "List what would be removed without doing it",
+   "-y, --yes": "Skip the confirmation prompt"
+  },
+  "gateway restart": {
+   "--all": "Kill ALL gateway processes across all profiles before restarting",
+   "--system": "Target the Linux system-level gateway service"
+  },
+  "gateway run": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true).",
+   "--external-supervisor": "Declare that an external process manager owns this foreground gateway. In-chat restarts and updates exit back to that manager instead of spawning a detached replacement. Use this when a launchd/systemd wrapper strips its native environment markers.",
+   "--force": "Start a foreground gateway even when a systemd/launchd/s6 service already supervises this profile. Without --force, the command refuses because a second dispatcher escapes the service and can corrupt shared gateway state.",
+   "--no-supervise": "Inside the s6-overlay Docker image, normally `gateway run` is automatically redirected to the supervised s6 service (so the gateway gets auto-restart on crash, plus a supervised dashboard if HERMES_DASHBOARD is set). Pass --no-supervise to opt out and get the historical pre-s6 foreground behavior: the gateway is the container's main process and the container exits with the gateway's exit code. No effect outside an s6 container.",
+   "--replace": "Replace any existing gateway instance (useful for systemd)",
+   "-q, --quiet": "Suppress all stderr log output",
+   "-v, --verbose": "Increase stderr log verbosity (-v=INFO, -vv=DEBUG)"
+  },
+  "gateway setup": {},
+  "gateway start": {
+   "--all": "Kill ALL stale gateway processes across all profiles before starting",
+   "--system": "Target the Linux system-level gateway service"
+  },
+  "gateway status": {
+   "--deep": "Deep status check",
+   "--system": "Target the Linux system-level gateway service",
+   "-l, --full": "Show full, untruncated service/log output where supported"
+  },
+  "gateway stop": {
+   "--all": "Stop ALL gateway processes across all profiles",
+   "--system": "Target the Linux system-level gateway service"
+  },
+  "gateway uninstall": {
+   "--system": "Target the Linux system-level gateway service"
+  },
+  "hooks": {},
+  "hooks doctor": {},
+  "hooks list": {},
+  "hooks revoke": {},
+  "hooks test": {
+   "--for-tool FOR_TOOL": "Only fire hooks whose matcher matches this tool name (used for pre_tool_call / post_tool_call)",
+   "--payload-file PAYLOAD_FILE": "Path to a JSON file whose contents are merged into the synthetic payload before execution"
+  },
+  "import": {
+   "--force, -f": "Overwrite existing files without confirmation"
+  },
+  "import-agent": {
+   "--dry-run": "Preview only — stop after showing what would be imported",
+   "--overwrite": "Overwrite existing Hermes items on name conflicts (default: skip)",
+   "--source SOURCE": "Path to the agent's config directory (default: ~/.claude or ~/.codex)",
+   "--yes, -y": "Skip confirmation prompts"
+  },
+  "insights": {
+   "--days DAYS": "Number of days to analyze (default: 30)",
+   "--source SOURCE": "Filter by platform (cli, telegram, discord, etc.)"
+  },
+  "journey": {
+   "--fps FPS": "Animation frames per second for --play (default 12).",
+   "--height HEIGHT": "Override render height in rows.",
+   "--json": "Print the raw graph payload as JSON and exit.",
+   "--no-color": "Disable color output.",
+   "--play": "Animate the build-up over time (Ctrl-C to stop).",
+   "--reveal 0..1": "Render the timeline built up to this point (0=oldest, 1=now).",
+   "--width WIDTH": "Override render width in columns."
+  },
+  "journey delete": {
+   "-y, --yes": "Skip the confirmation prompt."
+  },
+  "journey edit": {},
+  "journey list": {
+   "--no-color": ""
+  },
+  "kanban": {
+   "--board <slug>": "Board slug to operate on. Defaults to the current board (set via `hermes kanban boards switch <slug>` or the HERMES_KANBAN_BOARD env var). Use `hermes kanban boards list` to see all boards."
+  },
+  "kanban archive": {
+   "--rm PURGE_IDS [PURGE_IDS ...]": "Permanently delete already-archived task ids from the board"
+  },
+  "kanban assign": {},
+  "kanban assignees": {
+   "--json": ""
+  },
+  "kanban attach": {
+   "--author AUTHOR": "uploaded_by label (default: $HERMES_PROFILE or 'user')",
+   "--content-type CONTENT_TYPE": "MIME type (default: guessed from the file extension)",
+   "--name NAME": "Stored filename (default: the source file's basename)"
+  },
+  "kanban attach-rm": {},
+  "kanban attachments": {
+   "--json": ""
+  },
+  "kanban block": {
+   "--ids IDS [IDS ...]": "Additional task ids to block with the same reason (bulk mode)",
+   "--kind {capability,dependency,needs_input,transient}": "Typed block reason. 'dependency' waits in todo (auto- promoted when parents finish, no human); 'needs_input'/'capability' go to blocked for a human; 'transient' marks a maybe-flaky failure. Repeated same-kind re-blocks after unblock route the task to triage to break unblock loops. Omit for a generic block."
+  },
+  "kanban boards": {},
+  "kanban boards create": {
+   "--color COLOR": "Optional hex color (e.g. '#8b5cf6') for the dashboard",
+   "--default-workdir DEFAULT_WORKDIR": "Default workspace path for tasks created on this board",
+   "--description DESCRIPTION": "Optional description",
+   "--icon ICON": "Optional emoji or single-character icon for the dashboard",
+   "--name NAME": "Human-readable display name (defaults to Title Case of slug)",
+   "--switch": "Switch to the new board after creating it"
+  },
+  "kanban boards export": {
+   "--include-logs": "Include per-task worker logs",
+   "--json": "",
+   "--no-attachments": "Skip attachment files, keeping the archive small",
+   "-o, --output OUTPUT": "Archive path (default: ./<slug>.tar.gz)"
+  },
+  "kanban boards import": {
+   "--as AS_SLUG": "Slug for the imported board (default: from the archive)",
+   "--json": "",
+   "--switch": "Switch to the imported board afterwards"
+  },
+  "kanban boards list": {
+   "--all": "Include archived boards too",
+   "--json": ""
+  },
+  "kanban boards rename": {},
+  "kanban boards rm": {
+   "--delete": "Hard-delete the board directory instead of archiving it. Default is to move it to boards/_archived/ so it's recoverable."
+  },
+  "kanban boards set-default-workdir": {},
+  "kanban boards show": {},
+  "kanban boards switch": {},
+  "kanban claim": {
+   "--ttl TTL": "Claim TTL in seconds (default: 900)"
+  },
+  "kanban comment": {
+   "--author AUTHOR": "Author name (default: $HERMES_PROFILE or 'user')",
+   "--max-len MAX_LEN": "Trim the stored comment body to this many characters"
+  },
+  "kanban complete": {
+   "--metadata METADATA": "JSON dict of structured facts (e.g. '{\"changed_files\": [...], \"tests_run\": 12}'). Stored on the closing run.",
+   "--result RESULT": "Result summary",
+   "--summary SUMMARY": "Structured handoff summary for downstream tasks. Falls back to --result if omitted."
+  },
+  "kanban context": {},
+  "kanban create": {
+   "--assignee ASSIGNEE": "Profile name to assign",
+   "--body BODY": "Optional opening post",
+   "--branch BRANCH": "Branch name for worktree tasks, e.g. wt/t6-wire",
+   "--created-by CREATED_BY": "Author name recorded on the task (default: user)",
+   "--goal": "Run the worker in a goal loop: after each turn a judge checks the response against the card title/body and, if not done, the worker keeps going in the same session until the judge agrees it's complete (or the turn budget runs out, which blocks the card for review). Best for open-ended cards one shot rarely finishes.",
+   "--goal-max-turns N": "Turn budget for --goal workers (default 20). Ignored without --goal.",
+   "--idempotency-key IDEMPOTENCY_KEY": "Dedup key. If a non-archived task with this key exists, its id is returned instead of creating a duplicate.",
+   "--initial-status {blocked,running}": "Initial card status. Use 'blocked' for cards that require immediate human ops (R3 gate) to skip the brief running-to-blocked transition.",
+   "--json": "Emit JSON output",
+   "--max-retries N": "Per-task override for the consecutive-failure circuit breaker. Trip on the Nth failure — e.g. --max-retries 1 blocks on the first failure (no retries), --max- retries 3 allows two retries. Omit to use the dispatcher's kanban.failure_limit config (default 2).",
+   "--max-runtime MAX_RUNTIME": "Per-task runtime cap. Accepts seconds (300) or durations (90s, 30m, 2h, 1d). When exceeded, the dispatcher SIGTERMs (then SIGKILLs) the worker and re- queues the task.",
+   "--model MODEL_OVERRIDE": "Pin the worker to this model (passed as -m <model>) without changing the profile's configured model. Combine with --provider when the model belongs to a different backend than the profile's default.",
+   "--parent PARENT": "Parent task id (repeatable)",
+   "--priority PRIORITY": "Priority tiebreaker",
+   "--project PROJECT": "Link to a project (id or slug). Anchors the task's worktree under the project's primary repo with a deterministic branch. See `hermes project list`.",
+   "--provider PROVIDER_OVERRIDE": "Provider the --model belongs to (passed as --provider <name> to the worker). Requires --model.",
+   "--skill SKILLS": "Skill to force-load into the worker (repeatable). The kanban lifecycle is already injected automatically. Example: --skill translation --skill github-code- review",
+   "--tenant TENANT": "Tenant namespace",
+   "--triage": "Park in triage — a specifier will flesh out the spec and promote to todo",
+   "--workspace WORKSPACE": "scratch | worktree | worktree:<path> | dir:<path> (default: scratch)"
+  },
+  "kanban daemon": {
+   "--failure-limit FAILURE_LIMIT": "",
+   "--interval INTERVAL": "Seconds between dispatch ticks (default: 60)",
+   "--max MAX": "Cap number of spawns per tick",
+   "--pidfile PIDFILE": "Write the daemon's PID to this file on start",
+   "--verbose, -v": "Log each tick's outcome to stdout"
+  },
+  "kanban decompose": {
+   "--all": "Decompose every task currently in the triage column",
+   "--author AUTHOR": "Author name recorded on the audit comment (default: $HERMES_PROFILE or 'decomposer')",
+   "--json": "Emit one JSON object per task on stdout",
+   "--tenant TENANT": "When used with --all, restrict the sweep to this tenant"
+  },
+  "kanban diagnostics": {
+   "--json": "Emit JSON (structured) instead of the default human table",
+   "--severity {warning,error,critical}": "Only show diagnostics at or above this severity",
+   "--task TASK": "Only show diagnostics for one task id"
+  },
+  "kanban dispatch": {
+   "--dry-run": "Don't actually spawn processes; just print what would happen",
+   "--failure-limit FAILURE_LIMIT": "Auto-block a task after this many consecutive non- success attempts (spawn_failed, timed_out, or crashed; default: 2)",
+   "--json": "",
+   "--max MAX": "Cap number of spawns this pass"
+  },
+  "kanban edit": {
+   "--metadata METADATA": "JSON dict of structured facts to store on the latest completed run.",
+   "--result RESULT": "Backfilled task result text for a done task",
+   "--summary SUMMARY": "Structured handoff summary. Falls back to --result if omitted."
+  },
+  "kanban gc": {
+   "--event-retention-days EVENT_RETENTION_DAYS": "Delete task_events older than N days for terminal tasks (default: 30)",
+   "--log-retention-days LOG_RETENTION_DAYS": "Delete worker log files older than N days (default: 30)"
+  },
+  "kanban heartbeat": {
+   "--note NOTE": "Optional short note attached to the heartbeat event"
+  },
+  "kanban init": {},
+  "kanban link": {},
+  "kanban list": {
+   "--archived": "Include archived tasks",
+   "--assignee ASSIGNEE": "",
+   "--json": "",
+   "--mine": "Filter by $HERMES_PROFILE as assignee",
+   "--session SESSION": "Filter by originating chat/agent session id (set on tasks created from inside an ACP loop)",
+   "--sort {assignee,created,created-desc,priority,priority-desc,status,title,updated}": "Sort order for listed tasks (default: priority)",
+   "--status {archived,blocked,done,ready,review,running,scheduled,todo,triage}": "",
+   "--step-key KEY": "Restrict to tasks with this current_step_key",
+   "--tenant TENANT": "",
+   "--workflow-template-id ID": "Restrict to tasks with this workflow_template_id"
+  },
+  "kanban log": {
+   "--tail TAIL": "Only print the last N bytes"
+  },
+  "kanban notify-list": {
+   "--json": ""
+  },
+  "kanban notify-subscribe": {
+   "--chat-id CHAT_ID": "",
+   "--chat-type {dm,group,channel,thread}": "Originating source chat_type, recorded so the active- wake delivery modes resolve the operator's real session. Omit to leave an existing sub unchanged (new subs default to 'dm').",
+   "--delivery-mode {notify,notify+wake,wake}": "How the kanban-notifier reacts to terminal events for this subscription: 'notify' (passive message only; default), 'notify+wake' (message AND wake the destination gateway agent so it reads the full board context and replies in its own voice), or 'wake' (wake the agent only, no passive message). Omit to leave an existing subscription's mode unchanged (new subs default to 'notify').",
+   "--notifier-profile NOTIFIER_PROFILE": "Profile gateway that owns/delivers this subscription (default: active profile)",
+   "--platform PLATFORM": "",
+   "--thread-id THREAD_ID": "",
+   "--user-id USER_ID": "",
+   "--user-id-alt USER_ID_ALT": ""
+  },
+  "kanban notify-unsubscribe": {
+   "--chat-id CHAT_ID": "",
+   "--platform PLATFORM": "",
+   "--thread-id THREAD_ID": ""
+  },
+  "kanban promote": {
+   "--dry-run": "Validate the promotion without mutating state",
+   "--force": "Promote even if parent dependencies are not yet done/archived",
+   "--ids IDS [IDS ...]": "Additional task ids to promote with the same reason (bulk mode)",
+   "--json": "Emit machine-readable JSON result"
+  },
+  "kanban reassign": {
+   "--reason REASON": "Human-readable reason (recorded on the reclaimed event)",
+   "--reclaim": "Release any active claim before reassigning (required if task is running)"
+  },
+  "kanban reclaim": {
+   "--reason REASON": "Human-readable reason (recorded on the reclaimed event)"
+  },
+  "kanban reopen-review": {
+   "--reason REASON": "Optional reason/note — recorded as a comment before reopening. Quote multi-word reasons."
+  },
+  "kanban repair": {
+   "--json": "Emit the repair report as JSON"
+  },
+  "kanban request-changes": {},
+  "kanban request-review": {
+   "--force": "Override the live-claim guard: move a running, claimed task to review even without owning its run (clears the worker's claim).",
+   "--metadata METADATA": "JSON object with structured reviewer handoff facts.",
+   "--reviewer REVIEWER": "Optional reviewer profile; reassigns the task before review dispatch.",
+   "--summary SUMMARY": "What was implemented and how it was verified — shown to the reviewer."
+  },
+  "kanban runs": {
+   "--json": "",
+   "--state-name VALUE": "With --state-type: keep runs whose column equals this value",
+   "--state-type {status,outcome}": "With --state-name: filter runs by task_runs column"
+  },
+  "kanban schedule": {
+   "--ids IDS [IDS ...]": "Additional task ids to schedule with the same reason (bulk mode)"
+  },
+  "kanban set-model": {
+   "--provider PROVIDER": "Provider the model belongs to (worker is spawned with --provider <name>). Cleared together with the model."
+  },
+  "kanban show": {
+   "--json": "",
+   "--state-name VALUE": "With --state-type: keep runs whose column equals this value",
+   "--state-type {status,outcome}": "With --state-name: filter listed runs by task_runs column"
+  },
+  "kanban specify": {
+   "--all": "Specify every task currently in the triage column",
+   "--author AUTHOR": "Author name recorded on the audit comment (default: $HERMES_PROFILE or 'specifier')",
+   "--json": "Emit one JSON object per task on stdout",
+   "--tenant TENANT": "When used with --all, restrict the sweep to this tenant"
+  },
+  "kanban stats": {
+   "--json": ""
+  },
+  "kanban swarm": {
+   "--created-by CREATED_BY": "Creator/anchor profile",
+   "--idempotency-key IDEMPOTENCY_KEY": "Dedup key for the root card",
+   "--json": "Emit JSON output",
+   "--priority PRIORITY": "Priority tiebreaker",
+   "--synthesizer SYNTHESIZER": "Synthesizer/writer profile",
+   "--tenant TENANT": "Tenant namespace",
+   "--verifier VERIFIER": "Verifier profile",
+   "--worker PROFILE:TITLE[:SKILL,SKILL]": "Parallel worker card (repeatable)"
+  },
+  "kanban tail": {
+   "--interval INTERVAL": ""
+  },
+  "kanban unblock": {
+   "--reason REASON": "Optional reason/note — recorded as a comment before unblocking. Quote multi-word reasons."
+  },
+  "kanban unlink": {},
+  "kanban watch": {
+   "--assignee ASSIGNEE": "Only show events for tasks assigned to this profile",
+   "--interval INTERVAL": "Poll interval in seconds (default: 0.5)",
+   "--kinds KINDS": "Comma-separated event kinds to include (e.g. 'completed,blocked,gave_up,crashed,timed_out')",
+   "--tenant TENANT": "Only show events from tasks in this tenant"
+  },
+  "login": {
+   "--ca-bundle CA_BUNDLE": "Path to CA bundle PEM file for TLS verification",
+   "--client-id CLIENT_ID": "OAuth client id to use (default: hermes-cli)",
+   "--inference-url INFERENCE_URL": "Inference API base URL (default: production inference API)",
+   "--insecure": "Disable TLS verification (testing only)",
+   "--no-browser": "Do not attempt to open the browser automatically",
+   "--portal-url PORTAL_URL": "Portal base URL (default: production portal)",
+   "--provider PROVIDER": "(deprecated) Provider name; ignored — see `hermes model`",
+   "--scope SCOPE": "OAuth scope to request",
+   "--timeout TIMEOUT": "HTTP request timeout in seconds (default: 15)"
+  },
+  "logout": {
+   "--provider {nous,openai-codex,xai-oauth,spotify}": "Provider to log out from (default: active provider)"
+  },
+  "logs": {
+   "--component NAME": "Filter by component: gateway, agent, tools, cli, cron, gui",
+   "--level LEVEL": "Minimum log level to show (DEBUG, INFO, WARNING, ERROR)",
+   "--session ID": "Filter lines containing this session ID substring",
+   "--since TIME": "Show lines since TIME ago (e.g. 1h, 30m, 2d)",
+   "-f, --follow": "Follow the log in real time (like tail -f)",
+   "-n, --lines LINES": "Number of lines to show (default: 50)"
+  },
+  "lsp": {},
+  "lsp install": {},
+  "lsp install-all": {
+   "--include-manual": "Even attempt servers marked manual-install (best effort)"
+  },
+  "lsp list": {
+   "--installed-only": "Only show servers whose binary is currently available"
+  },
+  "lsp restart": {},
+  "lsp status": {
+   "--json": "Emit machine-readable JSON"
+  },
+  "lsp which": {},
+  "mcp": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true)."
+  },
+  "mcp add": {
+   "--args ...": "Arguments for stdio command; must be the last option",
+   "--auth {oauth,header}": "Auth method",
+   "--command MCP_COMMAND": "Stdio command (e.g. npx)",
+   "--connect-timeout CONNECT_TIMEOUT": "Timeout in seconds for initial connection and tool discovery",
+   "--env [ENV ...]": "Environment variables for stdio servers (KEY=VALUE)",
+   "--preset PRESET": "Known MCP preset name",
+   "--url URL": "HTTP/SSE endpoint URL"
+  },
+  "mcp catalog": {},
+  "mcp configure": {},
+  "mcp install": {},
+  "mcp list": {},
+  "mcp login": {},
+  "mcp picker": {},
+  "mcp reauth": {
+   "--all": "Re-authenticate every OAuth server in config, one at a time"
+  },
+  "mcp remove": {},
+  "mcp serve": {
+   "--accept-hooks": "Auto-approve unseen shell hooks without a TTY prompt (equivalent to HERMES_ACCEPT_HOOKS=1 / hooks_auto_accept: true).",
+   "-v, --verbose": "Enable verbose logging on stderr"
+  },
+  "mcp test": {},
+  "memory": {},
+  "memory off": {},
+  "memory reset": {
+   "--target {all,memory,user}": "Which store to reset: 'all' (default), 'memory', or 'user'",
+   "--yes, -y": "Skip confirmation prompt"
+  },
+  "memory setup": {},
+  "memory status": {},
+  "migrate": {},
+  "migrate xai": {
+   "--apply": "Rewrite config.yaml in-place (default: dry-run, no writes)",
+   "--no-backup": "Skip the timestamped backup of config.yaml when applying"
+  },
+  "moa": {},
+  "moa configure": {},
+  "moa delete": {},
+  "moa list": {},
+  "model": {
+   "--ca-bundle CA_BUNDLE": "Path to CA bundle PEM file for Nous TLS verification",
+   "--client-id CLIENT_ID": "OAuth client id to use for Nous login (default: hermes-cli)",
+   "--inference-url INFERENCE_URL": "Inference API base URL for Nous login (default: production inference API)",
+   "--insecure": "Disable TLS verification for Nous login (testing only)",
+   "--no-browser": "Do not attempt to open the browser automatically during Nous login",
+   "--portal-url PORTAL_URL": "Portal base URL for Nous login (default: production portal)",
+   "--refresh": "Wipe the model picker disk cache and re-fetch every provider's live /v1/models list.",
+   "--scope SCOPE": "OAuth scope to request for Nous login",
+   "--timeout TIMEOUT": "HTTP request timeout in seconds for Nous login (default: 15)"
+  },
+  "monitoring": {},
+  "monitoring status": {},
+  "pairing": {},
+  "pairing approve": {},
+  "pairing clear-pending": {},
+  "pairing list": {},
+  "pairing revoke": {},
+  "pause": {
+   "--reason REASON": "Optional reason stored in the sentinel and shown to users"
+  },
+  "peer": {},
+  "peer add": {
+   "--key KEY": "The peer's API_SERVER_KEY (stored in ~/.hermes/.env)",
+   "--note NOTE": "Optional description",
+   "--url URL": "Peer gateway base URL, e.g. http://spark.lan:8377"
+  },
+  "peer dm": {
+   "--json": "Emit a JSON result"
+  },
+  "peer list": {},
+  "peer remove": {},
+  "peer run": {
+   "--idempotency-key IDEMPOTENCY_KEY": "Stable retry key (generated when omitted)",
+   "--json": "Emit a JSON result"
+  },
+  "peer status": {
+   "--json": "Emit a JSON result"
+  },
+  "peer stop": {
+   "--json": "Emit a JSON result"
+  },
+  "pets": {},
+  "pets doctor": {},
+  "pets install": {
+   "--force": "Re-download even if present",
+   "--select": "Make it the active pet"
+  },
+  "pets list": {
+   "--installed": "Only show installed pets",
+   "--limit LIMIT": "Max rows (0 = all)"
+  },
+  "pets off": {},
+  "pets remove": {},
+  "pets scale": {},
+  "pets select": {},
+  "pets show": {
+   "--cycle": "Cycle through all states",
+   "--mode MODE": "Override render mode (kitty/iterm/sixel/unicode/auto)",
+   "--once": "Play once instead of looping",
+   "--scale SCALE": "Override scale (0 = config)",
+   "--state STATE": "Single state: idle/run/review/failed/wave/jump"
+  },
+  "plugins": {},
+  "plugins capabilities": {},
+  "plugins disable": {},
+  "plugins doctor": {
+   "--ci": "Exit non-zero when validation reports an error"
+  },
+  "plugins enable": {
+   "--allow-tool-override": "Grant this plugin permission to replace built-in tools (e.g. shell_exec, write_file). Skips the confirmation prompt.",
+   "--no-allow-tool-override": "Enable without granting built-in tool override (skip prompt)."
+  },
+  "plugins install": {
+   "--enable": "Auto-enable the plugin after install (skip confirmation prompt)",
+   "--force, -f": "Remove existing plugin and reinstall",
+   "--no-enable": "Install disabled (skip confirmation prompt); enable later with `hermes plugins enable <name>`",
+   "--ref COMMIT_SHA": "Install exactly one immutable 40-character Git commit SHA"
+  },
+  "plugins list": {
+   "--enabled": "Show only enabled plugins",
+   "--json": "Print machine-readable JSON",
+   "--no-bundled": "Hide bundled plugins",
+   "--plain": "Print compact plain-text output instead of a Rich table",
+   "--user": "Show only user-installed plugins (including git plugins)"
+  },
+  "plugins pack": {},
+  "plugins pack export": {
+   "--enabled-only": "Only include plugins currently in plugins.enabled",
+   "--name NAME": "Pack name to embed in the exported YAML"
+  },
+  "plugins pack install": {
+   "--force, -f": "Reinstall plugins that already exist"
+  },
+  "plugins pack show": {},
+  "plugins remove": {},
+  "plugins search": {
+   "--capability CAP": "Filter by declared capability (e.g. tools, platform, commands)",
+   "--json": "Print machine-readable JSON",
+   "--refresh": "Bypass the local cache and re-fetch the index"
+  },
+  "plugins show": {},
+  "plugins update": {},
+  "portal": {},
+  "portal info": {},
+  "portal login": {},
+  "portal open": {},
+  "portal tools": {},
+  "profile": {},
+  "profile alias": {
+   "--name NAME": "Custom alias name (default: profile name)",
+   "--remove": "Remove the wrapper script"
+  },
+  "profile create": {
+   "--clone": "Copy config.yaml, .env, SOUL.md, and skills from active profile",
+   "--clone-all": "Full copy of active profile (all state, excluding per- profile history)",
+   "--clone-from SOURCE": "Source profile to clone from; implies --clone unless --clone-all is set",
+   "--description DESCRIPTION": "One- or two-sentence description of what this profile is good at. Used by the kanban decomposer to route tasks based on role instead of profile name alone. Skip and add later via `hermes profile describe`.",
+   "--no-alias": "Skip wrapper script creation",
+   "--no-skills": "Create an empty profile with no bundled skills (opts out of `hermes update` skill sync)"
+  },
+  "profile delete": {
+   "-y, --yes": "Skip confirmation prompt"
+  },
+  "profile describe": {
+   "--all": "With --auto, run on every profile missing a description",
+   "--auto": "Auto-generate description via the auxiliary LLM (uses auxiliary.profile_describer)",
+   "--overwrite": "With --auto, replace user-authored descriptions too (default: only fill in missing or previously-auto descriptions)",
+   "--text TEXT": "Set description to this exact text (overwrites any existing description)"
+  },
+  "profile export": {
+   "-o, --output OUTPUT": "Output file (default: <name>.tar.gz)"
+  },
+  "profile import": {
+   "--name NAME": "Profile name (default: inferred from archive)"
+  },
+  "profile info": {},
+  "profile install": {
+   "--alias": "Create a shell wrapper alias for the installed profile",
+   "--force": "Overwrite an existing profile of the same name (user data preserved)",
+   "--name NAME": "Override profile name (default: read from manifest)",
+   "-y, --yes": "Skip manifest preview confirmation"
+  },
+  "profile list": {},
+  "profile rename": {},
+  "profile show": {},
+  "profile update": {
+   "--force-config": "Also overwrite config.yaml (normally preserved to keep user overrides)",
+   "-y, --yes": "Skip confirmation"
+  },
+  "profile use": {},
+  "project": {},
+  "project add-folder": {
+   "--label LABEL": "",
+   "--primary": "Mark as primary repo"
+  },
+  "project archive": {},
+  "project bind-board": {},
+  "project create": {
+   "--board SLUG": "Bind a kanban board",
+   "--color COLOR": "",
+   "--description DESCRIPTION": "",
+   "--icon ICON": "",
+   "--primary PATH": "Primary repo path",
+   "--slug SLUG": "Explicit slug override",
+   "--use": "Set as the active project"
+  },
+  "project list": {
+   "--all": "Include archived projects"
+  },
+  "project remove-folder": {},
+  "project rename": {},
+  "project restore": {},
+  "project set-primary": {},
+  "project show": {},
+  "project use": {},
+  "prompt-size": {
+   "--json": "Emit the breakdown as JSON",
+   "--platform PLATFORM": "Platform to simulate (cli, telegram, discord, ...). Default: cli"
+  },
+  "proxy": {},
+  "proxy providers": {},
+  "proxy start": {
+   "--host HOST": "Bind address (default: 127.0.0.1). Use 0.0.0.0 to expose on LAN.",
+   "--port PORT": "Bind port (default: 8645)",
+   "--provider PROVIDER": "Upstream provider: nous or xai (default: nous). See `hermes proxy providers`."
+  },
+  "proxy status": {},
+  "resume": {},
+  "secrets": {},
+  "secrets bitwarden": {},
+  "secrets bitwarden disable": {},
+  "secrets bitwarden install": {
+   "--force": "Re-download even if a managed copy already exists"
+  },
+  "secrets bitwarden setup": {
+   "--access-token ACCESS_TOKEN": "Provide the access token non-interactively (will be stored in .env)",
+   "--project-id PROJECT_ID": "Pre-select a project UUID instead of prompting",
+   "--server-url SERVER_URL": "Bitwarden region / self-hosted endpoint. Examples: https://vault.bitwarden.com (US, default), https://vault.bitwarden.eu (EU), or your self-hosted URL. Skips the interactive region prompt."
+  },
+  "secrets bitwarden status": {},
+  "secrets bitwarden sync": {
+   "--apply": "Actually export the secrets into the current shell's env (default: dry-run)"
+  },
+  "secrets bitwarden token": {
+   "--access-token ACCESS_TOKEN": "Provide the new token non-interactively (default: masked prompt)",
+   "--no-verify": "Store without probing Bitwarden first (not recommended)"
+  },
+  "secrets onepassword": {},
+  "secrets onepassword disable": {},
+  "secrets onepassword remove": {},
+  "secrets onepassword set": {},
+  "secrets onepassword setup": {
+   "--account ACCOUNT": "1Password account shorthand or sign-in address (op --account)",
+   "--binary-path BINARY_PATH": "Absolute path to the op binary (skips PATH lookup)",
+   "--token TOKEN": "Service-account token to store in .env non- interactively",
+   "--token-env TOKEN_ENV": "Env var holding a service-account token (default OP_SERVICE_ACCOUNT_TOKEN)"
+  },
+  "secrets onepassword status": {},
+  "secrets onepassword sync": {
+   "--apply": "Actually export resolved values into the current shell (default: dry-run)"
+  },
+  "secrets onepassword token": {
+   "--no-verify": "Store without probing 1Password first (not recommended)",
+   "--token TOKEN": "Provide the new token non-interactively (default: masked prompt)"
+  },
+  "security": {},
+  "security audit": {
+   "--fail-on {low,moderate,high,critical}": "Exit non-zero when any finding meets this severity (default: critical)",
+   "--json": "Emit machine-readable JSON instead of human-readable text",
+   "--skip-mcp": "Skip scanning pinned MCP servers in config.yaml",
+   "--skip-plugins": "Skip scanning plugin requirements files",
+   "--skip-venv": "Skip scanning the Hermes Python venv"
+  },
+  "send": {
+   "--json": "Emit raw JSON result instead of human-readable output.",
+   "-f, --file PATH": "Read message body from PATH (text only). Use '-' to force stdin. To send an image/document as an attachment, use MEDIA:<path> in the message text instead.",
+   "-l, --list": "List available targets. Optional positional filter: `hermes send --list telegram`.",
+   "-q, --quiet": "Suppress stdout on success (exit code only).",
+   "-s, --subject LINE": "Prepend a subject/header line before the message body.",
+   "-t, --to TARGET": "Delivery target. Format: 'platform' (home channel), 'platform:chat_id', 'platform:chat_id:thread_id', or 'platform:#channel-name'. Examples: telegram, telegram:-1001234567890:17585, discord:#ops, slack:C0123ABCD, signal:+15551234567."
+  },
+  "serve": {
+   "--host HOST": "Host (default 127.0.0.1)",
+   "--insecure": "DEPRECATED / NO-OP. Formerly bypassed auth on a non- loopback bind. As of the June 2026 hardening it no longer disables authentication — a public bind always requires an auth provider (password or OAuth). Bind 127.0.0.1 + tunnel to keep it local.",
+   "--isolated": "When launched from a named profile, run a dedicated server scoped to that profile instead of routing to the machine-level server. Default behavior is unified: profile launches attach to (or start) ONE machine- level server and preselect the profile.",
+   "--port PORT": "Port (default 9119, 0 for auto-assign by OS)",
+   "--skip-build": "Skip the web UI build step and serve the existing dist directly. Useful for non-interactive contexts (Windows Scheduled Tasks, CI) where npm may not be available. Pre-build with: cd web && npm run build",
+   "--ssh-owner-nonce NONCE": "Identify a Desktop-owned SSH backend process",
+   "--ssh-session-token-file PATH": "Read a one-shot Desktop SSH session token from PATH",
+   "--status": "List running Hermes web server processes and exit",
+   "--stop": "Stop all running Hermes web server processes and exit"
+  },
+  "sessions": {},
+  "sessions archive": {
+   "--after TIME": "Only match sessions started at/after TIME (duration ago like '5h', or ISO timestamp)",
+   "--before TIME": "Only match sessions started before TIME (duration ago like '5h', or ISO timestamp like '2026-07-05 14:30')",
+   "--branch BRANCH": "Only match sessions whose git branch contains this substring",
+   "--chat-id CHAT_ID": "Only match sessions from this chat/channel ID",
+   "--chat-type CHAT_TYPE": "Only match sessions with this chat type (e.g. dm, group)",
+   "--cwd CWD": "Only match sessions whose working directory is under this path",
+   "--dry-run": "List matching sessions without changing anything",
+   "--end-reason END_REASON": "Only match sessions with this end reason",
+   "--max-cost MAX_COST": "Only match sessions costing <= N USD (actual or estimated)",
+   "--max-messages MAX_MESSAGES": "Only match sessions with <= N messages",
+   "--max-tokens MAX_TOKENS": "Only match sessions with <= N total tokens (input+output)",
+   "--max-tool-calls MAX_TOOL_CALLS": "Only match sessions with <= N tool calls",
+   "--min-cost MIN_COST": "Only match sessions costing >= N USD (actual or estimated)",
+   "--min-messages MIN_MESSAGES": "Only match sessions with >= N messages",
+   "--min-tokens MIN_TOKENS": "Only match sessions with >= N total tokens (input+output)",
+   "--min-tool-calls MIN_TOOL_CALLS": "Only match sessions with >= N tool calls",
+   "--model MODEL": "Only match sessions whose model name contains this substring (e.g. 'sonnet', 'gpt-5', 'hermes')",
+   "--newer-than AGE": "Only match sessions active within the last AGE (e.g. '5h', '2d') or after an ISO timestamp",
+   "--older-than AGE": "Only archive sessions older than AGE (duration like '5h'/'2d', bare number of days, or ISO timestamp)",
+   "--provider PROVIDER": "Only match sessions billed through this provider (e.g. openrouter, anthropic, nous)",
+   "--source SOURCE": "Only match sessions from this source",
+   "--title TITLE": "Only match sessions whose title contains this substring",
+   "--user USER": "Only match sessions from this user ID",
+   "--yes, -y": "Skip confirmation"
+  },
+  "sessions browse": {
+   "--limit LIMIT": "Max sessions to load (default: 500)",
+   "--source SOURCE": "Filter by source (cli, telegram, discord, etc.)"
+  },
+  "sessions clean-markers": {
+   "--dry-run": "Report the affected row count without writing",
+   "--no-backup": "Skip the timestamped state.db backup taken before writing (not recommended)"
+  },
+  "sessions delete": {
+   "--yes, -y": "Skip confirmation"
+  },
+  "sessions export": {
+   "--after TIME": "Only match sessions started at/after TIME (duration ago like '5h', or ISO timestamp)",
+   "--before TIME": "Only match sessions started before TIME (duration ago like '5h', or ISO timestamp like '2026-07-05 14:30')",
+   "--branch BRANCH": "Only match sessions whose git branch contains this substring",
+   "--chat-id CHAT_ID": "Only match sessions from this chat/channel ID",
+   "--chat-type CHAT_TYPE": "Only match sessions with this chat type (e.g. dm, group)",
+   "--cwd CWD": "Only match sessions whose working directory is under this path",
+   "--delete-after-verified": "md/qmd only: after verified single-session export, delete that session (needs --yes)",
+   "--dry-run": "List matching sessions without changing anything",
+   "--end-reason END_REASON": "Only match sessions with this end reason",
+   "--force": "md/qmd only: overwrite an existing export file",
+   "--format {jsonl,md,qmd,html,trace}": "Export format (default: jsonl). 'trace' emits Claude Code JSONL for the Hugging Face Agent Trace Viewer",
+   "--lineage {single,logical}": "md/qmd only: export one row or its compression lineage",
+   "--max-cost MAX_COST": "Only match sessions costing <= N USD (actual or estimated)",
+   "--max-messages MAX_MESSAGES": "Only match sessions with <= N messages",
+   "--max-tokens MAX_TOKENS": "Only match sessions with <= N total tokens (input+output)",
+   "--max-tool-calls MAX_TOOL_CALLS": "Only match sessions with <= N tool calls",
+   "--min-cost MIN_COST": "Only match sessions costing >= N USD (actual or estimated)",
+   "--min-messages MIN_MESSAGES": "Only match sessions with >= N messages",
+   "--min-tokens MIN_TOKENS": "Only match sessions with >= N total tokens (input+output)",
+   "--min-tool-calls MIN_TOOL_CALLS": "Only match sessions with >= N tool calls",
+   "--model MODEL": "Only match sessions whose model name contains this substring (e.g. 'sonnet', 'gpt-5', 'hermes')",
+   "--newer-than AGE": "Only match sessions active within the last AGE (e.g. '5h', '2d') or after an ISO timestamp",
+   "--no-redact": "trace only: skip the forced secret redaction; only use after manual review",
+   "--older-than AGE": "Only export sessions older than AGE (duration like '5h'/'2d', bare number of days, or an ISO timestamp)",
+   "--only {user-prompts}": "Export only a filtered view (user-prompts: one prompt record per line for jsonl, headed sections for md)",
+   "--provider PROVIDER": "Only match sessions billed through this provider (e.g. openrouter, anthropic, nous)",
+   "--public": "trace --upload only: create/update a public dataset instead of private",
+   "--redact": "Redact secrets (API keys, tokens, credentials) from exported content",
+   "--session-id SESSION_ID": "Session ID or unique prefix to export",
+   "--source SOURCE": "Only match sessions from this source",
+   "--title TITLE": "Only match sessions whose title contains this substring",
+   "--upload": "trace only: upload to your Hugging Face traces dataset instead of writing a local file (needs HF_TOKEN)",
+   "--user USER": "Only match sessions from this user ID",
+   "--yes, -y": "Skip confirmation"
+  },
+  "sessions import": {
+   "--from {claude,codex}": "Which tool to import from (default: pick across both)"
+  },
+  "sessions list": {
+   "--limit LIMIT": "Max sessions to show",
+   "--source SOURCE": "Filter by source (cli, telegram, discord, etc.)",
+   "--workspace NEEDLE": "Only sessions in one workspace: a git repo root or project dir (matched by path substring or basename)."
+  },
+  "sessions optimize": {},
+  "sessions optimize-storage": {
+   "--no-vacuum": "Skip the final VACUUM (index is rebuilt but freed pages aren't returned to the OS until a later VACUUM)",
+   "--yes, -y": "Skip the disk-space confirmation prompt"
+  },
+  "sessions pin": {},
+  "sessions pinned": {
+   "--json": "Emit machine-readable JSON (for backup/restore scripting)"
+  },
+  "sessions prune": {
+   "--after TIME": "Only match sessions started at/after TIME (duration ago like '5h', or ISO timestamp)",
+   "--before TIME": "Only match sessions started before TIME (duration ago like '5h', or ISO timestamp like '2026-07-05 14:30')",
+   "--branch BRANCH": "Only match sessions whose git branch contains this substring",
+   "--chat-id CHAT_ID": "Only match sessions from this chat/channel ID",
+   "--chat-type CHAT_TYPE": "Only match sessions with this chat type (e.g. dm, group)",
+   "--cwd CWD": "Only match sessions whose working directory is under this path",
+   "--dry-run": "List matching sessions without changing anything",
+   "--end-reason END_REASON": "Only match sessions with this end reason",
+   "--include-archived": "Also delete archived sessions (excluded by default)",
+   "--include-pinned": "Also delete pinned sessions (excluded by default — pin is a keep flag)",
+   "--max-cost MAX_COST": "Only match sessions costing <= N USD (actual or estimated)",
+   "--max-messages MAX_MESSAGES": "Only match sessions with <= N messages",
+   "--max-tokens MAX_TOKENS": "Only match sessions with <= N total tokens (input+output)",
+   "--max-tool-calls MAX_TOOL_CALLS": "Only match sessions with <= N tool calls",
+   "--min-cost MIN_COST": "Only match sessions costing >= N USD (actual or estimated)",
+   "--min-messages MIN_MESSAGES": "Only match sessions with >= N messages",
+   "--min-tokens MIN_TOKENS": "Only match sessions with >= N total tokens (input+output)",
+   "--min-tool-calls MIN_TOOL_CALLS": "Only match sessions with >= N tool calls",
+   "--model MODEL": "Only match sessions whose model name contains this substring (e.g. 'sonnet', 'gpt-5', 'hermes')",
+   "--never-active": "Instead of ended sessions, delete keyed gateway rows that were opened and never used (no messages, tokens, tool calls or title) and are older than AGE (default 30 days). Ordinary prune can never reach these — it only ever selects ended sessions",
+   "--newer-than AGE": "Only match sessions active within the last AGE (e.g. '5h', '2d') or after an ISO timestamp",
+   "--older-than AGE": "Delete sessions older than AGE — days if bare number, or a duration like '5h'/'2d'/'1w', or an ISO timestamp (bare prune with no filters defaults to 90 days; any filter matches all ages)",
+   "--provider PROVIDER": "Only match sessions billed through this provider (e.g. openrouter, anthropic, nous)",
+   "--source SOURCE": "Only match sessions from this source",
+   "--title TITLE": "Only match sessions whose title contains this substring",
+   "--user USER": "Only match sessions from this user ID",
+   "--yes, -y": "Skip confirmation"
+  },
+  "sessions recover": {
+   "--allow-partial": "Best-effort salvage across damaged row ranges; the output remains separate and every skipped range is recorded",
+   "--chunk-size CHUNK_SIZE": "Rows committed per recovery batch (default: 1000)",
+   "--inspect-only": "Only report canonical table readability; do not create an output database",
+   "--output OUTPUT": "New recovery database path (required unless --inspect- only)",
+   "--report REPORT": "JSON report path (defaults to <output>.recovery.json)",
+   "--source SOURCE": "Source state.db or preserved backup to inspect/recover",
+   "--work-dir WORK_DIR": "Existing directory for the disposable source copy (defaults beside the output)"
+  },
+  "sessions rename": {},
+  "sessions repair": {
+   "--check-only": "Only report whether the database opens cleanly; do not modify it",
+   "--no-backup": "Skip the timestamped backup copy (not recommended)"
+  },
+  "sessions repair-routing": {
+   "--apply": "Perform the adoptions (default: report only)",
+   "--max-gap-seconds MAX_GAP_SECONDS": "Window between a keyed predecessor's last activity and an orphan's start for them to count as the same conversation (default: 900)"
+  },
+  "sessions retitle-skills": {
+   "--apply": "Write the new titles (default: dry run)",
+   "--limit LIMIT": "Maximum sessions to examine (default: 200)"
+  },
+  "sessions stats": {},
+  "sessions unpin": {},
+  "setup": {
+   "--non-interactive": "Non-interactive mode (use defaults/env vars)",
+   "--portal": "One-shot Nous Portal setup: log in via OAuth, pick a Nous model, set Nous as the inference provider, and opt into the Tool Gateway. Skips the rest of the wizard.",
+   "--quick": "On existing installs: only prompt for items that are missing or unset, instead of running the full reconfigure wizard.",
+   "--reconfigure": "(Default on existing installs.) Re-run the full wizard, showing current values as defaults. Kept for backwards compatibility — a bare 'hermes setup' now does this.",
+   "--reset": "Reset configuration to defaults"
+  },
+  "skills": {},
+  "skills audit": {
+   "--deep": "Run AST-level analysis on Python files (opt-in diagnostic)"
+  },
+  "skills browse": {
+   "--page PAGE": "Page number (default: 1)",
+   "--size SIZE": "Results per page (default: 20)",
+   "--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}": "Filter by source or provider (e.g. nvidia, openai) (default: all)"
+  },
+  "skills check": {},
+  "skills config": {},
+  "skills diff": {},
+  "skills inspect": {},
+  "skills install": {
+   "--category CATEGORY": "Category folder to install into",
+   "--force": "Install despite blocked scan verdict",
+   "--name NAME": "Override the skill name (useful when installing from a URL whose SKILL.md has no `name:` frontmatter)",
+   "--yes, -y": "Skip confirmation prompt (needed in TUI mode)"
+  },
+  "skills list": {
+   "--enabled-only": "Hide disabled skills. Use with -p <profile> to see exactly which skills will load for that profile.",
+   "--source {all,hub,builtin,local}": ""
+  },
+  "skills list-modified": {
+   "--json": "Output the list as JSON"
+  },
+  "skills opt-in": {
+   "--sync": "Re-seed bundled skills immediately instead of waiting for update"
+  },
+  "skills opt-out": {
+   "--remove": "Also delete already-present unmodified bundled skills",
+   "--yes, -y": "Skip confirmation prompt when using --remove"
+  },
+  "skills publish": {
+   "--repo REPO": "Target GitHub repo (e.g. openai/skills)",
+   "--to {github,clawhub}": "Target registry"
+  },
+  "skills repair-official": {
+   "--restore": "Restore from official optional source, backing up existing matching copies",
+   "--yes, -y": "Skip confirmation prompt when using --restore"
+  },
+  "skills reset": {
+   "--restore": "Also delete the current copy and re-copy the bundled version",
+   "--yes, -y": "Skip confirmation prompt when using --restore"
+  },
+  "skills search": {
+   "--json": "Output JSON instead of a table (full identifiers, scripting-friendly)",
+   "--limit LIMIT": "Max results",
+   "--source {all,official,skills-sh,well-known,github,clawhub,lobehub,browse-sh,nvidia,openai,anthropic,huggingface,voltagent,gstack,minimax}": "Filter by source or provider (e.g. nvidia, openai)"
+  },
+  "skills snapshot": {},
+  "skills snapshot export": {},
+  "skills snapshot import": {
+   "--force": "Force install despite caution verdict"
+  },
+  "skills tap": {},
+  "skills tap add": {},
+  "skills tap list": {},
+  "skills tap remove": {},
+  "skills trust": {},
+  "skills uninstall": {
+   "--yes, -y": "Skip confirmation prompt"
+  },
+  "skills untrust": {},
+  "skills update": {
+   "--force": "Overwrite skills you have edited locally (they are skipped by default)"
+  },
+  "skin": {},
+  "skin list": {},
+  "skin set": {
+   "--skin SKIN": "Target a specific skin instead of the active one"
+  },
+  "skin use": {},
+  "slack": {},
+  "slack manifest": {
+   "--agent-view": "Emit Slack's Agent messaging experience (agent_view, app_home_opened + message.im) instead of the legacy assistant_view experience. This changes Slack's app messaging surface and cannot be reversed in Slack after applying the manifest.",
+   "--description DESCRIPTION": "Bot description shown in Slack's app directory.",
+   "--long-description TEXT": "Set Slack's long app description (175-4,000 characters).",
+   "--long-description-file PATH": "Read Slack's long app description from a UTF-8 text file (175-4,000 characters).",
+   "--name NAME": "Bot display name (default: \"Hermes\")",
+   "--no-assistant": "Omit Slack AI Assistant mode (assistant_view, assistant:write scope, assistant_thread_* events). DMs then render as a flat chat where bare slash commands (/help, /new) work inline instead of Slack's Assistant thread pane.",
+   "--slashes-only": "Emit only the features.slash_commands array (for merging into an existing manifest manually).",
+   "--write [PATH]": "Write manifest to a file instead of stdout. With no PATH writes to $HERMES_HOME/slack-manifest.json."
+  },
+  "status": {
+   "--all": "Show all details (redacted for sharing)",
+   "--deep": "Run deep checks (may take longer)"
+  },
+  "sync": {},
+  "sync device": {
+   "--name DEVICE_NAME": "Set a human-friendly label for this device (e.g. \"Ben's Laptop\"). Omit to print the current label."
+  },
+  "sync disable": {},
+  "sync enable": {},
+  "sync now": {},
+  "sync propose": {
+   "-m, --message MESSAGE": "Optional message describing the change"
+  },
+  "sync pull": {},
+  "sync push": {},
+  "sync status": {},
+  "tools": {
+   "--summary": "Print a summary of enabled tools per platform and exit"
+  },
+  "tools disable": {
+   "--platform PLATFORM": "Platform to apply to (default: cli)"
+  },
+  "tools enable": {
+   "--platform PLATFORM": "Platform to apply to (default: cli)"
+  },
+  "tools list": {
+   "--platform PLATFORM": "Platform to show (default: cli)"
+  },
+  "tools post-setup": {},
+  "uninstall": {
+   "--dry-run": "Print what uninstall would remove without changing anything",
+   "--full": "Full uninstall - remove everything including configs and data",
+   "--gui": "Uninstall only the desktop Chat GUI, leaving the agent intact",
+   "--gui-summary": "Print a JSON summary of installed GUI/agent artifacts and exit (used by the desktop app to gate uninstall options)",
+   "--yes, -y": "Skip confirmation prompts"
+  },
+  "update": {
+   "--backup": "Force a FULL pre-update backup (quick state snapshot + HERMES_HOME zip) for this run, regardless of updates.pre_update_backup",
+   "--branch NAME": "Update against this branch instead of the default (main). If the local checkout is on a different branch, hermes will switch to the requested branch first (auto-stashing any uncommitted changes).",
+   "--check": "Check whether an update is available without installing anything",
+   "--force": "Windows: proceed with the update even when another hermes.exe is detected. The concurrent process will likely cause WinError 32 warnings. Does NOT bypass the venv- process guard (see --force-venv).",
+   "--force-venv": "Windows: mutate the venv even while other processes are running from its interpreter (desktop backend, gateway, terminals). Those processes keep native .pyd files locked, so the dependency sync will likely fail partway and strand the install half-updated. Use only if you know the detected holders are false positives.",
+   "--gateway": "Gateway mode: use file-based IPC for prompts instead of stdin (used internally by /update)",
+   "--keep-stash": "Do NOT re-apply local changes after the update. Uncommitted changes are still stashed so the update can proceed, but they stay parked in git stash instead of being restored onto the updated code. Used by the desktop updater so local source edits never silently ride along across updates.",
+   "--no-backup": "Skip ALL pre-update backups for this run (both the quick state snapshot and the full zip; overrides updates.pre_update_backup)",
+   "--plan": "Show the update plan and exit without changing anything: install kind (git/docker/nix), every running Hermes service across all profiles with its supervisor and running code version, and how each will be restarted. Read-only; safe on a live fleet.",
+   "--switch-branch": "With updates.parked_branch_strategy: update_in_place configured, override it for this run: switch to the update target and update THERE instead of merging the target into the checked-out branch. The branch is left exactly as it was — no merge commit is written into its history. Use on long-lived feature branches where an update-driven merge commit would pollute the branch. No effect under the default strategy (switch), which already switches. Still refuses to touch a dirty tree.",
+   "--yes, -y": "Run without blocking on prompts: accepts the config- migration and stash-restore prompts, skips the fork- upstream prompt without adding a remote. API-key entry is skipped; run 'hermes config migrate' separately for those."
+  },
+  "verify": {
+   "--detect-only": "Only detect and print the recipe as JSON; run nothing",
+   "--json": "Emit a machine-readable JSON result",
+   "--phase {bootstrap,build,test,start}": "Run only the given phase(s); repeatable",
+   "--port PORT": "Override the port used for the readiness poll",
+   "--ready-timeout READY_TIMEOUT": "Readiness poll timeout in seconds (default: 60)",
+   "--save": "Save the recipe as .hermes/environment.json in the project",
+   "--skip-start": "Run command phases but skip starting the app / readiness poll",
+   "--timeout TIMEOUT": "Per-phase timeout in seconds (default: 600)"
+  },
+  "webhook": {},
+  "webhook list": {},
+  "webhook remove": {},
+  "webhook subscribe": {
+   "--deliver DELIVER": "Delivery target: log, telegram, discord, slack, etc.",
+   "--deliver-chat-id DELIVER_CHAT_ID": "Target chat ID for cross-platform delivery",
+   "--deliver-only": "Skip the agent — deliver the rendered prompt directly as the message. Zero LLM cost. Requires --deliver to be a real target (not 'log').",
+   "--description DESCRIPTION": "What this subscription does",
+   "--events EVENTS": "Comma-separated event types to accept",
+   "--prompt PROMPT": "Prompt template with {dot.notation} payload refs",
+   "--script SCRIPT": "Filter/transform script under ~/.hermes/scripts/. The route payload is passed as JSON on stdin; empty stdout, [SILENT], or a nonzero exit code ignores the webhook.",
+   "--secret SECRET": "HMAC secret (auto-generated if omitted)",
+   "--skills SKILLS": "Comma-separated skill names to load"
+  },
+  "webhook test": {
+   "--payload PAYLOAD": "JSON payload to send (default: test payload)"
+  },
+  "whatsapp": {},
+  "whatsapp-cloud": {},
+  "worktree": {},
+  "worktree list": {
+   "--repo REPO": "Repo root (default: current repo)"
+  },
+  "worktree prune": {
+   "--branches-only": "Only delete merged local branches; leave worktrees alone",
+   "--dry-run": "Show the plan without changing anything",
+   "--repo REPO": "Repo root (default: current repo)",
+   "--trees-only": "Only remove worktrees; leave local branches alone"
+  }
+ },
+ "positionals": {
+  "__compute-host": {},
+  "__gateway-restart-watch": {
+   "cmd": "",
+   "pid": ""
+  },
+  "__run-script": {
+   "script": ""
+  },
+  "__slash-worker": {},
+  "__update-gateway-helper": {
+   "cmd": "",
+   "exit_code_path": "",
+   "output_path": ""
+  },
+  "acp": {},
+  "approvals": {
+   "<subcommand>": "suggest     Propose command_allowlist entries from past approvals test        Dry-run the approval verdict for a command (never executes it)"
+  },
+  "approvals suggest": {},
+  "approvals test": {
+   "command": "The command to evaluate (prefix with -- to protect its flags)"
+  },
+  "auth": {
+   "{add,list,remove,reset,status,logout,spotify}": "add                 Add a pooled credential list                List pooled credentials remove              Remove a pooled credential by index, id, or label reset               Clear exhaustion status for all credentials for a provider status              Show auth status for a provider logout              Log out a provider and clear stored auth state spotify             Authenticate Hermes with Spotify via PKCE"
+  },
+  "auth add": {
+   "provider": "Provider id (for example: anthropic, openai-codex, openrouter)"
+  },
+  "auth list": {
+   "provider": "Optional provider filter"
+  },
+  "auth logout": {
+   "provider": "Provider id"
+  },
+  "auth remove": {
+   "provider": "Provider id",
+   "target": "Credential index, entry id, or exact label"
+  },
+  "auth reset": {
+   "provider": "Provider id"
+  },
+  "auth spotify": {
+   "{login,status,logout}": ""
+  },
+  "auth status": {
+   "provider": "Provider id"
+  },
+  "backup": {},
+  "browser": {
+   "{close-profile}": "close-profile  Close the browser locking your real profile (asks nothing — run only with the user's explicit OK; loses unsaved tabs)"
+  },
+  "browser close-profile": {},
+  "bundles": {
+   "{list,show,create,delete,reload}": "list                List installed skill bundles show                Show one bundle's contents create              Create a new skill bundle delete              Delete a skill bundle reload              Re-scan the bundles directory and report changes"
+  },
+  "bundles create": {
+   "name": "Bundle name (becomes the /slash command)"
+  },
+  "bundles delete": {
+   "name": "Bundle name"
+  },
+  "bundles list": {},
+  "bundles reload": {},
+  "bundles show": {
+   "name": "Bundle name"
+  },
+  "chat": {},
+  "checkpoints": {
+   "COMMAND": "status        Show total size, project count, and per-project breakdown list          Alias for 'status' prune         Delete orphan/stale checkpoints and GC the store clear         Delete the entire checkpoint base (all /rollback history) clear-legacy  Delete only the legacy-<ts>/ archives from v1 migration"
+  },
+  "checkpoints clear": {},
+  "checkpoints clear-legacy": {},
+  "checkpoints prune": {},
+  "checkpoints status": {},
+  "claw": {
+   "{migrate,cleanup,clean}": "migrate             Migrate from OpenClaw to Hermes cleanup (clean)     Archive leftover OpenClaw directories after migration"
+  },
+  "claw cleanup": {},
+  "claw migrate": {},
+  "completion": {
+   "{bash,zsh,fish}": "Shell type (default: bash)"
+  },
+  "computer-use": {
+   "{install,status,doctor,permissions}": "install             Install or repair the cua-driver binary (macOS/Windows/Linux) status              Print whether cua-driver is installed and on PATH doctor              Run cua-driver `health_report` and surface the check matrix permissions         Check or grant macOS Accessibility + Screen Recording (macOS)"
+  },
+  "computer-use doctor": {},
+  "computer-use install": {},
+  "computer-use permissions": {
+   "{status,grant}": "status        Report Accessibility + Screen Recording grant state (read- only) grant         Request the grants (opens the dialog attributed to CuaDriver)"
+  },
+  "computer-use permissions grant": {},
+  "computer-use permissions status": {},
+  "computer-use status": {},
+  "config": {
+   "{show,edit,get,set,unset,path,env-path,check,migrate}": "show                Show current configuration edit                Open config file in editor get                 Print a resolved configuration value set                 Set a configuration value unset               Remove a configuration value path                Print config file path env-path            Print .env file path check               Check for missing/outdated config migrate             Update config with new options"
+  },
+  "config check": {},
+  "config edit": {},
+  "config env-path": {},
+  "config get": {
+   "key": "Configuration key (e.g., model)"
+  },
+  "config migrate": {},
+  "config path": {},
+  "config set": {
+   "key": "Configuration key (e.g., model, terminal.backend)",
+   "value": "Value to set"
+  },
+  "config show": {},
+  "config unset": {
+   "key": "Configuration key to remove"
+  },
+  "console": {},
+  "cron": {
+   "{list,create,add,edit,pause,resume,run,remove,rm,delete,status,runs,history,incidents,notepad,doctor,tick}": "list                List scheduled jobs create (add)        Create a scheduled job edit                Edit an existing scheduled job pause               Pause a scheduled job resume              Resume a paused job run                 Run a job on the next scheduler tick remove (rm, delete) Remove a scheduled job status              Check if cron scheduler is running runs (history)      Show durable execution attempts incidents           List or acknowledge durable cron failure incidents notepad             Read/write a job's durable notepad (persistent KV across runs) doctor              Check scheduled jobs for common health issues tick                Run due jobs once and exit"
+  },
+  "cron create": {
+   "prompt": "Optional self-contained prompt or task instruction",
+   "schedule": "Schedule like '30m', 'every 2h', or '0 9 * * *'"
+  },
+  "cron doctor": {},
+  "cron edit": {
+   "job_id": "Job ID to edit"
+  },
+  "cron incidents": {
+   "incident_id": "Incident ID to acknowledge (ack)",
+   "{list,ack}": "Action (default: list)"
+  },
+  "cron list": {},
+  "cron notepad": {
+   "job_id": "Job ID the notepad belongs to",
+   "key": "Notepad key (get/set/delete)",
+   "value": "Value to store (set)",
+   "{get,set,delete,list}": "Action (default: list)"
+  },
+  "cron pause": {
+   "job_id": "Job ID to pause"
+  },
+  "cron remove": {
+   "job_id": "Job ID to remove"
+  },
+  "cron resume": {
+   "job_id": "Job ID to resume"
+  },
+  "cron run": {
+   "job_id": "Job ID to trigger"
+  },
+  "cron runs": {
+   "job_id": "Optional job ID filter"
+  },
+  "cron status": {},
+  "cron tick": {},
+  "curator": {
+   "{status,usage,run,pause,resume,pin,unpin,list-unmanaged,adopt,restore,list-archived,archive,prune,backup,rollback,ledger,purge}": "status              Show curator status and skill stats usage               Show usage telemetry for ALL skills (built-in, hub, agent) with provenance run                 Trigger a curator review now pause               Pause the curator until resumed resume              Resume a paused curator pin                 Pin a skill so the curator never auto-transitions it unpin               Unpin a skill list-unmanaged      List curation-eligible skills with no provenance marker adopt               Hand unmanaged skills to the curator (provenance is a user declaration) restore             Restore an archived skill list-archived       List archived skills archive             Manually archive a skill (move to .archive/, excluded from prompt) prune               Bulk-archive curator-managed skills idle for >= N days (default 90) backup              Take a manual tar.gz snapshot of ~/.hermes/skills/ (curator also does this automatically before every real run) rollback            Restore ~/.hermes/skills/ from a curator snapshot, or a single mutation by ledger entry id (see `hermes curator ledger`) ledger              List the per-mutation skill audit ledger (all actors: curator/agent/user) purge               Delete archived skills older than curator.archive_ttl_days (explicit only — never automatic; recorded in the ledger)"
+  },
+  "curator adopt": {
+   "skill": "Skill name(s) to adopt. Omit when using --all-unmanaged."
+  },
+  "curator archive": {
+   "skill": "Skill name"
+  },
+  "curator backup": {},
+  "curator ledger": {},
+  "curator list-archived": {},
+  "curator list-unmanaged": {},
+  "curator pause": {},
+  "curator pin": {
+   "skill": "Skill name"
+  },
+  "curator prune": {},
+  "curator purge": {},
+  "curator restore": {
+   "skill": "Skill name"
+  },
+  "curator resume": {},
+  "curator rollback": {
+   "entry_id": "Ledger entry id for single-mutation rollback (from `hermes curator ledger`). Omit for whole-tree snapshot rollback."
+  },
+  "curator run": {},
+  "curator status": {},
+  "curator unpin": {
+   "skill": "Skill name"
+  },
+  "curator usage": {},
+  "dashboard": {
+   "{register}": "register    Register a self-hosted dashboard with Nous Portal (writes the OAuth client ID to .env)"
+  },
+  "dashboard register": {},
+  "debug": {
+   "{share,delete}": "share         Upload debug report to a paste service and print a shareable URL delete        Delete a paste uploaded by 'hermes debug share'"
+  },
+  "debug delete": {
+   "urls": "One or more paste URLs to delete (e.g. https://paste.rs/abc123)"
+  },
+  "debug share": {},
+  "desktop": {},
+  "doctor": {},
+  "dump": {},
+  "egress": {
+   "{install,setup,start,stop,restart,reload,status,disable,config}": "install             Download iron-proxy binary (v0.39.0) setup               Interactive wizard: install + CA + mint tokens + write config start               Start the managed iron-proxy stop                Stop the managed iron-proxy restart             Restart the managed iron-proxy (stop if running, then start) reload              Hot-reload the running daemon's ruleset from proxy.yaml (management API — no restart, no dropped connections) status              Show proxy state and mappings disable             Turn off the proxy integration config              Print the generated proxy.yaml path"
+  },
+  "egress config": {},
+  "egress disable": {},
+  "egress install": {},
+  "egress reload": {},
+  "egress restart": {},
+  "egress setup": {},
+  "egress start": {},
+  "egress status": {},
+  "egress stop": {},
+  "fallback": {
+   "{list,ls,add,remove,rm,clear}": "list (ls)           Show the current fallback chain (default when no subcommand) add                 Pick a provider + model (same picker as `hermes model`) and append to the chain remove (rm)         Pick an entry to delete from the chain clear               Remove all fallback entries"
+  },
+  "fallback add": {},
+  "fallback clear": {},
+  "fallback list": {},
+  "fallback remove": {},
+  "gateway": {
+   "{run,start,stop,restart,status,install,uninstall,list,setup,migrate-legacy,enroll}": "run                 Run gateway in foreground (recommended for WSL, Docker, Termux) start               Start the installed systemd/launchd background service stop                Stop gateway service restart             Restart gateway service status              Show gateway status install             Install gateway as a systemd/launchd background service uninstall           Uninstall gateway service list                List all profiles and their gateway status setup               Configure messaging platforms migrate-legacy      Remove legacy hermes.service units from pre-rename installs enroll              Enroll this gateway with a relay connector (writes relay auth creds to .env)"
+  },
+  "gateway enroll": {},
+  "gateway install": {},
+  "gateway list": {},
+  "gateway migrate-legacy": {},
+  "gateway restart": {},
+  "gateway run": {},
+  "gateway setup": {},
+  "gateway start": {},
+  "gateway status": {},
+  "gateway stop": {},
+  "gateway uninstall": {},
+  "hooks": {
+   "{list,ls,test,revoke,remove,rm,doctor}": "list (ls)           List configured hooks with matcher, timeout, and consent status test                Fire every hook matching <event> against a synthetic payload revoke (remove, rm) Remove a command's allowlist entries (takes effect on next restart) doctor              Check each configured hook: exec bit, allowlist, mtime drift, JSON validity, and synthetic run timing"
+  },
+  "hooks doctor": {},
+  "hooks list": {},
+  "hooks revoke": {
+   "command": "The exact command string to revoke (as declared in config.yaml)"
+  },
+  "hooks test": {
+   "event": "Hook event name (e.g. pre_tool_call, pre_llm_call, subagent_stop)"
+  },
+  "import": {
+   "zipfile": "Path to the backup zip file"
+  },
+  "import-agent": {
+   "{claude-code,codex}": "Which agent to import from (default: auto-detect ~/.claude or ~/.codex)"
+  },
+  "insights": {},
+  "journey": {
+   "{list,delete,edit}": "list              List node ids (for delete/edit). delete            Delete a learned skill (archived) or memory by node id. edit              Edit a learned skill or memory by node id in $EDITOR."
+  },
+  "journey delete": {
+   "node": "Node id (skill name or memory:<source>:<index>; see `journey list`)."
+  },
+  "journey edit": {
+   "node": "Node id (skill name or memory:<source>:<index>; see `journey list`)."
+  },
+  "journey list": {},
+  "kanban": {
+   "{init,boards,create,swarm,list,ls,show,assign,set-model,reclaim,reassign,diagnostics,diag,link,unlink,claim,comment,attach,attachments,attach-rm,complete,edit,block,schedule,unblock,request-review,request-changes,reopen-review,promote,archive,tail,dispatch,daemon,watch,stats,notify-subscribe,notify-list,notify-unsubscribe,log,runs,heartbeat,assignees,context,specify,decompose,gc,repair}": "init                Create kanban.db if missing (idempotent) boards              Manage kanban boards (one board per project / workstream) create              Create a new task swarm               Create a Kanban Swarm v1 graph (parallel workers → verifier → synthesizer) list (ls)           List tasks show                Show a task with comments + events assign              Assign or reassign a task set-model           Set or clear a task's model/provider override (takes effect on the next dispatch) reclaim             Release an active worker claim on a running task reassign            Reassign a task to a different profile, optionally reclaiming first diagnostics (diag)  List active diagnostics on the current board link                Add a parent->child dependency unlink              Remove a parent->child dependency claim               Atomically claim a ready task (prints resolved workspace path) comment             Append a comment attach              Attach a local file to a task attachments         List a task's attachments attach-rm           Delete an attachment by id complete            Mark one or more tasks done edit                Edit recovery fields on an already-completed task block               Mark one or more tasks blocked schedule            Park one or more tasks in Scheduled (waiting on time, not human input) unblock             Return blocked/scheduled tasks to ready, or todo while parents remain open request-review      Move a task to 'review' (implementation done, awaiting review) — NOT a block request-changes     Reviewer verdict: return the active review run to its implementer reopen-review       Send one or more review tasks back for changes (review -> ready/todo) promote             Manually move one or more todo/blocked tasks to ready (recovery path) archive             Archive one or more tasks tail                Follow a task's event stream dispatch            One dispatcher pass: reclaim stale, promote ready, spawn workers daemon              DEPRECATED — dispatcher now runs in the gateway. Use `hermes gateway start`. watch               Live-stream task_events to the terminal (Ctrl+C to exit) stats               Per-status + per-assignee counts + oldest-ready age notify-subscribe    Subscribe a gateway source to a task's terminal events (used by /kanban subscribe in the gateway adapter) notify-list         List notification subscriptions (optionally for a single task) notify-unsubscribe  Remove a gateway subscription from a task log                 Print the worker log for a task (from <kanban- root>/kanban/logs/) runs                Show attempt history for a task (one row per run: profile, outcome, elapsed, summary) heartbeat           Emit a heartbeat event for a running task (worker liveness signal) assignees           List known profiles + per-profile task counts (union of ~/.hermes/profiles/ and current assignees on the board) context             Print the full context a worker sees for a task (title + body + parent results + comments). specify             Flesh out a triage-column task into a concrete spec (title + body) and promote it to todo. Uses the auxiliary LLM configured under auxiliary.triage_specifier. decompose           Decompose a triage-column task into a graph of child tasks routed to specialist profiles by description. Falls back to specify-style single-task promotion when the task doesn't benefit from fan-out. Uses auxiliary.kanban_decomposer. gc                  Garbage-collect archived-task workspaces, old events, and old logs repair              Check kanban.db integrity and auto-repair index-only corruption"
+  },
+  "kanban archive": {
+   "task_ids": "Task ids to archive (default mode)"
+  },
+  "kanban assign": {
+   "profile": "Profile name (or 'none' to unassign)",
+   "task_id": ""
+  },
+  "kanban assignees": {},
+  "kanban attach": {
+   "path": "Path to the local file to attach",
+   "task_id": ""
+  },
+  "kanban attach-rm": {
+   "attachment_id": ""
+  },
+  "kanban attachments": {
+   "task_id": ""
+  },
+  "kanban block": {
+   "reason": "Reason (also appended as a comment)",
+   "task_id": ""
+  },
+  "kanban boards": {
+   "{list,ls,create,new,rm,remove,delete,switch,use,show,current,rename,set-default-workdir,export,import}": "list (ls)           List all boards with task counts create (new)        Create a new board rm (remove, delete) Archive (default) or delete a board switch (use)        Set the active board for subsequent CLI calls show (current)      Print the currently-active board slug rename              Change a board's human-readable display name (slug is immutable) set-default-workdir Set the default workspace path for tasks on a board export              Export a board to a portable .tar.gz archive import              Import a board archive as a new board"
+  },
+  "kanban boards create": {
+   "slug": "Board slug (kebab-case, e.g. atm10-server)"
+  },
+  "kanban boards export": {
+   "slug": "Board to export (default: the current board)"
+  },
+  "kanban boards import": {
+   "archive": "Path to the .tar.gz archive"
+  },
+  "kanban boards list": {},
+  "kanban boards rename": {
+   "name": "New display name",
+   "slug": ""
+  },
+  "kanban boards rm": {
+   "slug": ""
+  },
+  "kanban boards set-default-workdir": {
+   "path": "Absolute path to use as default workdir. Omit to clear.",
+   "slug": ""
+  },
+  "kanban boards show": {},
+  "kanban boards switch": {
+   "slug": ""
+  },
+  "kanban claim": {
+   "task_id": ""
+  },
+  "kanban comment": {
+   "task_id": "",
+   "text": "Comment body"
+  },
+  "kanban complete": {
+   "task_ids": "One or more task ids (only --result applies to all of them)"
+  },
+  "kanban context": {
+   "task_id": ""
+  },
+  "kanban create": {
+   "title": "Task title"
+  },
+  "kanban daemon": {},
+  "kanban decompose": {
+   "task_id": "Task id to decompose (required unless --all is given)"
+  },
+  "kanban diagnostics": {},
+  "kanban dispatch": {},
+  "kanban edit": {
+   "task_id": ""
+  },
+  "kanban gc": {},
+  "kanban heartbeat": {
+   "task_id": ""
+  },
+  "kanban init": {},
+  "kanban link": {
+   "child_id": "",
+   "parent_id": ""
+  },
+  "kanban list": {},
+  "kanban log": {
+   "task_id": ""
+  },
+  "kanban notify-list": {
+   "task_id": ""
+  },
+  "kanban notify-subscribe": {
+   "task_id": ""
+  },
+  "kanban notify-unsubscribe": {
+   "task_id": ""
+  },
+  "kanban promote": {
+   "reason": "Audit-trail reason (recorded on the task_events row)",
+   "task_id": ""
+  },
+  "kanban reassign": {
+   "profile": "New profile name (or 'none' to unassign)",
+   "task_id": ""
+  },
+  "kanban reclaim": {
+   "task_id": ""
+  },
+  "kanban reopen-review": {
+   "task_ids": ""
+  },
+  "kanban repair": {},
+  "kanban request-changes": {
+   "reason": "Concrete changes required before re-review",
+   "task_id": ""
+  },
+  "kanban request-review": {
+   "task_id": ""
+  },
+  "kanban runs": {
+   "task_id": ""
+  },
+  "kanban schedule": {
+   "reason": "Reason/timing note (also appended as a comment)",
+   "task_id": ""
+  },
+  "kanban set-model": {
+   "model": "Model to pin the worker to (or 'none' to clear the override)",
+   "task_id": ""
+  },
+  "kanban show": {
+   "task_id": ""
+  },
+  "kanban specify": {
+   "task_id": "Task id to specify (required unless --all is given)"
+  },
+  "kanban stats": {},
+  "kanban swarm": {
+   "goal": "Swarm goal / final outcome"
+  },
+  "kanban tail": {
+   "task_id": ""
+  },
+  "kanban unblock": {
+   "task_ids": ""
+  },
+  "kanban unlink": {
+   "child_id": "",
+   "parent_id": ""
+  },
+  "kanban watch": {},
+  "login": {},
+  "logout": {},
+  "logs": {
+   "log_name": "Log to view: agent (default), errors, gateway, gui, or 'list' to show available files"
+  },
+  "lsp": {
+   "{status,list,install,install-all,restart,which}": "status              Show LSP service status list                List supported language servers install             Install a server binary install-all         Install every server with a known auto-install recipe restart             Tear down running LSP clients (next edit re-spawns) which               Print binary path for a server"
+  },
+  "lsp install": {
+   "server": "Server id (e.g. pyright, gopls)"
+  },
+  "lsp install-all": {},
+  "lsp list": {},
+  "lsp restart": {},
+  "lsp status": {},
+  "lsp which": {
+   "server": "Server id"
+  },
+  "mcp": {
+   "{serve,add,remove,rm,list,ls,test,configure,config,login,reauth,picker,catalog,install}": "serve               Run Hermes as an MCP server (expose conversations to other agents) add                 Add an MCP server (discovery-first install) remove (rm)         Remove an MCP server list (ls)           List configured MCP servers test                Test MCP server connection configure (config)  Toggle tool selection login               Force re-authentication for an OAuth-based MCP server reauth              Re-authenticate one OAuth MCP server, or all of them (--all) picker              Interactive catalog picker (also the default for `hermes mcp`) catalog             List Nous-approved MCPs available for one-click install install             Install a catalog MCP by name (e.g. `hermes mcp install n8n`)"
+  },
+  "mcp add": {
+   "name": "Server name (used as config key)"
+  },
+  "mcp catalog": {},
+  "mcp configure": {
+   "name": "Server name to configure"
+  },
+  "mcp install": {
+   "identifier": "Catalog entry name (or `official/<name>`)"
+  },
+  "mcp list": {},
+  "mcp login": {
+   "name": "Server name to re-authenticate"
+  },
+  "mcp picker": {},
+  "mcp reauth": {
+   "name": "Server name to re-authenticate (omit with --all)"
+  },
+  "mcp remove": {
+   "name": "Server name to remove"
+  },
+  "mcp serve": {},
+  "mcp test": {
+   "name": "Server name to test"
+  },
+  "memory": {
+   "{setup,status,off,reset}": "setup               Interactive provider selection and configuration status              Show current memory provider config off                 Disable external provider (built-in only) reset               Erase all built-in memory (MEMORY.md and USER.md)"
+  },
+  "memory off": {},
+  "memory reset": {},
+  "memory setup": {
+   "provider": "Provider to configure directly (e.g. honcho), skipping the picker"
+  },
+  "memory status": {},
+  "migrate": {
+   "{xai}": "xai       Migrate xAI models scheduled for retirement on May 15, 2026"
+  },
+  "migrate xai": {},
+  "moa": {
+   "{list,ls,configure,config,delete,rm}": "list (ls)           Show current MoA model slots configure (config)  Interactively pick MoA models delete (rm)         Delete a MoA preset"
+  },
+  "moa configure": {
+   "name": "Preset name to create or update"
+  },
+  "moa delete": {
+   "name": "Preset name to delete"
+  },
+  "moa list": {},
+  "model": {},
+  "monitoring": {
+   "{status}": "status    Show monitoring settings, export state, and redaction posture"
+  },
+  "monitoring status": {},
+  "pairing": {
+   "{list,approve,revoke,clear-pending}": "list                Show pending + approved users approve             Approve a pairing request revoke              Revoke user access clear-pending       Clear all pending codes"
+  },
+  "pairing approve": {
+   "platform": "Platform name (telegram, discord, slack, whatsapp)",
+   "request-id|code": "Request ID from 'pairing list', or the code the bot DM'd the user"
+  },
+  "pairing clear-pending": {},
+  "pairing list": {},
+  "pairing revoke": {
+   "platform": "Platform name",
+   "user_id": "User ID to revoke"
+  },
+  "pause": {},
+  "peer": {
+   "{add,set,list,ls,remove,rm,dm,run,status,stop}": "add (set)           Register (or update) a peer gateway list (ls)           List registered peers remove (rm)         Remove a peer dm                  Message an agent on a peer gateway and print its reply run                 Start a long peer turn asynchronously and return its run ID status              Read the status and final output of an asynchronous peer run stop                Stop one asynchronous peer run without affecting another turn"
+  },
+  "peer add": {
+   "name": "Peer name (lowercase slug, e.g. spark, homelab)"
+  },
+  "peer dm": {
+   "message": "Message text (or stdin)",
+   "target": "<peer> or <peer>/<agent> (named profile on a multiplexed peer)"
+  },
+  "peer list": {},
+  "peer remove": {
+   "name": "Peer name"
+  },
+  "peer run": {
+   "message": "Message text (or stdin)",
+   "target": "<peer> or <peer>/<agent> (named profile on a multiplexed peer)"
+  },
+  "peer status": {
+   "run_id": "Run ID returned by 'hermes peer run'",
+   "target": "<peer> or <peer>/<agent> (named profile on a multiplexed peer)"
+  },
+  "peer stop": {
+   "run_id": "Run ID returned by 'hermes peer run'",
+   "target": "<peer> or <peer>/<agent> (named profile on a multiplexed peer)"
+  },
+  "pets": {
+   "{list,install,select,show,off,scale,remove,doctor}": "list                Browse the petdex gallery install             Install a pet from the gallery select              Set the active pet (writes display.pet.*) show                Animate the active pet in the terminal off                 Disable the pet display scale               Resize the pet everywhere (display.pet.scale) remove              Delete an installed pet doctor              Check pet setup + terminal graphics support"
+  },
+  "pets doctor": {},
+  "pets install": {
+   "slug": "Pet slug (e.g. boba)"
+  },
+  "pets list": {
+   "query": "Filter by slug/name substring"
+  },
+  "pets off": {},
+  "pets remove": {
+   "slug": "Pet slug"
+  },
+  "pets scale": {
+   "factor": "Scale factor, e.g. 0.5 (clamped 0.1–3.0)"
+  },
+  "pets select": {
+   "slug": "Pet slug (omit for picker)"
+  },
+  "pets show": {
+   "slug": "Pet slug (default: active)"
+  },
+  "plugins": {
+   "{install,search,update,remove,rm,uninstall,list,ls,enable,disable,capabilities,doctor,pack,show,info}": "install             Install a plugin from a Git URL, owner/repo, or index name search              Search the community plugin index update              Pull latest changes for an installed plugin remove (rm, uninstall) Remove an installed plugin list (ls)           List installed plugins enable              Enable a disabled plugin disable             Disable a plugin without removing it capabilities        Show declared vs granted capabilities per plugin doctor              Validate a plugin with the real runtime contracts pack                Declarative, shareable plugin sets (hermes-pack.yaml) show (info)         Show details for a single plugin (including emits/listens)"
+  },
+  "plugins capabilities": {
+   "name": "Plugin id to inspect (omit to list all plugins with capabilities)"
+  },
+  "plugins disable": {
+   "name": "Plugin name to disable"
+  },
+  "plugins doctor": {
+   "target": "Plugin path or installed plugin id (default: current directory)"
+  },
+  "plugins enable": {
+   "name": "Plugin name to enable"
+  },
+  "plugins install": {
+   "identifier": "Git URL, owner/repo shorthand (e.g. anpicasso/hermes- plugin-chrome-profiles), or a bare plugin name resolved through the community index (see `hermes plugins search`)"
+  },
+  "plugins list": {},
+  "plugins pack": {
+   "{install,export,show}": "install             Review and install a pack from a file path or https URL export              Emit a pack YAML for the current install on stdout show                Dry-run: parse and display a pack without installing"
+  },
+  "plugins pack export": {},
+  "plugins pack install": {
+   "source": "Path to a hermes-pack.yaml file, or an https:// URL"
+  },
+  "plugins pack show": {
+   "source": "Path to a hermes-pack.yaml file, or an https:// URL"
+  },
+  "plugins remove": {
+   "name": "Plugin directory name to remove"
+  },
+  "plugins search": {
+   "term": "Search term matched fuzzily against name, description, and tags (omit to browse the full index)"
+  },
+  "plugins show": {
+   "name": "Plugin name or key to show"
+  },
+  "plugins update": {
+   "name": "Plugin name to update"
+  },
+  "portal": {
+   "{login,info,status,open,tools}": "login               Log in to Nous Portal + set it up (default; one-shot onboarding) info                Show Portal auth + Tool Gateway routing summary open                Open the Portal subscription page in your default browser tools               List Tool Gateway tools and which are routed via Nous"
+  },
+  "portal info": {},
+  "portal login": {},
+  "portal open": {},
+  "portal tools": {},
+  "profile": {
+   "{list,use,create,delete,describe,show,alias,rename,export,import,install,update,info}": "list                List all profiles use                 Set sticky default profile create              Create a new profile delete              Delete a profile describe            Read or set a profile's description (used by the kanban orchestrator) show                Show profile details alias               Manage wrapper scripts rename              Rename a profile ('default': sets a display name; id unchanged) export              Export a profile to archive import              Import a profile from archive install             Install a profile distribution from a git URL or local directory update              Re-pull a distribution and apply updates (user data preserved) info                Show a profile's distribution manifest (version, requirements, source)"
+  },
+  "profile alias": {
+   "profile_name": "Profile name"
+  },
+  "profile create": {
+   "profile_name": "Profile name (lowercase, alphanumeric)"
+  },
+  "profile delete": {
+   "profile_name": "Profile to delete"
+  },
+  "profile describe": {
+   "profile_name": "Profile to describe (omit + use --all --auto to sweep)"
+  },
+  "profile export": {
+   "profile_name": "Profile to export"
+  },
+  "profile import": {
+   "archive": "Path to .tar.gz archive"
+  },
+  "profile info": {
+   "profile_name": "Profile to inspect"
+  },
+  "profile install": {
+   "source": "Distribution source (git URL or local directory)"
+  },
+  "profile list": {},
+  "profile rename": {
+   "new_name": "New profile name (for 'default': a display name — the canonical id stays 'default')",
+   "old_name": "Current profile name"
+  },
+  "profile show": {
+   "profile_name": "Profile to show"
+  },
+  "profile update": {
+   "profile_name": "Profile to update"
+  },
+  "profile use": {
+   "profile_name": "Profile name (or 'default')"
+  },
+  "project": {
+   "{create,list,ls,show,add-folder,remove-folder,rename,set-primary,use,archive,restore,bind-board}": "create              Create a new project list (ls)           List projects show                Show a project's details add-folder          Add a folder to a project remove-folder       Remove a folder from a project rename              Rename a project set-primary         Set the primary folder use                 Set the active project archive             Archive a project restore             Restore an archived project bind-board          Bind a kanban board to a project"
+  },
+  "project add-folder": {
+   "path": "Folder path",
+   "project": "Project id or slug"
+  },
+  "project archive": {
+   "project": "Project id or slug"
+  },
+  "project bind-board": {
+   "board": "Board slug (omit to unbind)",
+   "project": "Project id or slug"
+  },
+  "project create": {
+   "folders": "Folder paths to include (first = primary)",
+   "name": "Human name, e.g. 'Hermes Agent'"
+  },
+  "project list": {},
+  "project remove-folder": {
+   "path": "Folder path",
+   "project": "Project id or slug"
+  },
+  "project rename": {
+   "name": "New name",
+   "project": "Project id or slug"
+  },
+  "project restore": {
+   "project": "Project id or slug"
+  },
+  "project set-primary": {
+   "path": "Folder path (must already be in project)",
+   "project": "Project id or slug"
+  },
+  "project show": {
+   "project": "Project id or slug"
+  },
+  "project use": {
+   "project": "Project id or slug (omit to clear)"
+  },
+  "prompt-size": {},
+  "proxy": {
+   "{start,status,providers}": "start               Run the proxy in the foreground status              Show which proxy upstreams are ready providers           List available proxy upstream providers"
+  },
+  "proxy providers": {},
+  "proxy start": {},
+  "proxy status": {},
+  "resume": {},
+  "secrets": {
+   "{bitwarden,bw,onepassword,op,1password}": "bitwarden (bw)      Bitwarden Secrets Manager integration onepassword (op, 1password) 1Password (op:// references) integration"
+  },
+  "secrets bitwarden": {
+   "{setup,status,token,sync,disable,install}": "setup               Interactive wizard: install bws, store access token, pick project status              Show config + binary + token validation status token               Rotate the access token: validate a new one and store it in .env sync                Fetch secrets now and report what changed disable             Turn off the Bitwarden integration install             Download and verify the pinned bws binary (v2.0.0)"
+  },
+  "secrets bitwarden disable": {},
+  "secrets bitwarden install": {},
+  "secrets bitwarden setup": {},
+  "secrets bitwarden status": {},
+  "secrets bitwarden sync": {},
+  "secrets bitwarden token": {},
+  "secrets onepassword": {
+   "{setup,status,token,set,remove,sync,disable}": "setup               Verify the op CLI, set account / token env var, and enable status              Show config + op binary + references token               Rotate the service-account token: validate and store it in .env set                 Map an env var to an op:// reference remove              Remove an env-var → reference mapping sync                Resolve references now and report what changed disable             Turn off the 1Password integration"
+  },
+  "secrets onepassword disable": {},
+  "secrets onepassword remove": {
+   "env_var": "Environment variable name to unmap"
+  },
+  "secrets onepassword set": {
+   "env_var": "Environment variable name, e.g. OPENAI_API_KEY",
+   "reference": "1Password reference, e.g. op://Private/OpenAI/api key"
+  },
+  "secrets onepassword setup": {},
+  "secrets onepassword status": {},
+  "secrets onepassword sync": {},
+  "secrets onepassword token": {},
+  "security": {
+   "<subcommand>": "audit       Run a one-shot supply-chain audit"
+  },
+  "security audit": {},
+  "send": {
+   "message": "Message text. If omitted, read from --file or stdin."
+  },
+  "serve": {},
+  "sessions": {
+   "{list,export,delete,prune,archive,optimize,clean-markers,optimize-storage,repair,repair-routing,recover,stats,rename,pin,unpin,pinned,retitle-skills,browse,import}": "list                List recent sessions export              Export sessions to JSONL, Markdown, or QMD delete              Delete a specific session prune               Delete old sessions (filterable by time window, source, title, ...) archive             Bulk-archive (soft-hide) sessions matching filters — no deletion optimize            Reclaim disk space: merge FTS5 segments + VACUUM (no data change) clean-markers       Permanently clear stale tool-call marker content left by sessions from before #78148 optimize-storage    Migrate the search index to the compact v23 layout (reclaims disk on large DBs) repair              Repair a malformed state.db schema so hidden sessions reappear repair-routing      Re-stamp gateway sessions that lost their routing identity recover             Rebuild canonical session data into a separate clean database stats               Show session store statistics rename              Set or change a session's title pin                 Pin session(s) — durable keep flag, exempt from auto- archive unpin               Remove the pin (durable keep flag) from session(s) pinned              List pinned sessions retitle-skills      Re-title sessions whose auto-title came from a /skill's own text browse              Interactive session picker — browse, search, and resume sessions import              Import a Claude Code or Codex CLI session into Hermes"
+  },
+  "sessions archive": {},
+  "sessions browse": {},
+  "sessions clean-markers": {},
+  "sessions delete": {
+   "session_id": "Session ID to delete"
+  },
+  "sessions export": {
+   "output": "Output path. JSONL: file path (use - for stdout, required). md/qmd: output directory (default: <hermes home>/session-exports)"
+  },
+  "sessions import": {
+   "path": "Path to a specific session JSONL file (skips the picker)"
+  },
+  "sessions list": {},
+  "sessions optimize": {},
+  "sessions optimize-storage": {},
+  "sessions pin": {
+   "session_ids": "Session ID(s) or unique prefix(es) to pin"
+  },
+  "sessions pinned": {},
+  "sessions prune": {},
+  "sessions recover": {},
+  "sessions rename": {
+   "session_id": "Session ID to rename",
+   "title": "New title for the session"
+  },
+  "sessions repair": {},
+  "sessions repair-routing": {},
+  "sessions retitle-skills": {},
+  "sessions stats": {},
+  "sessions unpin": {
+   "session_ids": "Session ID(s) or unique prefix(es) to unpin"
+  },
+  "setup": {
+   "{model,tts,terminal,gateway,tools,telemetry,agent}": "Run a specific setup section instead of the full wizard"
+  },
+  "skills": {
+   "{trust,untrust,browse,search,install,inspect,list,check,update,audit,uninstall,reset,list-modified,diff,opt-out,opt-in,repair-official,publish,snapshot,tap,config}": "trust               Trust a project so its repo-local skills (./.hermes/skills, ./.agents/skills) load untrust             Revoke project-skill trust for a repo browse              Browse all available skills (paginated) search              Search skill registries install             Install a skill inspect             Preview a skill without installing list                List installed skills check               Check installed hub skills for updates update              Update installed hub skills audit               Re-scan installed hub skills uninstall           Remove a hub-installed skill reset               Reset a bundled skill — clears 'user-modified' tracking so updates work again list-modified       List bundled skills you've edited (which `hermes update` keeps) diff                Show how your copy of a bundled skill differs from the stock version opt-out             Stop bundled skills from being seeded into this profile opt-in              Re-enable bundled-skill seeding (undo opt-out) repair-official     Backfill or restore official optional skills from repo source publish             Publish a skill to a registry snapshot            Export/import skill configurations tap                 Manage skill sources config              Interactive skill configuration — enable/disable individual skills"
+  },
+  "skills audit": {
+   "name": "Specific skill to audit (default: all)"
+  },
+  "skills browse": {},
+  "skills check": {
+   "name": "Specific skill to check (default: all)"
+  },
+  "skills config": {},
+  "skills diff": {
+   "name": "Skill name to diff (e.g. google-workspace)"
+  },
+  "skills inspect": {
+   "identifier": "Skill identifier"
+  },
+  "skills install": {
+   "identifier": "Skill identifier (e.g. openai/skills/skill-creator) or a direct HTTP(S) URL to a SKILL.md file"
+  },
+  "skills list": {},
+  "skills list-modified": {},
+  "skills opt-in": {},
+  "skills opt-out": {},
+  "skills publish": {
+   "skill_path": "Path to skill directory"
+  },
+  "skills repair-official": {
+   "name": "Official optional skill folder/frontmatter name, or 'all'"
+  },
+  "skills reset": {
+   "name": "Skill name to reset (e.g. google-workspace)"
+  },
+  "skills search": {
+   "query": "Search query"
+  },
+  "skills snapshot": {
+   "{export,import}": "export         Export installed skills to a file import         Import and install skills from a file"
+  },
+  "skills snapshot export": {
+   "output": "Output JSON file path (use - for stdout)"
+  },
+  "skills snapshot import": {
+   "input": "Input JSON file path"
+  },
+  "skills tap": {
+   "{list,add,remove}": "list             List configured taps add              Add a GitHub repo as skill source remove           Remove a tap"
+  },
+  "skills tap add": {
+   "repo": "GitHub repo (e.g. owner/repo)"
+  },
+  "skills tap list": {},
+  "skills tap remove": {
+   "name": "Tap name to remove"
+  },
+  "skills trust": {
+   "path": "Project root to trust (default: enclosing git checkout of cwd)"
+  },
+  "skills uninstall": {
+   "name": "Skill name to remove"
+  },
+  "skills untrust": {
+   "path": "Project root to untrust (default: enclosing git checkout of cwd)"
+  },
+  "skills update": {
+   "name": "Specific skill to update (default: all outdated skills)"
+  },
+  "skin": {
+   "{list,use,set}": "list          List available skins use           Switch the active skin set           Set one color of the active skin (e.g. `skin set ui_tool '#00FFFF'`)"
+  },
+  "skin list": {},
+  "skin set": {
+   "key": "Color key (e.g. ui_tool, ui_accent, background)",
+   "value": "Hex color (#rrggbb)"
+  },
+  "skin use": {
+   "name": "Skin name"
+  },
+  "slack": {
+   "{manifest}": "manifest  Print or write a Slack app manifest with every gateway command registered as a native slash (/btw, /stop, /model, ...)"
+  },
+  "slack manifest": {},
+  "status": {},
+  "sync": {
+   "{status,pull,push,now,enable,disable,device,propose}": "status              Show what is synced, and from where pull                Pull your synced skills (and your organisation's) push                Push your opted-in skills now                 Reconcile now: pull then push enable              Include a skill in your sync disable             Exclude a skill from your sync device              Show or set this device's label (shown in the sync console) propose             Share a skill with your organisation"
+  },
+  "sync device": {},
+  "sync disable": {
+   "skill": "Skill name (frontmatter name / directory name)"
+  },
+  "sync enable": {
+   "skill": "Skill name (frontmatter name / directory name)"
+  },
+  "sync now": {},
+  "sync propose": {
+   "name": "Skill name to share"
+  },
+  "sync pull": {},
+  "sync push": {},
+  "sync status": {},
+  "tools": {
+   "{list,disable,enable,post-setup}": "list                Show all tools and their enabled/disabled status disable             Disable toolsets or MCP tools enable              Enable toolsets or MCP tools post-setup          Run a provider's post-setup install hook (npm/pip/binary)"
+  },
+  "tools disable": {
+   "NAME": "Toolset name (e.g. web) or MCP tool in server:tool form"
+  },
+  "tools enable": {
+   "NAME": "Toolset name or MCP tool in server:tool form"
+  },
+  "tools list": {},
+  "tools post-setup": {
+   "KEY": "Post-setup hook key (e.g. agent_browser, camofox, kittentts)"
+  },
+  "uninstall": {},
+  "update": {},
+  "verify": {
+   "path": "Project root to verify (default: current directory)"
+  },
+  "webhook": {
+   "{subscribe,add,list,ls,remove,rm,test}": "subscribe (add)     Create a webhook subscription list (ls)           List all dynamic subscriptions remove (rm)         Remove a subscription test                Send a test POST to a webhook route"
+  },
+  "webhook list": {},
+  "webhook remove": {
+   "name": "Subscription name to remove"
+  },
+  "webhook subscribe": {
+   "name": "Route name (used in URL: /webhooks/<name>)"
+  },
+  "webhook test": {
+   "name": "Subscription name to test"
+  },
+  "whatsapp": {},
+  "whatsapp-cloud": {},
+  "worktree": {
+   "{list,ls,audit,prune}": "list (ls, audit)    Classify every tree: age, size, verdict, reason (default action) prune               Remove safe trees and delete fully-merged local branches"
+  },
+  "worktree list": {},
+  "worktree prune": {}
+ }
+}

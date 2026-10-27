@@ -89,9 +89,9 @@
 | 5.5 | `tool_output_limits`（max_bytes 50,000 / max_lines 2,000 / 行宽 2,000；终端 40% 头 + 60% 尾） | 【实证】`tools/tool_output_limits.py` | W4 | ⬜ | — |
 | 5.6 | `read_file` 阈值钉死 `inf`（防 persist→read→persist 死循环） | 【实证】`budget_config.py` `PINNED_THRESHOLDS` | W4 | ⬜ | — |
 | 5.7 | `hook_output_spill`（10,000 / head 500 / tail 500）+ `spill_safety` 拒符号链接 | 【实证】调研 02 §3 | W4 | ⬜ | — |
-| 5.8 | 危险命令两级：12 条 hardline 硬地板（无条件拦）+ 99 条 dangerous（走审批） | 【实证】`tools/approval.py` `HARDLINE_PATTERNS` / `DANGEROUS_PATTERNS` | W13 | ⬜ | — |
-| 5.9 | Windows 破坏性操作清单（diskpart/Format-Volume/Clear-Disk/vssadmin/bcdedit/reg delete/icacls/iwr\|iex/EncodedCommand） | 【实证】`approval.py`；调研 02 §4 | W13 | ⬜ | — |
-| 5.10 | 自终止保护（`pkill hermes` / `hermes gateway stop` / `hermes update`） | 【实证】`approval.py` | W13 | ⬜ | — |
+| 5.8 | 危险命令两级：**18 条 hardline 硬地板**（无条件拦）+ **43 条 dangerous**（按审批模式处置） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` / `DANGEROUS_PATTERNS` | W13 | ✅ | `app/approvals.py:60,96`；`tests/test_approvals.py` 107 条用例覆盖 |
+| 5.9 | Windows 破坏性操作清单（diskpart / Format / Clear-Disk / vssadmin / bcdedit / reg delete / icacls / iwr\|iex / EncodedCommand） | 【实证】`app/approvals.py` | W13 | ✅ | 同上 |
+| 5.10 | 自终止保护（`pkill hermes\|orbit` / `hermes gateway stop` / `hermes update`） | 【实证】`app/approvals.py` `self_kill` / `self_modify` | W13 | ✅ | 同上 |
 | 5.11 | `tool_search` 分级披露（core/GUI 永不延迟；listing 4,000 token；Tier0/1/2） | 【实证】`tools/tool_search.py` | W4 | ⬜ | — |
 | 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ⬜ | — |
 | 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | ⬜ | — |
@@ -236,15 +236,15 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 14.1 | 审批三态 `manual` / `smart` / `off` | 【实证】`config approvals.mode`；`approval.py` 274KB | W13 | ⬜ | — |
-| 14.2 | 12 条 hardline 硬地板（`rm -rf /`、mkfs、`dd of=/dev/sd*`、fork bomb、`kill -1`、shutdown/reboot…） | 【实证】`HARDLINE_PATTERNS` | W13 | ⬜ | — |
+| 14.1 | 审批三态 `off` / `smart` / `manual` | 【实证】`hermes approvals test` 三态退出码 0/2/3 | W13 | 🟡 | `app/approvals.py` `APPROVAL_MODES`；`orbit approvals mode` 可切换。**缺交互式审批通道**：Orbit 没有"弹窗问一句"的 UI，`smart`/`manual` 的语义是"拒绝并让人自己去做"，与 Hermes 的 ask 不完全等价 |
+| 14.2 | 硬地板无条件拦（18 条：`rm -rf /`、mkfs、`dd of=/dev/sd*`、fork bomb、`kill -1`、shutdown/reboot、diskpart、vssadmin、bcdedit…） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` | W13 | ✅ | `tests/test_approvals.py::test_hardline_*`（11 条样本 × 3 种模式）。**边界**：完全访问档默认不守硬地板（`approvals.hardline_in_machine`，默认关）——尊重 Orbit 既有产品决策，见 `README` 与 `test_file_scope.py` |
 | 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | ⬜ | — |
 | 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | — |
 | 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | ⬜ | — |
 | 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ⬜ | — |
 | 14.7 | 系统 keyring 存密钥（不落配置文件） | Orbit 已有 | W1 | ✅ | `backend/app/connectors.py:60` `service = f"orbit:{data_dir}"`；CLI `context.hydrate()` |
 | 14.8 | `path_security` / `url_safety` / `website_policy` / `threat_patterns` | 【实证】调研 02 §4 | W13 | ⬜ | — |
-| 14.9 | `orbit approvals {suggest,test}`（从历史挖掘 allowlist 提案） | 【实证】`_raw/sub/approvals__*.txt` | W13 | ⬜ | — |
+| 14.9 | `orbit approvals {test,suggest,allow,list-rules,mode}`（`test` 三态退出码、`suggest` 从历史挖可加白模式且破坏类永不提议） | 【实证】`_raw/sub/approvals__*.txt` | W13 | ✅ | `app/cli/commands/approvals.py`；`tests/test_approvals.py::test_cli_*` |
 | 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ⬜ | — |
 
 ## L15 可观测性层

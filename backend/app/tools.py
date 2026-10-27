@@ -3,7 +3,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pypdf import PdfReader
 from sqlalchemy import select
 
+from app import approvals
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Operation, Store, Task, serialize
 
@@ -428,40 +428,49 @@ def machine_roots() -> list[Path]:
     return [Path(os.sep)]
 
 
-#: 「不可逆命令」拦截表——**只在「仅工作文件夹」档生效**，切到完全访问档整表失效。
+#: 说明：危险命令的拦截表**已搬到 `app/approvals.py`**（两级：硬地板 / 危险模式）。
+#: 这里不再维护第二份列表——两份列表必然漂移，而漂移的安全边界比没有更危险。
 #:
-#: 设计取舍（对齐 Hermes 的"固定黑名单"思路，但按用户要求降到窄档）：
-#: 这份表的职责**只有一件事**——"把机器搞坏且不可恢复"，不是通用的命令白名单，
-#: 也不是沙箱。它挡不住 `python -c "..."` 这类任意代码，那是切换档位才能解决的事，
-#: 硬堆正则只会制造漏斗式的安全感。宁可少而准，也不做覆盖不了的穷举。
-IRREVERSIBLE_COMMANDS: tuple[tuple[str, str], ...] = (
-    (r"\b(format|mkfs(\.\w+)?)\b", "格式化磁盘"),
-    (r"\bdiskpart\b", "磁盘分区操作"),
-    (r"\b(shutdown|reboot|halt|poweroff)\b", "关机 / 重启"),
-    (r"\bvssadmin\s+delete\s+shadows\b", "删除卷影副本（系统还原点）"),
-    (r"\bbcdedit\b", "改写启动配置"),
-    (r"\bcipher\s+/w\b", "擦除磁盘空闲空间"),
-    (r"\breg\s+delete\s+hklm\b", "删除系统注册表项"),
-    (r"dd\s+[^\n]*of=\s*/dev/", "裸写块设备"),
-    # 只拦"根 / 主目录本身"，不误伤 `rm -rf /tmp/foo` 这类正常路径：目标后面必须是空白或结尾。
-    (
-        r"rm\s+-[a-z]*[rf][a-z]*\s+(?:/\*?|~\*?|\$home\*?|\$\{home\}\*?)(?:\s|$)",
-        "递归删除根目录 / 主目录",
-    ),
-    (r"\b(rd|rmdir)\s+/s\b[^\n]*[a-z]:\\\s*($|[&|])", "递归删除盘根目录"),
-    (r"\b(del|erase)\s+/[a-z]*[fsq][a-z]*\s+[a-z]:\\\s*($|[&|])", "批量删除盘根目录"),
-    (r"remove-item[^\n]*-recurse[^\n]*-force[^\n]*[a-z]:\\\s*($|[;|])", "递归强删盘根目录"),
-    (r":\s*\(\s*\)\s*\{", "fork 炸弹"),
-)
+#: 设计取舍没有变：这份判据的职责**只有一件事**——"把机器搞坏且不可恢复"，
+#: 不是通用白名单，也不是沙箱。它挡不住 `python -c "..."` 这类任意代码，
+#: 那要靠权限档位与预算刹车，硬堆正则只会制造漏斗式的安全感。
 
 
 def dangerous_command(command: str) -> str:
-    """命中不可逆命令时返回它的中文名，放行返回空串。**只在窄档调用。**"""
-    text = (command or "").casefold()
-    for pattern, label in IRREVERSIBLE_COMMANDS:
-        if re.search(pattern, text):
-            return label
-    return ""
+    """命中**硬地板**命令时返回它的中文名，放行返回空串。
+
+    实现在 `app/approvals.py`——那里分两级（硬地板 / 危险模式），因为
+    "机器会坏且不可恢复"与"可能不可逆但常见"是两种东西，处置方式不同。
+    这里保留这个薄封装是为了向后兼容（既有测试与调用点都认这个名字）。
+    """
+    verdict = approvals.classify(command, env_type="local")
+    return verdict.label if verdict.verdict == approvals.VERDICT_DENY else ""
+
+
+def _refusal(verdict, machine: bool, mode: str) -> str:
+    """把裁决结果翻成"模型能据此改动作"的一句话。
+
+    拒绝文案必须给出**下一步怎么做**：只说"不允许"，模型会换个写法反复重试，
+    既浪费预算也让人看不出它到底想干什么。
+    """
+    if verdict.verdict == approvals.VERDICT_DENY:
+        if machine:
+            return (
+                f"拒绝执行：命中硬地板规则「{verdict.label}」（{verdict.rule}），"
+                "不可恢复。完全访问档默认不设限，但 `approvals.hardline_in_machine` "
+                "已被打开，所以这里仍然拦截。要执行请自行在终端里做，"
+                "或关掉该开关（不推荐）。"
+            )
+        return (
+            f"「仅工作文件夹」档拒绝执行可能不可逆的命令（{verdict.label}，"
+            f"规则 {verdict.rule}）。确认要在本机执行，请在对话页把权限级别切到"
+            "「完全访问权限」。"
+        )
+    return (
+        f"拒绝执行：命中危险模式「{verdict.label}」（{verdict.rule}），"
+        f"审批模式 `{mode}` 下需要人工处置。"
+        f"可以自己执行这条命令，或先 `orbit approvals allow add {verdict.rule}` 加白再重试。"
+    )
 
 
 def decode_output(raw: bytes | None) -> str:
@@ -889,16 +898,29 @@ class ToolRegistry:
             if not command:
                 raise ValueError("命令不能为空")
             start = str(args.get("cwd") or "").strip()
+            # 执行前裁决：两级（硬地板 / 危险模式），判据在 `app/approvals.py`。
+            # **两档都走这一步**——硬地板是否在完全访问档也生效由 `hardline_in_machine`
+            # 决定（默认关，尊重 Orbit 既有的"machine 档不设限"决策）。
+            mode = approvals.resolve_mode(self.settings)
+            allowlist: tuple[str, ...] = ()
+            if mode != "off":
+                allowlist = approvals.AllowList.load(
+                    Path(self.settings.data_dir) / "approvals.json"
+                ).rules
+            verdict = approvals.classify(
+                command,
+                mode=mode,
+                allowlist=allowlist,
+                env_type="local",
+                hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
+                machine_wide=machine,
+            )
+            if verdict.verdict != approvals.VERDICT_ALLOW:
+                raise ValueError(_refusal(verdict, machine, mode))
             if machine:
                 # 完全访问档：不限工作目录，默认落用户主目录（比工作目录更"像整机"）。
                 cwd = resolve_path(root, start or str(Path.home()), True)
             else:
-                blocked = dangerous_command(command)
-                if blocked:
-                    raise ValueError(
-                        f"「仅工作文件夹」档拒绝执行可能不可逆的命令（{blocked}）。"
-                        "确认要在本机执行，请在对话页把权限级别切到「完全访问权限」。"
-                    )
                 cwd = resolve_path(root, start or ".", False)
             if not cwd.is_dir():
                 raise ValueError(f"工作目录不存在：{cwd}")
