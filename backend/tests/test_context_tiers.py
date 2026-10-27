@@ -20,7 +20,7 @@ from app.main import migrate
 from app.storage import Conversation, Message, Store, Task
 
 
-async def _build(tmp_path, *, soul: str = "", project: str = ""):
+async def _build(tmp_path, *, soul: str = "", project: str = "", memory: bool = True):
     data = tmp_path / "data"
     settings = Settings(data_dir=data, workspace=tmp_path / "files")
     settings.prepare()
@@ -31,6 +31,12 @@ async def _build(tmp_path, *, soul: str = "", project: str = ""):
     conversation = await store.save(Conversation())
     await store.save(Message(conversation_id=conversation.id, role="user", content="你好"))
     task = await store.save(Task(conversation_id=conversation.id, goal="打个招呼"))
+    if memory:
+        # 造一条长期记忆：没有记忆时记忆块**整段不出现**（不拿空标签占预算），
+        # 所以凡是要断言"记忆块在"的用例都得先有一条。
+        from app.storage import Memory
+
+        await store.save(Memory(key="报告格式偏好", value="中文 Markdown"))
     return settings, store, task
 
 
@@ -96,7 +102,7 @@ async def test_project_context_lands_between_stable_and_memory(tmp_path):
     stable = build_stable(settings)
     context_block = build_context_tier(settings, memory_text="键: 值", profile_block="")
     assert "你是 Orbit" in stable
-    assert "长期记忆" in context_block
+    assert "键: 值" in context_block
     # 分层函数的产物里不该出现 volatile 内容。
     assert "权限级别" not in context_block
     await store.engine.dispose()

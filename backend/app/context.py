@@ -3,6 +3,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlalchemy import select
 
+from app import memory_prompt
 from app import profile as profile_module
 from app.storage import Conversation, Memory, Message, Store, Task, now
 
@@ -76,14 +77,19 @@ def build_stable(settings) -> str:
 
 
 def build_context_tier(settings, *, memory_text: str, profile_block: str) -> str:
-    """**Context 层**：随数据缓慢变化的部分（项目上下文 / 画像 / 长期记忆）。"""
+    """**Context 层**：随数据缓慢变化的部分（项目上下文 / 画像 / 长期记忆）。
+
+    `memory_text` 由 `app/memory_prompt.py` 渲染，**自带标题行与用量**——
+    这里不再加"长期记忆（数据）："之类的标签，否则同一段内容会有两个标题。
+    """
     blocks: list[str] = []
     project, project_path = load_project_context()
     if project:
         blocks.append(f"# Project Context（{project_path}）\n{project}")
     if profile_block:
         blocks.append(profile_block)
-    blocks.append(f"长期记忆（数据）：\n{memory_text}")
+    if memory_text:
+        blocks.append(memory_text)
     return "\n".join(blocks)
 
 
@@ -197,7 +203,11 @@ async def build_context(store: Store, task: Task, settings, *, touch: bool = Tru
         budget -= len(content)
         if budget <= 0:
             break
-    memory_text = "\n".join(f"{m.key}: {m.value[:600]}" for m in memories)
+    memory_text = memory_prompt.render_block(
+        # `memories` 是**新→旧**（按 updated_at 倒序取），渲染要**旧→新**：
+        # 超预算时从最旧的开始丢，刚记住的东西不该第一个消失。
+        [(memory.key, memory.value) for memory in reversed(memories)]
+    )
     summary = conversation.summary if conversation and conversation.summary_message_count else ""
     # 画像层：整段注入、与 memories 分开陈述。空画像返回空串，不占预算。
     profile_block = profile_module.render_block(settings)
