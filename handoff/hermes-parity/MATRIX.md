@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 72 · 🟡 29 · ⬜ 80（完成度 39.8%，截至 W3/W13 收口）
+条目合计 **181**。当前：✅ 73 · 🟡 29 · ⬜ 79（完成度 40.3%，截至 W3/W4/W13 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -114,7 +114,7 @@
 | 6.2 | 四层过滤（平台 / 场景 / profile / 委托） | 【实证】前作报告 + `hermes tools --platform` | W4 | 🟡 | 已做**平台层**（`data/tools.json` 的 per-platform 禁用集 + 收窄模式）；场景 / profile / 委托三层未做 |
 | 6.3 | `orbit tools {list,enable,disable,post-setup}` | 【实证】`_raw/sub/tools__*.txt` | W4 | ✅ | `app/cli/commands/tools.py` |
 | 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ✅ | `ToolRegistry.specs(platform=...)` 走 `app/toolsets.resolve`；默认 `cli` 与改动前逐名相等（有回归用例）。**注意**：`graph/nodes.py` 调 `specs()` 时**没传 platform**，全仓没有非 `cli` 的调用点——接口成立但"多平台差异化"尚无消费方 |
-| 6.5 | 工具 schema 校验前置（dict / parameters 必须 object） | 【实证】`registry.register` raise 检查 | W4 | ⬜ | — |
+| 6.5 | 工具 schema 校验前置（dict / parameters 必须 object） | 【实证】`registry.register` raise 检查 | W4 | ✅ | `app/tools.py::schema_problems`（name/description 存在、`parameters.type` 必须是 object、`properties` 是 dict、`required` 的键必须在 properties 里）；`ToolRegistry.specs()` 暴露前逐个查，坏工具**排除并记 error 日志点名**——排除一个工具比让整轮请求 400 损失小。两种形状都吃（OpenAI 函数调用壳 + 裸形状）。`tests/test_tool_schema.py` 10 条（含 15 个内置工具全合法 + 坏工具被排除且好工具一个不少） |
 
 ## L7 Skill / curator 层（Hermes: `skills_*.py` + `bundled-skills`，21 类目 / 91 技能）
 
