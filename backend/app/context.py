@@ -17,6 +17,89 @@ MEMORY_LIMIT = 12
 #: 系统提示词正文所在文件（相对本文件）。
 _AGENT_MD = Path(__file__).resolve().parent / "agent.md"
 
+#: 仓库根。`SOUL.md` 的第二个查找位置（第一个是数据目录）。
+_ROOT = Path(__file__).resolve().parents[2]
+
+#: 项目级指令文件。**按顺序取第一个找到的，只取一个**——照 Hermes 的规则
+#: （`AGENTS.md` vs `HERMES.md` 二选一，从 cwd 走到 git root）。两个都加载会
+#: 让人分不清哪条规则生效，冲突时更是无从排查。
+PROJECT_FILES = ("AGENTS.md", "ORBIT.md")
+
+
+def load_soul(settings) -> str:
+    """全局人格文件 `SOUL.md`。先找数据目录，再找仓库根；都没有返回空串。
+
+    为什么它在**最前面**：SOUL.md 定的是"我是谁"，行为规则（agent.md）定的是
+    "怎么做"。人格在前、规则在后，冲突时规则能压住人格——反过来就没有兜底了。
+    Hermes 也是这么排的（实测 16/16 份 prompt 都以 SOUL.md 开头）。
+    """
+    for candidate in (Path(settings.data_dir) / "SOUL.md", _ROOT / "SOUL.md"):
+        try:
+            text = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            return text
+    return ""
+
+
+def load_project_context(start: Path | None = None) -> tuple[str, str]:
+    """从 ``start``（默认 cwd）逐级向上找项目指令文件，找到即停。
+
+    返回 ``(正文, 文件路径)``；没找到返回 ``("", "")``。
+    向上走到 **git 根就停**（`.git` 存在即认为是根）：再往上就是用户主目录，
+    把家目录里的 AGENTS.md 当成"项目规则"是错的。
+    """
+    current = (start or Path.cwd()).resolve()
+    for directory in (current, *current.parents):
+        for name in PROJECT_FILES:
+            candidate = directory / name
+            if candidate.is_file():
+                try:
+                    text = candidate.read_text(encoding="utf-8").strip()
+                except OSError:
+                    continue
+                if text:
+                    return text, str(candidate)
+        if (directory / ".git").exists():
+            break
+    return "", ""
+
+
+def build_stable(settings) -> str:
+    """**Stable 层**：一个任务里逐字节不变的部分（SOUL.md + agent.md）。
+
+    保住这一层就是保住提示缓存：任务中途改记忆、改画像都不会动它。
+    """
+    soul = load_soul(settings)
+    return f"{soul}\n{SYSTEM}" if soul else SYSTEM
+
+
+def build_context_tier(settings, *, memory_text: str, profile_block: str) -> str:
+    """**Context 层**：随数据缓慢变化的部分（项目上下文 / 画像 / 长期记忆）。"""
+    blocks: list[str] = []
+    project, project_path = load_project_context()
+    if project:
+        blocks.append(f"# Project Context（{project_path}）\n{project}")
+    if profile_block:
+        blocks.append(profile_block)
+    blocks.append(f"长期记忆（数据）：\n{memory_text}")
+    return "\n".join(blocks)
+
+
+def build_volatile_tier(settings, *, file_access: str, summary: str) -> str:
+    """**Volatile 层**：每轮都可能变的部分（权限级别 / 站点 / 会话摘要）。
+
+    权限级别放这一层是刻意的：它是**每轮都变**的运行时事实，模型不知道自己被允许
+    走多远。写死在稳定层会让它在切换档位后仍然按旧边界行事。
+    """
+    return (
+        f"{file_access}\n"
+        f"已配置网页：{getattr(settings, 'browser_url', '')}\n"
+        f"Notion页面：{settings.notion_url}\n"
+        f"当前会话摘要：{summary}"
+    )
+
 #: 兜底正文：agent.md 缺失/读取失败时的内置后备，保证上下文装配不会因此崩掉。
 #: 与 agent.md 保持同义；正常情况下以 agent.md 为准。
 _SYSTEM_FALLBACK = """你是 Orbit，用户的个人助手，用中文自然交流，回复支持 Markdown。
@@ -118,7 +201,6 @@ async def build_context(store: Store, task: Task, settings, *, touch: bool = Tru
     summary = conversation.summary if conversation and conversation.summary_message_count else ""
     # 画像层：整段注入、与 memories 分开陈述。空画像返回空串，不占预算。
     profile_block = profile_module.render_block(settings)
-    browser_url = getattr(settings, "browser_url", "")
     # 文件权限级别是**每轮都变**的运行时事实，必须放进系统提示：模型不知道自己
     # 被允许走多远。写死"授权目录"会让它在完全访问档下仍不敢碰工作目录之外，
     # 也让它在有限档下以为可以随便写整机。
@@ -133,10 +215,16 @@ async def build_context(store: Store, task: Task, settings, *, touch: bool = Tru
             "文件工具不能越出此目录；run_command 的工作目录也固定在此目录内，"
             "且格式化 / 关机 / 递归删根目录等不可逆命令会被拒绝。"
         )
-    prompt = (
-        f"{SYSTEM}\n{file_access}\n已配置网页：{browser_url}\n"
-        f"Notion页面：{settings.notion_url}\n{profile_block}\n"
-        f"长期记忆（数据）：\n{memory_text}\n当前会话摘要：{summary}\n"
+    # 三层装配（顺序有意义）：Stable（不变）→ Context（缓变）→ Volatile（每轮变）。
+    # 越靠前越稳定，提示缓存能命中的前缀就越长。
+    prompt = "\n".join(
+        part
+        for part in (
+            build_stable(settings),
+            build_context_tier(settings, memory_text=memory_text, profile_block=profile_block),
+            build_volatile_tier(settings, file_access=file_access, summary=summary),
+        )
+        if part
     )
     prompt = prompt.replace("\n\n", "\n")
     return [SystemMessage(content=prompt), *reversed(recent)]
