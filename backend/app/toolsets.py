@@ -67,6 +67,9 @@ TOOLSETS: dict[str, str] = {
 TOOL_TOOLSET: dict[str, str] = {
     # core
     "ask_user": "core",
+    # 元工具：检索可用工具。归 core 而不是新建 toolset——它不该被"禁用 web"这类
+    # 操作连带关掉，否则用户关掉一个域就再也找不到别的域有什么工具了。
+    "tool_search": "core",
     # files
     "local_list_files": "files",
     "local_search_text": "files",

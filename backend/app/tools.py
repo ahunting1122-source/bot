@@ -175,6 +175,17 @@ class SearchArgs(Args):
     query: str = Field(min_length=1, max_length=200)
 
 
+class ToolSearchArgs(Args):
+    """`tool_search` 的参数。`limit` 有上限：检索结果本身也要占预算。"""
+
+    query: str = Field(
+        min_length=1,
+        max_length=200,
+        description="关键词。会匹配工具名、工具说明与 toolset 名，名字命中优先。",
+    )
+    limit: int = Field(default=8, ge=1, le=20, description="最多返回几条（1-20）")
+
+
 class FindArgs(Args):
     query: str = Field(min_length=1, max_length=200, description="要搜索的关键词")
     path: str = Field(
@@ -316,6 +327,12 @@ class Tool:
 
 
 LOCAL_TOOLS = [
+    Tool(
+        "tool_search",
+        "按关键词检索当前可用的工具（返回名字、说明、所属 toolset、参数名）。"
+        "不确定该用哪个工具时先搜一下；只返回**当前平台已暴露**的工具，搜到的都能直接调用。",
+        ToolSearchArgs,
+    ),
     Tool(
         "local_list_files",
         "列出文件。仅工作文件夹模式下只看授权目录；完全访问权限模式下绝对路径可点任意目录，"
@@ -1340,7 +1357,55 @@ class ToolRegistry:
                 "status": "unreviewed",
                 "notice": "技能已落盘（标 unreviewed 待确认，确认前不会注入）。",
             }
+        if name == "tool_search":
+            return self.search_tools(args["query"], int(args.get("limit") or 8))
         raise ValueError("未实现的工具")
+
+    def search_tools(self, query: str, limit: int = 8) -> list[dict]:
+        """按关键词在**当前暴露的工具**里检索，返回名字/说明/toolset。
+
+        为什么需要它（Hermes 的 `tool_search`）：工具一多，把全部 schema 塞进每次
+        请求既贵又稀释注意力。有了检索，模型可以"先找再调"。Orbit 现在只有 15 个
+        内置工具，全塞得下，所以这一步暂时是**为规模准备**的——但接口先立起来，
+        以后工具涨到几十个时不用改模型的行为约定。
+
+        只搜**已暴露**的：搜到却调不了的工具比搜不到更糟。
+        """
+        needle = (query or "").strip().lower()
+        if not needle:
+            return []
+        exposed = set(toolsets.resolve(list(self.tools), "cli", self.toolsets_config()))
+        hits: list[tuple[int, dict]] = []
+        for name, tool in self.tools.items():
+            if name not in exposed:
+                continue
+            spec = tool.specification().get("function", {})
+            description = str(spec.get("description") or "")
+            toolset = toolsets.toolset_of(name)
+            # 打分：名字命中 > 描述命中；同类内按命中位置排（越靠前越相关）。
+            score = 0
+            if needle in name.lower():
+                score = 100 - name.lower().index(needle)
+            elif needle in description.lower():
+                score = 50 - min(description.lower().index(needle), 40)
+            elif needle in toolset.lower():
+                score = 10
+            if score > 0:
+                hits.append(
+                    (
+                        score,
+                        {
+                            "name": name,
+                            "description": description[:200],
+                            "toolset": toolset,
+                            "parameters": sorted(
+                                (spec.get("parameters") or {}).get("properties", {})
+                            ),
+                        },
+                    )
+                )
+        hits.sort(key=lambda pair: (-pair[0], pair[1]["name"]))
+        return [entry for _score, entry in hits[: max(1, limit)]]
 
 
 def as_tool_text(result: dict) -> str:
