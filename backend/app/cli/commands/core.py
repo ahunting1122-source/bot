@@ -854,19 +854,28 @@ def _version() -> str:
 
 #: 日志逻辑名 → 文件名。对齐 `hermes logs` 的 agent/errors/gateway/gui/desktop 语义，
 #: 但用 Orbit 自己真实存在的文件（不虚构文件让命令看起来能用）。
+#: `orbit.log` / `errors.log` 是 `app/logging_setup.py` 轮转写入的；
+#: `orbit-backend.*` 是启动脚本重定向留下的旧文件，仍兼容。
 LOG_ALIASES: dict[str, str] = {
-    "backend": "orbit-backend.log",
-    "agent": "orbit-backend.log",
-    "errors": "orbit-backend.err.log",
+    "agent": "orbit.log",
+    "backend": "orbit.log",
+    "errors": "errors.log",
     "gateway": "orbit-gateway.log",
     "desktop": "orbit-desktop.log",
 }
 
 
 def _log_files(context: Context) -> list[Path]:
-    if not context.data_dir.exists():
-        return []
-    return sorted(context.data_dir.glob("*.log"))
+    """数据目录根下的 `*.log` 与 `logs/` 子目录下的都算。
+
+    两处都扫是因为迁移期并存：老部署的日志在根目录（启动脚本重定向），
+    新部署的在 `logs/`（`logging_setup` 轮转写入）。
+    """
+    files: list[Path] = []
+    for root in (context.data_dir, context.data_dir / "logs"):
+        if root.is_dir():
+            files.extend(sorted(root.glob("*.log")))
+    return files
 
 
 def _resolve_log(context: Context, name: str | None) -> Path | None:

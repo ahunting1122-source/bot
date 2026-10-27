@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import secrets
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app import logging_setup
 from app import profile as profile_module
 from app.agent import AgentRunner
 from app.browser import BROWSER_TOOLS, BrowserController, BrowserSessionError
@@ -33,6 +35,10 @@ from app.storage import (
 from app.summaries import SummaryService, list_conversations
 from app.tools import ToolRegistry
 from app.vault import Vault
+
+#: 本模块的 logger。此前 main.py 里一条日志都没有——启动失败时只能看到 uvicorn
+#: 的栈，看不到"Orbit 自己认为发生了什么"。
+log = logging.getLogger("orbit.main")
 
 
 class TextInput(BaseModel):
@@ -102,6 +108,10 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         settings.prepare()
+        # 先把日志装好，再做任何别的事——否则启动阶段的失败恰恰是"没有日志可查"
+        # 的那一段。`console=False`：常驻服务不该把同一行同时写进文件和终端。
+        logging_setup.configure(settings.data_dir, level=settings.log_level)
+        log.info("Orbit 后端启动 · 数据目录 %s", settings.data_dir)
         await asyncio.to_thread(migrate, settings)
         app.state.store = Store(settings.data_dir / "app.sqlite")
         await app.state.store.tune()

@@ -99,6 +99,20 @@ class Settings(BaseSettings):
     #: 同时约束**文件类工具**（list/search/read/write）的可达范围与 **`run_command`
     #: 命令执行**（cwd 与拦截策略）；浏览器与网络类工具本来就不受目录限制，不在此开关之内。
     file_scope: str = "workspace"
+    #: 命令审批模式（见 `app/approvals.py`）。
+    #:   `off`（默认）—— 只拦硬地板，危险模式放行。这是 Orbit v1 的既有行为：
+    #:                   信任模型是"事后审计 + 三层预算刹车"，不是事前打断。
+    #:   `smart`       —— 危险模式只有进白名单才放行，否则拒绝并说明怎么加白。
+    #:   `manual`      —— 危险模式一律拒绝（Orbit 没有交互式审批通道，语义是
+    #:                   "拒绝并让人自己去做"，不是"弹窗问一句"）。
+    approval_mode: str = "off"
+    #: 「完全访问权限」档是否也守硬地板。**默认 False**：尊重既有的产品决策
+    #: （`README` 与 `tests/test_file_scope.py` 都固定了"machine 档不设限"）。
+    #: Hermes 在 YOLO 下仍保留硬地板；要对齐它就把这里打开。
+    hardline_in_machine: bool = False
+    #: 日志级别。日志落 `<data_dir>/logs/`：主日志 5 MB × 5 份轮转，
+    #: `errors.log` 只收 WARNING 以上（见 `app/logging_setup.py`）。
+    log_level: str = "INFO"
     #: `run_command` 的默认超时（秒）。到点强制终止进程——**这是运行保护，不是权限限制**，
     #: 它在两档都生效，避免一条挂住的命令把整轮任务钉死。
     command_timeout: int = 120

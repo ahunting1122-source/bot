@@ -33,18 +33,18 @@
 | --- | --- | --- | --- |
 | W0 | 调研：9 份逐层清单 + Orbit 现状矩阵 | 全部 | ✅ 完成 |
 | W1 | CLI 地基 + 核心命令（status/doctor/config/dump/logs/prompt-size/completion） | 入口/CLI 层 | ✅ 完成 |
-| W2 | CLI 命令面补齐：74 顶层 / 407 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 54/407（backup / import / checkpoints / setup 等已落地） |
-| W3 | 配置与模型适配层：16 家 provider、3 种 transport、fallback 链、凭证池 | 模型适配层 | 🟡 provider/fallback/auth 已落地；per-model 路由、推理线翻译、auxiliary slots、MoA 运行时待做 |
-| W4 | 工具层：注册表遮蔽门禁、toolset 过滤、三层结果治理、危险命令两级、元工具 | 工具层 + 注册/toolset 层 | 🟡 危险命令两级 + web_search/web_extract 已落地；遮蔽门禁、toolset 过滤、结果治理、元工具待做 |
-| W5 | Skill 层：多根 tier、16 字段 frontmatter、渐进披露、写侧校验链、curator 状态机、hub/bundles/sync | Skill/curator 层 | ⬜ 待做 |
-| W6 | 记忆层：MEMORY/USER 字符预算 + 冻结快照、CJK 双 FTS、session_search 四形态、provider 接口 | 记忆层 | ⬜ 待做 |
+| W2 | CLI 命令面补齐：75 顶层 / 411 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 **82/411**（另有 3 partial、326 todo） |
+| W3 | 配置与模型适配层：16 家 provider、3 种 transport、fallback 链、凭证池、三层 prompt | 模型适配层 + 上下文装配层 | 🟡 provider/fallback/auth/三层 prompt 已落地；per-model 路由、推理线翻译表、auxiliary slots、MoA 运行时待做；**fallback 与凭证池未接线运行时** |
+| W4 | 工具层：注册表遮蔽门禁、toolset 过滤、三层结果治理、危险命令两级、元工具 | 工具层 + 注册/toolset 层 | 🟡 遮蔽门禁 / toolset 过滤 / 三层结果治理 / 危险命令两级 / web 工具**全已落地**；缺元工具（todo / clarify / tool_search）与 12 个功能域 |
+| W5 | Skill 层：多根 tier、16 字段 frontmatter、渐进披露、写侧校验链、curator 状态机、hub/bundles/sync | Skill/curator 层 | 🟡 本轮施工中 |
+| W6 | 记忆层：MEMORY/USER 字符预算 + 冻结快照、CJK 双 FTS、session_search 四形态、provider 接口 | 记忆层 | 🟡 四形态召回（零 LLM）已落地；字符预算、冻结快照自曝用量、8 个 provider、FTS 索引待做 |
 | W7 | MCP 层：OAuth、prompts→技能、resources→RAG、`orbit mcp`、把 Orbit 自己暴露成 MCP 服务 | MCP 层 | ⬜ 待做 |
-| W8 | 持久化与会话层：统一 session 平面、追加日志 + id 游标、压缩谱系、幂等/投递账本、孤儿回收、checkpoint | 持久化层 | ⬜ 待做 |
-| W9 | 自动化与网关：cron、gateway dispatcher + 四状态文件、平台适配器基类、webhook/pairing/peer/send | cron 层 + gateway/平台层 | ⬜ 待做 |
-| W10 | 插件系统：16 字段 plugin.yaml、19 种 register_*、17 个 hook 事件、plugin_guard 三级裁决 | 插件层 | ⬜ 待做 |
+| W8 | 持久化与会话层：统一 session 平面、追加日志 + id 游标、压缩谱系、幂等/投递账本、孤儿回收、checkpoint | 持久化层 | 🟡 backup / import / checkpoints 已落地；统一 session 平面、压缩谱系、投递账本、孤儿回收待做 |
+| W9 | 自动化与网关：cron、gateway dispatcher + 四状态文件、平台适配器基类、webhook/pairing/peer/send | cron 层 + gateway/平台层 | 🟡 cron 整层已落地（无常驻 ticker，靠外部调度器）；gateway / 平台层本轮施工中 |
+| W10 | 插件系统：16 字段 plugin.yaml、19 种 register_*、17 个 hook 事件、plugin_guard 三级裁决 | 插件层 | 🟡 本轮施工中 |
 | W11 | 委派与并发：subagent runner、深度/并发/预算、swarm 调度、worktree 隔离、中断补位 | Agent 核心循环层 | ⬜ 待做 |
-| W12 | 可观测性与 UI：logs/insights/monitoring、metrics schema、dashboard 页面、skin/console/TUI | 可观测性层 + Web UI 层 | ⬜ 待做 |
-| W13 | 安全：secrets/egress/OSV 供应链、密钥脱敏、审批三态、hardline 硬地板 | 安全与审批层 | 🟡 审批三态 + 18 条硬地板 + `orbit approvals` 已落地；secrets/egress/OSV/脱敏待做 |
+| W12 | 可观测性与 UI：logs/insights/monitoring、metrics schema、dashboard 页面、skin/console/TUI | 可观测性层 + Web UI 层 | 🟡 结构化日志 + 轮转、insights、monitoring 已落地；metrics schema、dashboard 18 页、skin/console/TUI 待做 |
+| W13 | 安全：secrets/egress/OSV 供应链、密钥脱敏、审批三态、hardline 硬地板 | 安全与审批层 | 🟡 审批三态 + 18 条硬地板已落地；secrets/egress/OSV/脱敏本轮施工中 |
 | W14 | 验收：逐项对照矩阵出证据、补测试与文档 | 全部 | ⬜ 待做 |
 
 ---

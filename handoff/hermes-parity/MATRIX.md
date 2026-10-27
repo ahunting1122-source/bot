@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 42 · 🟡 13 · ⬜ 126（完成度 23.2%，截至 W4/W6/W9 收口）
+条目合计 **181**。当前：✅ 43 · 🟡 13 · ⬜ 125（完成度 23.8%，截至 W4/W6/W9 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -20,10 +20,11 @@
 | 1.1 | 中央命令注册表 + 声明式命令面 | `hermes_cli/commands.py` 的 `CommandDef` 中央注册表 | W1 | ✅ | `backend/app/cli/spec.py` 的 `Registry` / `Command`；`app/cli/commands/` 各模块 `REGISTRY.add(...)` |
 | 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py` 的 `build_parser` / `_add_command` |
 | 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir` / `--no-color`） | `hermes --help` options 段 | W1 | ✅ | `main.py` 的 `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖父级解析） |
-| 1.4 | 顶层命令面**已登记**（74 个独立命令，77 个名字含别名） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 74；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
-| 1.5 | 二级子命令面**已登记**（298 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 407；`undocumented_options(SPECS) == 0` |
-| 1.6 | 三级子命令面**已登记**（35 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
-| 1.16 | 上述 407 条里**有真实现**的比例（当前 **46 / 407**：approvals 9 / status…config 25 / model·fallback·auth·moa·login 等 12） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布（46 done / 2 partial / 359 todo）；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.4 | 顶层命令面**已登记**（**75** 个：Hermes 的 74 个 + Orbit 自有 `session-search`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 75；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
+| 1.5 | 二级子命令面**已登记**（**301** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 411；`undocumented_options(SPECS) == 0` |
+| 1.6 | 三级子命令面**已登记**（**35** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
+| 1.16 | 上述 411 条里**有真实现**的比例（当前 **82 / 411**，另有 3 条 `partial`、326 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.17 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
 | 1.7 | 全局运行 flags 完整（23 个：`-z` / `-m` / `--provider` / `-t` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | ⬜ | — |
 | 1.7 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ⬜ | — |
 | 1.8 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ⬜ | — |
@@ -112,7 +113,7 @@
 | 6.1 | toolset 定义 | 【实证】调研 02；【推断】具体成员（PYZ 内） | W4 | 🟡 | `app/toolsets.py` **13 个** toolset（core/files/shell/browser/vault/notion/github/memory/history/retrieval/skills/web/mcp），30 个工具全部归类、`unclassified` 为空；Hermes 是 32 个，**覆盖面待扩** |
 | 6.2 | 四层过滤（平台 / 场景 / profile / 委托） | 【实证】前作报告 + `hermes tools --platform` | W4 | 🟡 | 已做**平台层**（`data/tools.json` 的 per-platform 禁用集 + 收窄模式）；场景 / profile / 委托三层未做 |
 | 6.3 | `orbit tools {list,enable,disable,post-setup}` | 【实证】`_raw/sub/tools__*.txt` | W4 | ✅ | `app/cli/commands/tools.py` |
-| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ✅ | `ToolRegistry.specs(platform=...)` 走 `app/toolsets.resolve`；默认 `cli` 与改动前逐名相等（有回归用例） |
+| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ✅ | `ToolRegistry.specs(platform=...)` 走 `app/toolsets.resolve`；默认 `cli` 与改动前逐名相等（有回归用例）。**注意**：`graph/nodes.py` 调 `specs()` 时**没传 platform**，全仓没有非 `cli` 的调用点——接口成立但"多平台差异化"尚无消费方 |
 | 6.5 | 工具 schema 校验前置（dict / parameters 必须 object） | 【实证】`registry.register` raise 检查 | W4 | ⬜ | — |
 
 ## L7 Skill / curator 层（Hermes: `skills_*.py` + `bundled-skills`，21 类目 / 91 技能）
@@ -198,7 +199,7 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 11.1 | 定时任务存储 + 调度器 | 【实证】`cron/executions.db`；`tools/cronjob_tools.py` | W9 | ✅ | `app/cron.py` 的 `CronStore`（`jobs.json` + `runs.jsonl`，原子写）/ `CronSpec`（`30m` / `every 2h` / 5 字段 cron，自实现不引 croniter）/ `CronRunner.tick`；`tests/test_cron.py` |
+| 11.1 | 定时任务存储 + 调度器 | 【实证】`cron/executions.db`；`tools/cronjob_tools.py` | W9 | ✅ | `app/cron.py` 的 `CronStore`（`jobs.json` + `runs.jsonl`，原子写）/ `CronSpec`（`30m` / `every 2h` / 5 字段 cron，自实现不引 croniter）/ `CronRunner.tick`；`tests/test_cron.py`。**注意**：没有常驻 ticker——靠外部调度器（Windows 计划任务 / systemd timer）调 `orbit cron tick`，这一点在模块 docstring 里写明了 |
 | 11.2 | `orbit cron {create,edit,list,remove,run,runs,tick,status,pause,resume,doctor,incidents,notepad}` | 【实证】`_raw/sub/cron__*.txt`（13 条） | W9 | ✅ | `app/cli/commands/cron.py` |
 | 11.3 | 投递（`--deliver` 到平台） | 【实证】`cron create --deliver` | W9 | 🟡 | 已支持 `none` 与 `file:<path>`；**平台投递未实现**（属 W9 平台层），`create` 时明确报错而不是静默接受 |
 | 11.4 | `--skill` / `--script` / `--no-agent` / `--monitor-script` / `--continuity` 语义 | 【实证】`cron create --help` | W9 | ✅ | `app/cron.py` 的 `Job` 字段 + `--no-agent` 时强制 `--script` 的校验 |
@@ -255,8 +256,7 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 15.1 | 结构化日志 + `orbit logs` 过滤（`-n` / `-f` / `--level` / `--session` / `--since` / `--component` / `list`） | 【实证】`cmd-76-logs.txt` 六选项全对齐 | W1 | ✅ | `core.py` `run_logs` / `_filter_lines` / `_follow`（轮转仍未做，见 15.7） |
-| 15.7 | 日志轮转（按大小/时间滚动） | 【推断】Hermes `hermes_logging` 模块（PYZ 内） | W12 | ⬜ | — |
+| 15.1 | 结构化日志 + `orbit logs` 过滤（`-n` / `-f` / `--level` / `--session` / `--since` / `--component` / `list`） | 【实证】`cmd-76-logs.txt` 六选项全对齐 | W1 | ✅ | `app/logging_setup.py`（行格式 `时间 级别 [task=…] 模块: msg`，主日志 5MB×5 轮转、`errors.log` 只收 WARNING+、`task_context` 用 contextvar 防 asyncio 串味，已接 `main.py` lifespan）+ `core.py` `run_logs` / `_filter_lines` / `_follow`；`tests/test_logging_setup.py` 7 条 |
 | 15.2 | `orbit insights`（用量分析：token 三路归因 / 工具排行 / 站点分布 / 活动趋势） | 【实证】`cmd-59-insights.txt` | W12 | ✅ | `app/cli/commands/observability.py` `run_insights`；`tests/test_observability.py`。**口径分歧已标注**：`--source` 在 Hermes 是平台维度，Orbit 单用户本地部署改为"任务主要操作过哪个站点" |
 | 15.3 | `orbit monitoring status`（health & diagnostics，**content-free**） | 【实证】`cmd-60-monitoring.txt` | W12 | ✅ | `observability.py` `run_monitoring_status`；`tests/test_observability.py::test_monitoring_status_is_content_free` 断言导出物里不含消息/结果正文 |
 | 15.4 | shared_metrics schema v1 / v2 | 【实证】`hermes_cli/observability/schemas/*.json` | W12 | ⬜ | — |
