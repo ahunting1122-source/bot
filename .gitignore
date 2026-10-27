@@ -30,3 +30,8 @@ interview-jianying-ai-agent-round1.html
 .dsh/
 
 pytest-of-*/
+
+# 并行子agent / tempfile 留下的空临时文件（Windows 上不总被清理）。
+# 用 `backend/tmp*` 与 `backend/_*` 两条兜住：调试脚本与临时文件都不该进版本库。
+backend/tmp*
+backend/_*
