@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 import unicodedata
 from collections.abc import Coroutine, Iterable, Sequence
 from pathlib import Path
@@ -32,6 +33,11 @@ class CliError(RuntimeError):
     def __init__(self, message: str, code: int = 1) -> None:
         super().__init__(message)
         self.code = code
+
+
+async def _drain(loop: asyncio.AbstractEventLoop) -> None:
+    """在循环自己的线程上等异步生成器收尾。``close`` 用。"""
+    await loop.shutdown_asyncgens()
 
 
 def display_width(text: str) -> int:
@@ -78,6 +84,8 @@ class Context:
         self.json = json_output
         self.quiet = quiet
         self._loop: asyncio.AbstractEventLoop | None = None
+        #: 跑 ``_loop`` 的那条专用线程。``close`` 要用它 join，所以必须一开始就有值。
+        self._thread: threading.Thread | None = None
         self._store: Any = None
         self._payload: dict[str, Any] | None = None
 
@@ -142,15 +150,47 @@ class Context:
         return path
 
     # ── 异步桥 ──────────────────────────────────────────────────────────────
+    #
+    # 为什么**总是**用一条独立线程上的独立事件循环，而不是 `asyncio.run`：
+    #
+    # 1. `asyncio.run` 每次新建并关闭循环，而 aiosqlite 的连接池绑在创建它的循环上——
+    #    一条命令里第二次查询就会炸（"Event loop is closed"）。
+    # 2. 更隐蔽的一种：`main()` 被**异步宿主**调用时（测试、将来可能的 API 端点），
+    #    当前线程里已经有运行中的循环，`run_until_complete` 会直接抛
+    #    "Cannot run the event loop while another loop is running"，而且协程对象
+    #    已经创建却永远没被 await，只留一条 RuntimeWarning，排查成本极高。
+    #
+    # 固定用"一条专用线程 + 一个常驻循环"就把这两种情况一起解决：调用方在同步还是
+    # 异步上下文里都一样，Store 的连接也始终活在同一个循环上。
+    def _ensure_loop_thread(self) -> None:
+        if self._loop is not None:
+            return
+        # 先落到局部变量再用：闭包里 `self._loop` 的类型是 Optional，
+        # mypy 不会因为上面判过空就认；而且局部变量能让"这条线程跑的就是这个循环"显式可见。
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+        ready = threading.Event()
+
+        def runner() -> None:
+            asyncio.set_event_loop(loop)
+            loop.call_soon(ready.set)
+            loop.run_forever()
+
+        self._thread = threading.Thread(target=runner, daemon=True, name="orbit-cli-loop")
+        self._thread.start()
+        if not ready.wait(5):
+            raise CliError("无法启动 CLI 事件循环线程")
+
     def loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
+        self._ensure_loop_thread()
+        assert self._loop is not None  # _ensure_loop_thread 保证
         return self._loop
 
     def run(self, coro: Coroutine[Any, Any, Any]) -> Any:
-        """在命令自己的事件循环上跑一个协程。"""
-        return self.loop().run_until_complete(coro)
+        """在专用循环线程上跑一个协程并等结果。异常原样抛回调用方。"""
+        loop = self.loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
 
     @property
     def store(self) -> Any:
@@ -162,20 +202,36 @@ class Context:
         return self._store
 
     def close(self) -> None:
-        """释放数据库连接与事件循环。``main`` 在 finally 里调用。"""
+        """释放数据库连接、停掉循环线程。``main`` 在 finally 里调用。
+
+        顺序不能反：先在有循环的情况下 dispose 引擎（否则连接池没人关），
+        再停循环、关线程。**不能在别的线程上直接 ``run_until_complete``**——
+        那个循环正跑在 CLI 线程里，直调是数据竞争。
+        """
         if self._store is not None:
             try:
                 self.run(self._store.engine.dispose())
             except Exception:  # 关闭失败不该覆盖命令本身的退出码
                 pass
             self._store = None
-        if self._loop is not None and not self._loop.is_closed():
-            try:
-                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
-            except Exception:
-                pass
-            self._loop.close()
-            self._loop = None
+        loop, thread = self._loop, self._thread
+        self._loop, self._thread = None, None
+        if loop is None:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(_drain(loop), loop).result(timeout=5)
+        except Exception:
+            pass
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            pass
+        if thread is not None:
+            thread.join(timeout=5)
+        try:
+            loop.close()
+        except Exception:
+            pass
 
     # ── 输出 ────────────────────────────────────────────────────────────────
     def out(self, *parts: str) -> None:

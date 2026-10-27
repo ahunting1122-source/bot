@@ -13,8 +13,8 @@
 ``hermes_parity`` 后面，迁移规则当场失效。
 """
 
-from app.cli.commands import approvals, core, model  # isort: split
+from app.cli.commands import approvals, core, model, observability  # isort: split
 
 from app.cli.commands import hermes_parity  # noqa: F401
 
-__all__ = ["approvals", "core", "model", "hermes_parity"]
+__all__ = ["approvals", "core", "model", "observability", "hermes_parity"]

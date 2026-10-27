@@ -24,7 +24,7 @@ from pathlib import Path
 MATRIX = Path(__file__).resolve().parents[1] / "handoff" / "hermes-parity" / "MATRIX.md"
 
 DONE, PARTIAL, TODO = "\u2705", "\U0001F7E1", "\u2b1c"
-ITEM = re.compile(r"^\| (\d+)\.(\d+) \|")
+ITEM = re.compile(r"^\| (\d+)\.(\d+[a-z]?) \|")
 #: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟡 4 · ⬜ 154"
 #: 数字前面带状态表情，所以用 `[^\d]*` 吃掉分隔符，而不是硬编码具体表情——
 #: 换表情不该让门禁失效。

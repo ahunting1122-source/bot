@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **180**。当前：✅ 20 · 🟡 6 · ⬜ 154（完成度 11.1%，截至 W3/W13 收口）
+条目合计 **181**。当前：✅ 25 · 🟡 7 · ⬜ 149（完成度 13.8%，截至 W3/W4/W13 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -17,12 +17,13 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 1.1 | 中央命令注册表 + 声明式命令面 | `hermes_cli/commands.py` 的 `CommandDef` 中央注册表 | W1 | ✅ | `backend/app/cli/spec.py:190` `Registry`；`backend/app/cli/commands/core.py` 12 条登记 |
-| 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py:96` `build_parser` |
-| 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir`） | `hermes --help` options 段 | W1 | ✅ | `main.py:47` `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖） |
-| 1.4 | 顶层命令面完整（74 个独立命令，77 个名字含别名） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ⬜ | — |
-| 1.5 | 二级子命令面完整（295 条，选项抄全） | `_raw/sub-digest.txt`；调研 01 | W2 | ⬜ | — |
-| 1.6 | 三级子命令面完整（36 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ⬜ | — |
+| 1.1 | 中央命令注册表 + 声明式命令面 | `hermes_cli/commands.py` 的 `CommandDef` 中央注册表 | W1 | ✅ | `backend/app/cli/spec.py` 的 `Registry` / `Command`；`app/cli/commands/` 各模块 `REGISTRY.add(...)` |
+| 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py` 的 `build_parser` / `_add_command` |
+| 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir` / `--no-color`） | `hermes --help` options 段 | W1 | ✅ | `main.py` 的 `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖父级解析） |
+| 1.4 | 顶层命令面**已登记**（74 个独立命令，77 个名字含别名） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 74；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
+| 1.5 | 二级子命令面**已登记**（298 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 407；`undocumented_options(SPECS) == 0` |
+| 1.6 | 三级子命令面**已登记**（35 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
+| 1.16 | 上述 407 条里**有真实现**的比例（当前 45 条：approvals 9 / status…config 25 / model·fallback·auth 等 11） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；其余 362 条 `state="todo"`，调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.7 | 全局运行 flags 完整（23 个：`-z` / `-m` / `--provider` / `-t` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | ⬜ | — |
 | 1.7 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ⬜ | — |
 | 1.8 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ⬜ | — |
@@ -46,7 +47,7 @@
 | 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | ⬜ | — |
 | 2.7 | `context_overflow` → 压缩后重试 | 【实证】bot_failure_reasons 映射 | W8 | ⬜ | — |
 | 2.8 | per-thread 中断（可打断单条线程） | 【实证】`tools/interrupt.py` | W11 | ⬜ | — |
-| 2.9 | 三层预算刹车（动作 / token / 时间） | Orbit 已有 `max_actions` / `max_seconds` | W1 | ✅ | `backend/app/config.py:113,116`；`app/graph/nodes.py` 预算节点 |
+| 2.9 | 三层预算刹车（动作 / token / 时间） | Orbit 已有 | W1 | ✅ | `app/config.py` 的 `max_actions` / `max_seconds`；`app/policies.py` 的 `DefaultBudgetPolicy`；`app/graph/nodes.py` 的 budget 节点 |
 | 2.10 | 上下文窗口自适应结果阈值（per_result=clamp(win×0.15,8k,100k)、per_turn=clamp(win×0.30,16k,200k)） | 【实证】`tools/budget_config.py` 注释 | W4 | ⬜ | — |
 
 ## L3 上下文装配层（Hermes: `agent/prompt_builder.py`）
@@ -58,7 +59,7 @@
 | 3.3 | `SOUL.md` 独立全局加载，是 prompt 第一块（不受 memory 预算约束） | 【实证】本机 `hermes-home/SOUL.md` 540B；调研 07 | W3 | ⬜ | — |
 | 3.4 | 记忆注入（冻结快照，会话内不变） | 【实证】`load_from_disk()` + `_system_prompt_snapshot`；调研 07 | W6 | ⬜ | — |
 | 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ⬜ | — |
-| 3.6 | 工具 schema 注入 + 体积可观测 | 【实证】`hermes prompt-size` | W1 | ✅ | `core.py` `run_prompt_size`（系统提示 3,417B / 工具 schema 15,177B / 27 工具） |
+| 3.6 | 工具 schema 注入 + 体积可观测 | 【实证】`hermes prompt-size` | W1 | ✅ | `core.py` `run_prompt_size`（当前：系统提示 **4,043 B** / 工具 schema **16,895 B** / **29** 个工具；数值随提示词与工具变化，**不要写死在这里**——以命令输出为准） |
 | 3.7 | 提示词版本号随事件落库 | Orbit 已有（dsh 派，非 Hermes 派） | W1 | ✅ | `backend/app/context.py:12` `PROMPT_VERSION` |
 | 3.8 | 注入扫描（不可信内容包裹） | 【实证】调研 09 `untrusted-content wrapper` | W13 | ⬜ | — |
 
@@ -98,7 +99,7 @@
 | 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ⬜ | — |
 | 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | ⬜ | — |
 | 5.14 | 内置工具数量对齐（94 个；Orbit 现 28 个） | 【实证】调研 02 口径说明 | W4 | ⬜ | — |
-| 5.15 | 19 个功能域覆盖（file/terminal/code_execution/browser/web/专项搜索/memory/skills/MCP/委派/媒体生成/视觉/TTS/kanban/cronjob/桌面窗口/协作消息/HomeAssistant/元工具） | 【实证】调研 02 §2 | W4 | 🟡 | 已有 file/terminal/browser/**web**/memory/skills/MCP/元工具 8 域；缺 code_execution、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant |
+| 5.15 | 19 个功能域覆盖（file/terminal/code_execution/browser/web/专项搜索/memory/skills/MCP/委派/媒体生成/视觉/TTS/kanban/cronjob/桌面窗口/协作消息/HomeAssistant/元工具） | 【实证】调研 02 §2 | W4 | 🟡 | 已有 **7 域**：file / terminal / browser / web / memory / skills / MCP。缺 12 域：code_execution、专项搜索、委派、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant、**元工具**（`ask_user` 是交互门不是元工具；`todo` / `clarify` / `tool_search` 均不存在，见 5.12/5.13） |
 | 5.19 | `web_search` + `web_extract`（4 家搜索 provider + URL 安全闸 + 结果缓存） | 【实证】`plugins/web/` 9 provider；`tools/url_safety.py`、`web_result_cache.py` | W4 | ✅ | `app/web.py` + `app/web_providers.py`（searxng / brave / tavily / ddgs，契约照 Hermes）；`tests/test_web.py` 41 条。已接线 `app/main.py` |
 | 5.16 | `file_operations` / `patch_parser`（结构化补丁编辑） | 【实证】`tools/patch_parser.py` | W4 | ⬜ | — |
 | 5.17 | `code_execution` + `code_kernel`（持久内核） | 【实证】`tools/code_execution_tool.py` | W4 | ⬜ | — |
@@ -245,7 +246,7 @@
 | 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | — |
 | 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | ⬜ | — |
 | 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ⬜ | — |
-| 14.7 | 系统 keyring 存密钥（不落配置文件） | Orbit 已有 | W1 | ✅ | `backend/app/connectors.py:60` `service = f"orbit:{data_dir}"`；CLI `context.hydrate()` |
+| 14.7 | 系统 keyring 存密钥（不落配置文件） | Orbit 已有 | W1 | ✅ | `backend/app/connectors.py` 的 `ConnectorConfig.service`；CLI 侧 `app/cli/context.py` 的 `Context.hydrate` |
 | 14.8 | `path_security` / `url_safety` / `website_policy` / `threat_patterns` | 【实证】调研 02 §4 | W13 | ⬜ | — |
 | 14.9 | `orbit approvals {test,suggest,allow,list-rules,mode}`（`test` 三态退出码、`suggest` 从历史挖可加白模式且破坏类永不提议） | 【实证】`_raw/sub/approvals__*.txt` | W13 | ✅ | `app/cli/commands/approvals.py`；`tests/test_approvals.py::test_cli_*` |
 | 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ⬜ | — |
@@ -256,8 +257,8 @@
 | --- | --- | --- | --- | --- | --- |
 | 15.1 | 结构化日志 + `orbit logs` 过滤（`-n` / `-f` / `--level` / `--session` / `--since` / `--component` / `list`） | 【实证】`cmd-76-logs.txt` 六选项全对齐 | W1 | ✅ | `core.py` `run_logs` / `_filter_lines` / `_follow`（轮转仍未做，见 15.7） |
 | 15.7 | 日志轮转（按大小/时间滚动） | 【推断】Hermes `hermes_logging` 模块（PYZ 内） | W12 | ⬜ | — |
-| 15.2 | `orbit insights`（用量分析，`--days` / `--source`） | 【实证】`cmd-59-insights.txt` | W12 | ⬜ | — |
-| 15.3 | `orbit monitoring`（health & diagnostics） | 【实证】`cmd-60` | W12 | ⬜ | — |
+| 15.2 | `orbit insights`（用量分析：token 三路归因 / 工具排行 / 站点分布 / 活动趋势） | 【实证】`cmd-59-insights.txt` | W12 | ✅ | `app/cli/commands/observability.py` `run_insights`；`tests/test_observability.py`。**口径分歧已标注**：`--source` 在 Hermes 是平台维度，Orbit 单用户本地部署改为"任务主要操作过哪个站点" |
+| 15.3 | `orbit monitoring status`（health & diagnostics，**content-free**） | 【实证】`cmd-60-monitoring.txt` | W12 | ✅ | `observability.py` `run_monitoring_status`；`tests/test_observability.py::test_monitoring_status_is_content_free` 断言导出物里不含消息/结果正文 |
 | 15.4 | shared_metrics schema v1 / v2 | 【实证】`hermes_cli/observability/schemas/*.json` | W12 | ⬜ | — |
 | 15.5 | observability exporter 插件（langfuse / nemo_relay） | 【实证】`plugins/observability/` | W12 | ⬜ | — |
 | 15.6 | `orbit dump`（排障快照） | 【实证】`cmd-36-dump.txt` | W1 | ✅ | `core.py` `run_dump`（密钥打码） |
