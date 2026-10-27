@@ -1,0 +1,26 @@
+=== hermes.shared_metrics.v1.schema.json
+ title: Hermes Shared Metrics Package v1 | $id: urn:hermes-agent:schema:shared-metrics:v1
+ required: ['schema_version', 'package_id', 'install_id', 'period_start', 'period_end', 'generated_at', 'resource', 'metrics']
+ resource.properties: ['hermes_version']
+ metric item required: None
+ metric item properties: []
+ $defs: ['uuid', 'model_call_counter', 'task_started_counter', 'task_finished_counter', 'execution_surface', 'task_entrypoint', 'duration_bucket', 'count_bucket']
+   def uuid: props=[] required=None
+   def model_call_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def task_started_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def task_finished_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def execution_surface: props=[] required=None
+   def task_entrypoint: props=[] required=None
+=== hermes.shared_metrics.v2.schema.json
+ title: Hermes Shared Metrics Package v2 | $id: urn:hermes-agent:schema:shared-metrics:v2
+ required: ['schema_version', 'package_id', 'install_id', 'period_start', 'period_end', 'generated_at', 'resource', 'metrics']
+ resource.properties: ['architecture', 'hermes_version', 'install_method', 'os_family']
+ metric item required: None
+ metric item properties: []
+ $defs: ['client_active_counter', 'uuid', 'model_call_counter', 'model_route_counter', 'task_started_counter', 'task_finished_counter', 'execution_surface', 'task_entrypoint', 'duration_bucket', 'count_bucket', 'tool_latency_bucket', 'tool_retry_bucket', 'tool_call_counter', 'tool_approval_counter', 'skill_lifecycle_counter', 'skill_load_counter', 'skill_provenance']
+   def client_active_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def uuid: props=[] required=None
+   def model_call_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def model_route_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def task_started_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']
+   def task_finished_counter: props=['name', 'type', 'dimensions', 'value'] required=['name', 'type', 'dimensions', 'value']

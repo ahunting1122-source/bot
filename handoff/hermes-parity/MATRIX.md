@@ -6,7 +6,8 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **132**。当前：✅ 12 · 🟡 1 · ⬜ 119（截至 W1 收口）
+条目合计 **133**。当前：✅ 14 · 🟡 0 · ⬜ 119（截至 W1 收口；计数由人工维护，
+**以 `PROGRESS.md` 的抽查结论为准**——文档说完成但代码查无实据的，一律不计分）
 
 ---
 
@@ -75,7 +76,7 @@
 | 4.10 | 三级能力元数据（手工覆盖 → models_dev cache → 出厂 snapshot） | 【实证】调研 06 §5 | W3 | ⬜ | — |
 | 4.11 | MoA（Mixture of Agents：N reference + 1 aggregator） | 【实证】`cmd-03-moa.txt` | W3 | ⬜ | — |
 | 4.12 | TTS 11 家 / STT 8 家 + command provider | 【实证】调研 06 §4 | W3 | ⬜ | — |
-| 4.13 | `config` 配置树（43 个顶层键） | 【实证】`hermes config get <key>` 实测；调研 06 §1 | W1 | 🟡 | `core.py` `_config_rows` 覆盖 21 个常用键，未覆盖 43 键全集 |
+| 4.13 | 配置树可完整导出（`orbit config show` 给嵌套全树 + `config check` 查缺失/过期） | 【实证】`hermes config show/check/migrate` | W1 | ✅ | `core.py` `_config_tree` / `config_check` / `config_migrate` |
 
 ## L5 工具层（Hermes: `_internal/tools/`，147 模块 / 94 内置工具 / 19 功能域）
 
@@ -250,7 +251,8 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 15.1 | 结构化日志 + 轮转 + `orbit logs` 过滤 | 【实证】`cmd-76-logs.txt` | W1 | 🟡 | `core.py` `run_logs`（列表 + tail，无级别过滤/轮转） |
+| 15.1 | 结构化日志 + `orbit logs` 过滤（`-n` / `-f` / `--level` / `--session` / `--since` / `--component` / `list`） | 【实证】`cmd-76-logs.txt` 六选项全对齐 | W1 | ✅ | `core.py` `run_logs` / `_filter_lines` / `_follow`（轮转仍未做，见 15.7） |
+| 15.7 | 日志轮转（按大小/时间滚动） | 【推断】Hermes `hermes_logging` 模块（PYZ 内） | W12 | ⬜ | — |
 | 15.2 | `orbit insights`（用量分析，`--days` / `--source`） | 【实证】`cmd-59-insights.txt` | W12 | ⬜ | — |
 | 15.3 | `orbit monitoring`（health & diagnostics） | 【实证】`cmd-60` | W12 | ⬜ | — |
 | 15.4 | shared_metrics schema v1 / v2 | 【实证】`hermes_cli/observability/schemas/*.json` | W12 | ⬜ | — |
