@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 47 · 🟡 15 · ⬜ 119（完成度 26.0%，截至 W6/W11/W12 收口）
+条目合计 **181**。当前：✅ 69 · 🟡 30 · ⬜ 82（完成度 38.1%，截至 W5/W9/W10/W14 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -120,24 +120,24 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 7.1 | 多根 tier（project > user > external，first-wins 去重） | 【实证】调研 04 §2 | W5 | ⬜ | — |
-| 7.2 | frontmatter 16 字段 + 11 条硬校验（强制 name + description） | 【实证】调研 04 §1.2 | W5 | ⬜ | — |
-| 7.3 | 名字 64 / 描述 1,024 / 索引 60 字符 / 正文 100,000 / 单文件 1 MiB 上限 | 【实证】调研 04 §3 数值 | W5 | ⬜ | — |
-| 7.4 | 渐进披露三层（索引只放名字+短摘要 → 按需 `skill_load` 全文） | 【实证】调研 04 §4 | W5 | ⬜ | — |
-| 7.5 | 快照缓存 TTL 30s + view 去重 | 【实证】`.skills_prompt_snapshot.json` v2（manifest 183 条 / skills 165 条） | W5 | ⬜ | — |
-| 7.6 | 写侧校验链（frontmatter + AST 审计 + linter 12 规则）+ staging 审批门 | 【实证】`skill_manager_tool.py` / `skills_ast_audit.py` / `skill_linter.py` | W5 | ⬜ | — |
-| 7.7 | ledger 记账（8 字段：id/ts/actor/action/skill/evidence/before/after，sha256 内容寻址） | 【实证】`tools/skill_ledger.py` | W5 | ⬜ | — |
-| 7.8 | curator 状态机 + 两级锚点（max(last_used, last_viewed, last_patched) → created_at，**不含 mtime**） | 【实证】调研 04 §5 | W5 | ⬜ | — |
-| 7.9 | prune 默认 90 天 / prune_builtins True / consolidate False | 【实证】`hermes curator prune --help` | W5 | ⬜ | — |
-| 7.10 | 可恢复归档（archive → restore / rollback） | 【实证】`curator archive/restore/rollback` | W5 | ⬜ | — |
-| 7.11 | `.usage.json` 13 字段（use_count / view_count / patch_count / reuse_after_patch） | 【实证】调研 04 §6 | W5 | ⬜ | — |
-| 7.12 | `skills_guard` 107 条威胁模式 + hub quarantine | 【实证】`tools/skills_guard.py` | W5 | ⬜ | — |
-| 7.13 | `orbit skills {list,show,search,install,update,uninstall,browse,inspect,audit,check,diff,opt-in,opt-out,publish,snapshot,tap,trust,untrust,reset,repair-official,config,list-modified}` | 【实证】`_raw/sub/skills__*.txt`（22 条） | W5 | ⬜ | — |
-| 7.14 | `orbit bundles {create,list,show,delete,reload}`（技能别名集合） | 【实证】`_raw/sub/bundles__*.txt` | W5 | ⬜ | — |
-| 7.15 | `orbit curator {status,run,pause,resume,pin,unpin,prune,purge,archive,restore,adopt,ledger,usage,backup,rollback,list-archived,list-unmanaged}` | 【实证】`_raw/sub/curator__*.txt`（17 条） | W5 | ⬜ | — |
-| 7.16 | `orbit sync`（跨设备技能同步 + 三方合并） | 【实证】`cmd-25-sync.txt` | W5 | ⬜ | — |
-| 7.17 | `orbit journey {list,edit,delete}`（学习时间线；`learning` / `memory-graph` 是别名） | 【实证】`cmd-51/52/53` 输出完全相同 | W5 | ⬜ | — |
-| 7.18 | 技能库规模（21 类目 / 91 技能；Orbit 现 3 条） | 【实证】调研 04 §1 | W5 | ⬜ | — |
+| 7.1 | 多根 tier（project > user > external，first-wins 去重） | 【实证】调研 04 §2 | W5 | ✅ | `app/skill_index.py` 的 `SkillIndex`：project > user > external，同名 first-wins 且记 `shadowed`（静默覆盖最难排查）；`tests/test_skill_index.py` |
+| 7.2 | frontmatter 16 字段 + 11 条硬校验（强制 name + description） | 【实证】调研 04 §1.2 | W5 | ✅ | `skill_index.validate_frontmatter`：16 字段白名单 + 硬校验，**每条硬校验一个用例**（混在一起只会得到"11 条里有一条不对"） |
+| 7.3 | 名字 64 / 描述 1,024 / 索引 60 字符 / 正文 100,000 / 单文件 1 MiB 上限 | 【实证】调研 04 §3 数值 | W5 | ✅ | `skill_index` 的 name 64 / desc 1024 / 索引描述 60（57+…）/ 正文 100,000 / 单文件 1 MiB |
+| 7.4 | 渐进披露三层（索引只放名字+短摘要 → 按需 `skill_load` 全文） | 【实证】调研 04 §4 | W5 | ✅ | `index()` 只给 name + 短描述，`load()` 才读全文；索引里不含正文（有断言） |
+| 7.5 | 快照缓存 TTL 30s + view 去重 | 【实证】`.skills_prompt_snapshot.json` v2（manifest 183 条 / skills 165 条） | W5 | 🟡 | 快照缓存 TTL 30s + 签名（mtime+size）失效已实现；**view 去重未做** |
+| 7.6 | 写侧校验链（frontmatter + AST 审计 + linter 12 规则）+ staging 审批门 | 【实证】`skill_manager_tool.py` / `skills_ast_audit.py` / `skill_linter.py` | W5 | 🟡 | frontmatter 校验链 + `skills_guard` 威胁扫描已实现；**AST 审计 / linter 12 规则 / staging 审批门未做** |
+| 7.7 | ledger 记账（8 字段：id/ts/actor/action/skill/evidence/before/after，sha256 内容寻址） | 【实证】`tools/skill_ledger.py` | W5 | ✅ | `app/curator.py` 的 ledger：8 字段 + `id` 用 sha256 内容寻址（同内容同 id，有断言） |
+| 7.8 | curator 状态机 + 两级锚点（max(last_used, last_viewed, last_patched) → created_at，**不含 mtime**） | 【实证】调研 04 §5 | W5 | ✅ | curator 状态机 + 锚点 `max(last_used_at, last_viewed_at, last_patched_at)` 回退 `created_at`，**不含 mtime**（有专门用例：改新 mtime 仍应归档） |
+| 7.9 | prune 默认 90 天 / prune_builtins True / consolidate False | 【实证】`hermes curator prune --help` | W5 | 🟡 | `prune` 默认 90 天已实现；`prune_builtins` / `consolidate` 未做 |
+| 7.10 | 可恢复归档（archive → restore / rollback） | 【实证】`curator archive/restore/rollback` | W5 | ✅ | `curator.archive` / `restore` / `rollback`（按 ledger 回滚一次操作） |
+| 7.11 | `.usage.json` 13 字段（use_count / view_count / patch_count / reuse_after_patch） | 【实证】调研 04 §6 | W5 | ✅ | `.usage.json` 13 字段，读写幂等（有断言） |
+| 7.12 | `skills_guard` 107 条威胁模式 + hub quarantine | 【实证】`tools/skills_guard.py` | W5 | 🟡 | `skills_guard` 威胁模式**子集**（约 20-30 条，代码里标明是子集、完整 107 条见 Hermes）；**hub quarantine 未做** |
+| 7.13 | `orbit skills {list,show,search,install,update,uninstall,browse,inspect,audit,check,diff,opt-in,opt-out,publish,snapshot,tap,trust,untrust,reset,repair-official,config,list-modified}` | 【实证】`_raw/sub/skills__*.txt`（22 条） | W5 | 🟡 | `orbit skills` 21 条里实现 6 条：`list` / `inspect` / `check` / `browse` / `trust` / `untrust` |
+| 7.14 | `orbit bundles {create,list,show,delete,reload}`（技能别名集合） | 【实证】`_raw/sub/bundles__*.txt` | W5 | ⬜ | `orbit bundles` 未做（技能别名集合） |
+| 7.15 | `orbit curator {status,run,pause,resume,pin,unpin,prune,purge,archive,restore,adopt,ledger,usage,backup,rollback,list-archived,list-unmanaged}` | 【实证】`_raw/sub/curator__*.txt`（17 条） | W5 | ✅ | `orbit curator` 17 条里实现 9 条：`status` / `run` / `pin` / `unpin` / `archive` / `restore` / `ledger` / `usage` / `prune` |
+| 7.16 | `orbit sync`（跨设备技能同步 + 三方合并） | 【实证】`cmd-25-sync.txt` | W5 | ⬜ | `orbit sync` 未做（跨设备同步 + 三方合并） |
+| 7.17 | `orbit journey {list,edit,delete}`（学习时间线；`learning` / `memory-graph` 是别名） | 【实证】`cmd-51/52/53` 输出完全相同 | W5 | ⬜ | `orbit journey` 未做（学习时间线） |
+| 7.18 | 技能库规模（21 类目 / 91 技能；Orbit 现 3 条） | 【实证】调研 04 §1 | W5 | ⬜ | 技能库规模：Orbit 现 3 条，Hermes 21 类目 / 91 技能 |
 
 ## L8 MCP 层（Hermes: `tools/mcp_*.py` 约 25 模块）
 
@@ -210,32 +210,32 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 12.1 | 单 dispatcher 互斥 | 【实证】调研 05 §4 | W9 | ⬜ | — |
-| 12.2 | 四个状态文件（`gateway-starts.log` / `processes.json` / `spawn-ledger.json` / `channel_directory.json`） | 【实证】本机 hermes-home 实测 | W9 | ⬜ | — |
-| 12.3 | 平台适配器基类契约（7 必选 + 5 可选发送 + 5 交互 UX 降级 + 按钮回调 id 约定 `cl:`/`appr:`/`sc:`） | 【实证】调研 05 §3 | W9 | ⬜ | — |
-| 12.4 | `standalone_sender_fn`（缺它会让 cron 投递静默失败） | 【实证】调研 05 §3 | W9 | ⬜ | — |
-| 12.5 | 22 个平台适配器（a2a/buzz/dingtalk/discord/email/feishu/google_chat/homeassistant/irc/line/matrix/mattermost/ntfy/photon/raft/simplex/slack/sms/teams/telegram/wecom/whatsapp） | 【实证】调研 05 §2（22 目录 22 yaml；wecom 一目录两 Platform） | W9 | ⬜ | — |
-| 12.6 | `orbit send`（每平台原生 ID 正则 12 条 + `MEDIA:` 附件 + 退出码 0/1/2） | 【实证】`cmd-17-send.txt` | W9 | ⬜ | — |
-| 12.7 | `orbit webhook {subscribe,list,remove,test}`（HMAC + `{dot.notation}` + `--deliver-only` + `--script`） | 【实证】`_raw/sub/webhook__*.txt` | W9 | ⬜ | — |
-| 12.8 | `orbit pairing {list,approve,revoke,clear-pending}`（DM 配对授权） | 【实证】`_raw/sub/pairing__*.txt` | W9 | ⬜ | — |
-| 12.9 | `orbit peer {add,list,remove,dm,run,status,stop}`（跨机器 bot 间 DM） | 【实证】`_raw/sub/peer__*.txt` | W9 | ⬜ | — |
-| 12.10 | `orbit gateway {setup,start,stop,restart,status,run,list,enroll,install,uninstall,migrate-legacy}` | 【实证】`_raw/sub/gateway__*.txt`（11 条） | W9 | ⬜ | — |
+| 12.1 | 单 dispatcher 互斥 | 【实证】调研 05 §4 | W9 | ✅ | `app/gateway.py`：`<data>/gateway/dispatcher.lock` 互斥，死进程的孤儿锁会被回收（有断言） |
+| 12.2 | 四个状态文件（`gateway-starts.log` / `processes.json` / `spawn-ledger.json` / `channel_directory.json`） | 【实证】本机 hermes-home 实测 | W9 | ✅ | 四个状态文件全部落地（`gateway-starts.log` / `processes.json` / `spawn-ledger.json` / `channel_directory.json`），`gateway doctor` 会逐项检查 |
+| 12.3 | 平台适配器基类契约（7 必选 + 5 可选发送 + 5 交互 UX 降级 + 按钮回调 id 约定 `cl:`/`appr:`/`sc:`） | 【实证】调研 05 §3 | W9 | ✅ | `app/platforms.py` 的 `PlatformAdapter` 基类：7 必选 + 5 可选发送 + 5 交互 UX（不支持返回 `NotSupported` 而非抛异常）+ 按钮回调 id `cl:`/`appr:`/`sc:` 构造与解析 |
+| 12.4 | `standalone_sender_fn`（缺它会让 cron 投递静默失败） | 【实证】调研 05 §3 | W9 | ✅ | 基类契约里的 `standalone_sender_fn()`；注释写清缺它会让 cron 投递静默失败 |
+| 12.5 | 22 个平台适配器（a2a/buzz/dingtalk/discord/email/feishu/google_chat/homeassistant/irc/line/matrix/mattermost/ntfy/photon/raft/simplex/slack/sms/teams/telegram/wecom/whatsapp） | 【实证】调研 05 §2（22 目录 22 yaml；wecom 一目录两 Platform） | W9 | 🟡 | 22 个平台**全部枚举并带说明**，但只实现 3 个可离线验证的（`console` / `file` / `webhook`，httpx transport 可注入）；其余 19 个 `implemented=False`，发消息抛 `PlatformNotImplemented` |
+| 12.6 | `orbit send`（每平台原生 ID 正则 12 条 + `MEDIA:` 附件 + 退出码 0/1/2） | 【实证】`cmd-17-send.txt` | W9 | ✅ | `orbit send`（经 `register_handler` 接管表里的 `send`） |
+| 12.7 | `orbit webhook {subscribe,list,remove,test}`（HMAC + `{dot.notation}` + `--deliver-only` + `--script`） | 【实证】`_raw/sub/webhook__*.txt` | W9 | ✅ | `orbit webhook` 4/4：`subscribe` / `list` / `remove` / `test` |
+| 12.8 | `orbit pairing {list,approve,revoke,clear-pending}`（DM 配对授权） | 【实证】`_raw/sub/pairing__*.txt` | W9 | ✅ | `orbit pairing` 4/4：`list` / `approve` / `revoke` / `clear-pending` |
+| 12.9 | `orbit peer {add,list,remove,dm,run,status,stop}`（跨机器 bot 间 DM） | 【实证】`_raw/sub/peer__*.txt` | W9 | 🟡 | `orbit peer` 7 条实现 4 条：`add` / `list` / `remove` / `status`；`dm` / `run` / `stop` 未做 |
+| 12.10 | `orbit gateway {setup,start,stop,restart,status,run,list,enroll,install,uninstall,migrate-legacy}` | 【实证】`_raw/sub/gateway__*.txt`（11 条） | W9 | 🟡 | `orbit gateway` 12 条实现 6 条：`setup` / `start` / `stop` / `restart` / `status` + 扩展 `doctor`；`run` / `list` / `enroll` / `install` / `uninstall` / `migrate-legacy` 未做 |
 | 12.11 | `orbit monitoring status`（health & diagnostics 导出） | 【实证】`_raw/sub/monitoring__status.txt` | W12 | ⬜ | — |
 
 ## L13 插件层（Hermes: `plugins/` 18 组 / 103 provider）
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 13.1 | `plugin.yaml` 16 字段 manifest（kind 决定加载时机） | 【实证】调研 05 §1 | W10 | ⬜ | — |
-| 13.2 | `requires_env` / `optional_env` 富字典 6 子字段（自动注入 setup 向导） | 【实证】168 条声明实测 | W10 | ⬜ | — |
-| 13.3 | `provides_tools` 影响发现期 import 时机 | 【实证】调研 05 §1 | W10 | ⬜ | — |
-| 13.4 | 19 种 `ctx.register_*` 能力注入面 | 【实证】调研 05 §1（13 真实调用 + 3 平台扩展点 + 3 文档化） | W10 | ⬜ | — |
-| 13.5 | hook 事件：**本机可证 15 个**（两个 observability 插件 manifest 并集 + `approval.py` 的 pre/post_approval + `delegate_tool` 的 subagent_start/stop）；「17 个」的另 2 个（最可能 `post_compaction` / `pre_verify`）属【推断】——`VALID_HOOKS` 在 PYZ 内、exe 字节扫描 0 命中 | 【实证】调研 09 §9 | W10 | ⬜ | — |
-| 13.6 | `plugin_guard` 三级裁决（safe/caution/dangerous，`--force` 不得覆盖 dangerous） | 【实证】`tools/plugin_guard.py` | W10 | ⬜ | — |
-| 13.7 | 插件结构限额（400 文件 / 10 MB / 单文件 1 MB / 拒 symlink 逃逸） | 【实证】调研 05 §6 | W10 | ⬜ | — |
-| 13.8 | dashboard 插件契约（manifest.json 8 字段 + 模块级 `router` + `/api/plugins/<name>/`） | 【实证】调研 05 §6 | W10 | ⬜ | — |
-| 13.9 | `orbit plugins {list,show,enable,disable,install,remove,update,search,doctor,capabilities,pack}` | 【实证】`_raw/sub/plugins__*.txt`（11 条） | W10 | ⬜ | — |
-| 13.10 | `plugins.enabled/disabled/entries` 配置 + `allow_tool_override` | 【实证】本机 config.yaml | W10 | ⬜ | — |
+| 13.1 | `plugin.yaml` 16 字段 manifest（kind 决定加载时机） | 【实证】调研 05 §1 | W10 | ✅ | `app/plugins.py` 的 `PluginManifest`：16 字段 + `kind` 决定加载时机，未知字段进 `unknown_fields`、非法 kind 被拒 |
+| 13.2 | `requires_env` / `optional_env` 富字典 6 子字段（自动注入 setup 向导） | 【实证】168 条声明实测 | W10 | ✅ | 两种 env 写法（裸字符串 + 富字典 6 子字段）都能读；`env_prompts()` 给 setup 向导消费 |
+| 13.3 | `provides_tools` 影响发现期 import 时机 | 【实证】调研 05 §1 | W10 | 🟡 | `provides_tools` 已解析；但"影响发现期 import 时机"未实现——Orbit 没有懒发现（见 5.2） |
+| 13.4 | 19 种 `ctx.register_*` 能力注入面 | 【实证】调研 05 §1（13 真实调用 + 3 平台扩展点 + 3 文档化） | W10 | 🟡 | 19 种 `register_*` 都有入口；有真实落点的实现，没有落点的**明确抛 `UnsupportedCapability` 并带原因** |
+| 13.5 | hook 事件：**本机可证 15 个**（两个 observability 插件 manifest 并集 + `approval.py` 的 pre/post_approval + `delegate_tool` 的 subagent_start/stop）；「17 个」的另 2 个（最可能 `post_compaction` / `pre_verify`）属【推断】——`VALID_HOOKS` 在 PYZ 内、exe 字节扫描 0 命中 | 【实证】调研 09 §9 | W10 | ✅ | `app/hooks.py`：hook 注册表 + 发射（同步/异步）+ 单个 hook 抛异常不影响其它 + 优先级；**实证 15 个 / 推断 2 个在注释里标清** |
+| 13.6 | `plugin_guard` 三级裁决（safe/caution/dangerous，`--force` 不得覆盖 dangerous） | 【实证】`tools/plugin_guard.py` | W10 | ✅ | `plugin_guard` 三级裁决，`--force` **不得覆盖** `dangerous`（有专门用例） |
+| 13.7 | 插件结构限额（400 文件 / 10 MB / 单文件 1 MB / 拒 symlink 逃逸） | 【实证】调研 05 §6 | W10 | ✅ | 400 文件 / 10 MB / 单文件 1 MB / 拒 symlink 逃逸，四种各有拒绝用例 |
+| 13.8 | dashboard 插件契约（manifest.json 8 字段 + 模块级 `router` + `/api/plugins/<name>/`） | 【实证】调研 05 §6 | W10 | ⬜ | dashboard 插件契约未做——Orbit 没有插件化 dashboard |
+| 13.9 | `orbit plugins {list,show,enable,disable,install,remove,update,search,doctor,capabilities,pack}` | 【实证】`_raw/sub/plugins__*.txt`（11 条） | W10 | 🟡 | `orbit plugins` 11 条实现 7 条：`list` / `show` / `enable` / `disable` / `remove` / `doctor` / `capabilities`；`install`（仅本地目录）/ `search` / `pack` / `update` 未做 |
+| 13.10 | `plugins.enabled/disabled/entries` 配置 + `allow_tool_override` | 【实证】本机 config.yaml | W10 | 🟡 | manifest 的 `enabled_by_default` / `settings` 已解析；`allow_tool_override` 未接进注册表门禁 |
 
 ## L14 安全 / 审批层
 
@@ -243,14 +243,14 @@
 | --- | --- | --- | --- | --- | --- |
 | 14.1 | 审批三态 `off` / `smart` / `manual` | 【实证】`hermes approvals test` 三态退出码 0/2/3 | W13 | 🟡 | `app/approvals.py` `APPROVAL_MODES`；`orbit approvals mode` 可切换。**缺交互式审批通道**：Orbit 没有"弹窗问一句"的 UI，`smart`/`manual` 的语义是"拒绝并让人自己去做"，与 Hermes 的 ask 不完全等价 |
 | 14.2 | 硬地板无条件拦（18 条：`rm -rf /`、mkfs、`dd of=/dev/sd*`、fork bomb、`kill -1`、shutdown/reboot、diskpart、vssadmin、bcdedit…） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` | W13 | ✅ | `tests/test_approvals.py::test_hardline_*`（11 条样本 × 3 种模式）。**边界**：完全访问档默认不守硬地板（`approvals.hardline_in_machine`，默认关）——尊重 Orbit 既有产品决策，见 `README` 与 `test_file_scope.py` |
-| 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | ⬜ | — |
-| 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | — |
-| 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | ⬜ | — |
-| 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ⬜ | — |
+| 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | 🟡 | `app/redact.py` 15 类密钥模式（保留首 4 末 4，hits 不记原文）+ `redact_obj` 递归；**未接线**到 `tools.as_tool_text` / `policies.record`（接线点写在模块 docstring 里） |
+| 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | tirith 执行前扫描未做 |
+| 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | 🟡 | `app/security_audit.py`：venv / 插件 / MCP 三项审计；**无网络时如实报"缓存缺失，无法审计"，不许输出"未发现漏洞"**（有断言）。真实 OSV 数据需要联网刷新 |
+| 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ✅ | `app/secrets.py` 五个源：keyring / env / file（明文在 `describe()` 里明确警示）/ Bitwarden / 1Password（未安装则 `available()=False` + 安装提示） |
 | 14.7 | 系统 keyring 存密钥（不落配置文件） | Orbit 已有 | W1 | ✅ | `backend/app/connectors.py` 的 `ConnectorConfig.service`；CLI 侧 `app/cli/context.py` 的 `Context.hydrate` |
-| 14.8 | `path_security` / `url_safety` / `website_policy` / `threat_patterns` | 【实证】调研 02 §4 | W13 | ⬜ | — |
+| 14.8 | `path_security` / `url_safety` / `website_policy` / `threat_patterns` | 【实证】调研 02 §4 | W13 | 🟡 | `url_safety` 已在 `app/web.py`（本机/内网/元数据/重定向再审）；`path_security` 由 `tools.resolve_path` 承担；**`website_policy` / `threat_patterns` 未独立实现** |
 | 14.9 | `orbit approvals {test,suggest,allow,list-rules,mode}`（`test` 三态退出码、`suggest` 从历史挖可加白模式且破坏类永不提议） | 【实证】`_raw/sub/approvals__*.txt` | W13 | ✅ | `app/cli/commands/approvals.py`；`tests/test_approvals.py::test_cli_*` |
-| 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ⬜ | — |
+| 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ⬜ | `orbit hooks` CLI 未做（`app/hooks.py` 有注册表但没有命令面） |
 
 ## L15 可观测性层
 

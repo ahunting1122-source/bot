@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **411**：已实现 83、部分 3、待实现 325
+命令条目合计 **417**：已实现 137、部分 9、待实现 271
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -77,6 +77,21 @@
 | `checkpoints prune` | `checkpoints prune` | ops | P0 | ✅ 已实现 | 按保留期与体积上限清理检查点（需 -f） |
 | `checkpoints clear` | `checkpoints clear` | ops | P0 | ✅ 已实现 | 清空整个检查点库（需 -f） |
 | `checkpoints clear-legacy` | `checkpoints clear-legacy` | ops | P0 | ✅ 已实现 | 删除 v1 legacy 归档（Orbit 没有这类归档，无操作） |
+| `plugins` | `plugins` | ext | P0 | 🟡 部分 | 插件管理与校验 |
+| `plugins list` | `plugins list` | ext | P0 | ✅ 已实现 | 列出已发现插件 |
+| `plugins show` | `plugins show` | ext | P0 | ✅ 已实现 | 查看单个插件详情 |
+| `plugins enable` | `plugins enable` | ext | P0 | ✅ 已实现 | 启用插件 |
+| `plugins disable` | `plugins disable` | ext | P0 | ✅ 已实现 | 禁用插件（不卸载） |
+| `plugins install` | `plugins install` | ext | P0 | 🟡 部分 | 从本地目录安装插件（远程源未实现） |
+| `plugins remove` | `plugins remove` | ext | P0 | ✅ 已实现 | 移除用户安装的插件 |
+| `plugins search` | `plugins search` | ext | P0 | 🟡 部分 | 搜索插件（本地已装；社区索引需要网络） |
+| `plugins doctor` | `plugins doctor` | ext | P0 | ✅ 已实现 | 按真实运行期契约校验插件 |
+| `plugins capabilities` | `plugins capabilities` | ext | P0 | ✅ 已实现 | 查看声明能力 vs 已授予能力（19 种 register_* + 17 个 hook 事件） |
+| `plugins pack` | `plugins pack` | ext | P0 | 🟡 部分 | 插件集（orbit-pack.yaml）：export / show 可用，install 未实现 |
+| `plugins pack export` | `plugins pack export` | ext | P0 | ✅ 已实现 | 把当前安装导出成 pack YAML |
+| `plugins pack show` | `plugins pack show` | ext | P0 | ✅ 已实现 | 解析并展示一个 pack（干跑） |
+| `plugins pack install` | `plugins pack install` | ext | P0 | 🟡 部分 | 安装一个 pack（需要网络，未实现） |
+| `plugins update` | `plugins update` | ext | P0 | 🟡 部分 | 更新插件（远程 pull 未实现；本地插件就地重新扫描） |
 | `session-search` | `session-search` | core | P0 | ✅ 已实现 | 会话召回：discover / scroll / read / browse 四形态（零模型调用） |
 | `session-search discover` | `session-search discover` | core | P0 | ✅ 已实现 | 按关键词找候选消息，返回锚点（子串匹配，多词 AND） |
 | `session-search scroll` | `session-search scroll` | core | P0 | ✅ 已实现 | 围绕锚点展开 ±window 条，并补首尾书挡 |
@@ -109,6 +124,11 @@
 | `secrets onepassword remove` | `secrets onepassword remove` | core | P1 | ⬜ 待实现 | 移除环境变量映射 |
 | `secrets onepassword sync` | `secrets onepassword sync` | core | P1 | ⬜ 待实现 | 立即解析引用并报告变化 |
 | `secrets onepassword disable` | `secrets onepassword disable` | core | P1 | ⬜ 待实现 | 关闭 1Password 集成 |
+| `secrets status` | `secrets status` | core | P0 | ✅ 已实现 | 列出各密钥源的可用性与键名（绝不打印值） |
+| `secrets set` | `secrets set` | core | P0 | ✅ 已实现 | 把 stdin 里的值写进最高优先级的可用源（默认系统 keyring） |
+| `secrets get` | `secrets get` | core | P0 | ✅ 已实现 | 取一个键（默认脱敏，--reveal 才打印明文） |
+| `secrets remove` | `secrets remove` | core | P0 | ✅ 已实现 | 从所有可写源里删除一个键 |
+| `secrets sync` | `secrets sync` | core | P0 | ✅ 已实现 | 清点各源里的键（外部源取值未实现，本轮不同步） |
 | `skin` | `skin` | core | P2 | ⬜ 待实现 | 列出 / 切换 / 微调皮肤 |
 | `skin list` | `skin list` | core | P1 | ⬜ 待实现 | 列出可用皮肤 |
 | `skin use` | `skin use` | core | P1 | ⬜ 待实现 | 切换当前皮肤 |
@@ -141,18 +161,19 @@
 | `project bind-board` | `project bind-board` | core | P1 | ⬜ 待实现 | 绑定看板到项目 |
 | `gateway` | `gateway` | run | P0 | ⬜ 待实现 | 消息网关管理 |
 | `gateway run` | `gateway run` | core | P1 | ⬜ 待实现 | 前台运行网关 |
-| `gateway start` | `gateway start` | core | P1 | ⬜ 待实现 | 启动已安装的后台服务 |
-| `gateway stop` | `gateway stop` | core | P1 | ⬜ 待实现 | 停止网关服务 |
-| `gateway restart` | `gateway restart` | core | P1 | ⬜ 待实现 | 重启网关服务 |
-| `gateway status` | `gateway status` | core | P1 | ⬜ 待实现 | 查看网关状态 |
+| `gateway start` | `gateway start` | core | P1 | ✅ 已实现 | 启动已安装的后台服务 |
+| `gateway stop` | `gateway stop` | core | P1 | ✅ 已实现 | 停止网关服务 |
+| `gateway restart` | `gateway restart` | core | P1 | ✅ 已实现 | 重启网关服务 |
+| `gateway status` | `gateway status` | core | P1 | ✅ 已实现 | 查看网关状态 |
 | `gateway install` | `gateway install` | core | P1 | ⬜ 待实现 | 安装网关为后台服务 |
 | `gateway uninstall` | `gateway uninstall` | core | P1 | ⬜ 待实现 | 卸载网关服务 |
 | `gateway list` | `gateway list` | core | P1 | ⬜ 待实现 | 列出各 profile 的网关状态 |
-| `gateway setup` | `gateway setup` | core | P1 | ⬜ 待实现 | 配置消息平台 |
+| `gateway setup` | `gateway setup` | core | P1 | ✅ 已实现 | 配置消息平台 |
 | `gateway migrate-legacy` | `gateway migrate-legacy` | core | P1 | ⬜ 待实现 | 清理旧版 hermes.service 单元 |
 | `gateway enroll` | `gateway enroll` | core | P1 | ⬜ 待实现 | 向中继连接器注册本网关 |
+| `gateway doctor` | `gateway doctor` | run | P1 | ✅ 已实现 | 检查网关健康度（状态文件 / 锁 / 崩溃循环 / 适配器） |
 | `serve` | `serve` | run | P0 | ⬜ 待实现 | 启动后端服务（headless） |
-| `send` | `send` | run | P1 | ⬜ 待实现 | 向已配置平台发送消息 |
+| `send` | `send` | run | P1 | ✅ 已实现 | 向已配置平台发送消息 |
 | `pause` | `pause` | run | P1 | ⬜ 待实现 | 紧急停止：暂停 cron / 看板调度与新网关轮次 |
 | `resume` | `resume` | run | P1 | ⬜ 待实现 | 解除 `pause` 设置的紧急停止 |
 | `acp` | `acp` | run | P1 | ⬜ 待实现 | 以 ACP 服务方式运行 Agent |
@@ -255,7 +276,7 @@
 | `debug share` | `debug share` | core | P1 | ⬜ 待实现 | 上传调试报告并给出分享链接 |
 | `debug delete` | `debug delete` | core | P1 | ⬜ 待实现 | 删除已上传的 paste |
 | `security` | `security` | ops | P1 | ⬜ 待实现 | 供应链审计（OSV.dev） |
-| `security audit` | `security audit` | core | P1 | ⬜ 待实现 | 跑一次供应链审计 |
+| `security audit` | `security audit` | core | P1 | ✅ 已实现 | 跑一次供应链审计 |
 | `hooks` | `hooks` | ops | P0 | ⬜ 待实现 | 查看与管理 shell 脚本钩子 |
 | `hooks list` | `hooks list` | core | P1 | ⬜ 待实现 | 列出钩子及其匹配器 / 超时 |
 | `hooks test` | `hooks test` | core | P1 | ⬜ 待实现 | 对匹配事件触发一次合成负载 |
@@ -273,14 +294,14 @@
 | `lsp which` | `lsp which` | core | P1 | ⬜ 待实现 | 打印某服务器的二进制路径 |
 | `egress` | `egress` | ops | P1 | ⬜ 待实现 | 出口凭证注入防火墙（iron-proxy） |
 | `egress install` | `egress install` | core | P1 | ⬜ 待实现 | 下载 iron-proxy 二进制 |
-| `egress setup` | `egress setup` | core | P1 | ⬜ 待实现 | 向导：安装 + CA + 铸令牌 + 写配置 |
+| `egress setup` | `egress setup` | core | P1 | ✅ 已实现 | 向导：安装 + CA + 铸令牌 + 写配置 |
 | `egress start` | `egress start` | core | P1 | ⬜ 待实现 | 启动受管 iron-proxy |
 | `egress stop` | `egress stop` | core | P1 | ⬜ 待实现 | 停止受管 iron-proxy |
 | `egress restart` | `egress restart` | core | P1 | ⬜ 待实现 | 重启受管 iron-proxy |
 | `egress reload` | `egress reload` | core | P1 | ⬜ 待实现 | 热重载运行中守护进程的规则 |
-| `egress status` | `egress status` | core | P1 | ⬜ 待实现 | 查看代理状态与映射 |
+| `egress status` | `egress status` | core | P1 | ✅ 已实现 | 查看代理状态与映射 |
 | `egress disable` | `egress disable` | core | P1 | ⬜ 待实现 | 关闭代理集成 |
-| `egress config` | `egress config` | core | P1 | ⬜ 待实现 | 打印生成的 proxy.yaml 路径 |
+| `egress config` | `egress config` | core | P1 | ✅ 已实现 | 打印生成的 proxy.yaml 路径 |
 | `proxy` | `proxy` | ops | P1 | ⬜ 待实现 | 本地 OpenAI 兼容代理（OAuth 供应商） |
 | `proxy start` | `proxy start` | core | P1 | ⬜ 待实现 | 前台运行代理 |
 | `proxy status` | `proxy status` | core | P1 | ⬜ 待实现 | 查看哪些上游已就绪 |
@@ -301,32 +322,32 @@
 | `slack` | `slack` | platform | P1 | ⬜ 待实现 | Slack 集成辅助（manifest 生成等） |
 | `slack manifest` | `slack manifest` | core | P1 | ⬜ 待实现 | 打印或写出 Slack app manifest |
 | `webhook` | `webhook` | platform | P1 | ⬜ 待实现 | 动态 webhook 订阅管理 |
-| `webhook subscribe` | `webhook subscribe` | core | P1 | ⬜ 待实现 | 创建 webhook 订阅 |
-| `webhook list` | `webhook list` | core | P1 | ⬜ 待实现 | 列出全部动态订阅 |
-| `webhook remove` | `webhook remove` | core | P1 | ⬜ 待实现 | 删除订阅 |
-| `webhook test` | `webhook test` | core | P1 | ⬜ 待实现 | 向路由发一次测试 POST |
+| `webhook subscribe` | `webhook subscribe` | core | P1 | ✅ 已实现 | 创建 webhook 订阅 |
+| `webhook list` | `webhook list` | core | P1 | ✅ 已实现 | 列出全部动态订阅 |
+| `webhook remove` | `webhook remove` | core | P1 | ✅ 已实现 | 删除订阅 |
+| `webhook test` | `webhook test` | core | P1 | ✅ 已实现 | 向路由发一次测试 POST |
 | `pairing` | `pairing` | platform | P1 | ⬜ 待实现 | DM 配对码与用户授权 |
-| `pairing list` | `pairing list` | core | P1 | ⬜ 待实现 | 查看待批准与已批准用户 |
-| `pairing approve` | `pairing approve` | core | P1 | ⬜ 待实现 | 批准配对请求 |
-| `pairing revoke` | `pairing revoke` | core | P1 | ⬜ 待实现 | 吊销用户访问 |
-| `pairing clear-pending` | `pairing clear-pending` | core | P1 | ⬜ 待实现 | 清空全部待批准码 |
+| `pairing list` | `pairing list` | core | P1 | ✅ 已实现 | 查看待批准与已批准用户 |
+| `pairing approve` | `pairing approve` | core | P1 | ✅ 已实现 | 批准配对请求 |
+| `pairing revoke` | `pairing revoke` | core | P1 | ✅ 已实现 | 吊销用户访问 |
+| `pairing clear-pending` | `pairing clear-pending` | core | P1 | ✅ 已实现 | 清空全部待批准码 |
 | `peer` | `peer` | platform | P1 | ⬜ 待实现 | 跨机器 bot 间私信（对等网关） |
-| `peer add` | `peer add` | core | P1 | ⬜ 待实现 | 注册（或更新）对等网关 |
-| `peer list` | `peer list` | core | P1 | ⬜ 待实现 | 列出已注册对等节点 |
-| `peer remove` | `peer remove` | core | P1 | ⬜ 待实现 | 移除对等节点 |
+| `peer add` | `peer add` | core | P1 | ✅ 已实现 | 注册（或更新）对等网关 |
+| `peer list` | `peer list` | core | P1 | ✅ 已实现 | 列出已注册对等节点 |
+| `peer remove` | `peer remove` | core | P1 | ✅ 已实现 | 移除对等节点 |
 | `peer dm` | `peer dm` | core | P1 | ⬜ 待实现 | 发消息给对等节点并打印回复 |
 | `peer run` | `peer run` | core | P1 | ⬜ 待实现 | 异步发起一次长任务 |
-| `peer status` | `peer status` | core | P1 | ⬜ 待实现 | 读取异步任务状态与输出 |
+| `peer status` | `peer status` | core | P1 | ✅ 已实现 | 读取异步任务状态与输出 |
 | `peer stop` | `peer stop` | core | P1 | ⬜ 待实现 | 停止一个异步对等任务 |
 | `skills` | `skills` | ext | P0 | ⬜ 待实现 | 技能搜索 / 安装 / 配置 / 管理 |
-| `skills trust` | `skills trust` | core | P1 | ⬜ 待实现 | 信任项目以加载其仓库内技能 |
-| `skills untrust` | `skills untrust` | core | P1 | ⬜ 待实现 | 撤销项目技能信任 |
-| `skills browse` | `skills browse` | core | P1 | ⬜ 待实现 | 分页浏览全部可用技能 |
+| `skills trust` | `skills trust` | core | P1 | ✅ 已实现 | 信任项目以加载其仓库内技能 |
+| `skills untrust` | `skills untrust` | core | P1 | ✅ 已实现 | 撤销项目技能信任 |
+| `skills browse` | `skills browse` | core | P1 | ✅ 已实现 | 分页浏览全部可用技能 |
 | `skills search` | `skills search` | core | P1 | ⬜ 待实现 | 搜索技能仓库 |
 | `skills install` | `skills install` | core | P1 | ⬜ 待实现 | 安装技能 |
-| `skills inspect` | `skills inspect` | core | P1 | ⬜ 待实现 | 安装前预览技能 |
-| `skills list` | `skills list` | core | P1 | ⬜ 待实现 | 列出已安装技能 |
-| `skills check` | `skills check` | core | P1 | ⬜ 待实现 | 检查 hub 技能是否有更新 |
+| `skills inspect` | `skills inspect` | core | P1 | ✅ 已实现 | 安装前预览技能 |
+| `skills list` | `skills list` | core | P1 | ✅ 已实现 | 列出已安装技能 |
+| `skills check` | `skills check` | core | P1 | ✅ 已实现 | 检查 hub 技能是否有更新 |
 | `skills update` | `skills update` | core | P1 | ⬜ 待实现 | 更新已安装的 hub 技能 |
 | `skills audit` | `skills audit` | core | P1 | ⬜ 待实现 | 重扫已安装的 hub 技能 |
 | `skills uninstall` | `skills uninstall` | core | P1 | ⬜ 待实现 | 卸载 hub 安装的技能 |
@@ -338,8 +359,8 @@
 | `skills repair-official` | `skills repair-official` | core | P1 | ⬜ 待实现 | 回填或恢复官方可选技能 |
 | `skills publish` | `skills publish` | core | P1 | ⬜ 待实现 | 把技能发布到注册表 |
 | `skills snapshot` | `skills snapshot` | core | P1 | ⬜ 待实现 | 导出 / 导入技能配置 |
-| `skills snapshot export` | `skills snapshot export` | core | P1 | ⬜ 待实现 | 把已安装技能导出到文件 |
-| `skills snapshot import` | `skills snapshot import` | core | P1 | ⬜ 待实现 | 从文件导入并安装技能 |
+| `skills snapshot export` | `skills snapshot export` | core | P1 | ✅ 已实现 | 把已安装技能导出到文件 |
+| `skills snapshot import` | `skills snapshot import` | core | P1 | ✅ 已实现 | 从文件导入并安装技能 |
 | `skills tap` | `skills tap` | core | P1 | ⬜ 待实现 | 管理技能来源（taps） |
 | `skills tap list` | `skills tap list` | core | P1 | ⬜ 待实现 | 列出已配置的 tap |
 | `skills tap add` | `skills tap add` | core | P1 | ⬜ 待实现 | 把 GitHub 仓库加为技能源 |
@@ -351,38 +372,23 @@
 | `bundles create` | `bundles create` | core | P1 | ⬜ 待实现 | 创建技能包 |
 | `bundles delete` | `bundles delete` | core | P1 | ⬜ 待实现 | 删除技能包 |
 | `bundles reload` | `bundles reload` | core | P1 | ⬜ 待实现 | 重扫技能包目录并报告变化 |
-| `plugins` | `plugins` | ext | P0 | ⬜ 待实现 | 插件管理与校验 |
-| `plugins install` | `plugins install` | core | P1 | ⬜ 待实现 | 从 Git URL / owner/repo / 索引安装插件 |
-| `plugins search` | `plugins search` | core | P1 | ⬜ 待实现 | 搜索社区插件索引 |
-| `plugins update` | `plugins update` | core | P1 | ⬜ 待实现 | 拉取已安装插件的最新代码 |
-| `plugins remove` | `plugins remove` | core | P1 | ⬜ 待实现 | 移除插件 |
-| `plugins list` | `plugins list` | core | P1 | ⬜ 待实现 | 列出已安装插件 |
-| `plugins enable` | `plugins enable` | core | P1 | ⬜ 待实现 | 启用插件 |
-| `plugins disable` | `plugins disable` | core | P1 | ⬜ 待实现 | 禁用插件（不卸载） |
-| `plugins capabilities` | `plugins capabilities` | core | P1 | ⬜ 待实现 | 查看声明与授予的能力 |
-| `plugins doctor` | `plugins doctor` | core | P1 | ⬜ 待实现 | 按真实运行时契约校验插件 |
-| `plugins pack` | `plugins pack` | core | P1 | ⬜ 待实现 | 可分享的插件集（hermes-pack.yaml） |
-| `plugins pack install` | `plugins pack install` | core | P1 | ⬜ 待实现 | 审阅并安装一个 pack |
-| `plugins pack export` | `plugins pack export` | core | P1 | ⬜ 待实现 | 把当前安装导出成 pack YAML |
-| `plugins pack show` | `plugins pack show` | core | P1 | ⬜ 待实现 | 干跑：解析并展示 pack |
-| `plugins show` | `plugins show` | core | P1 | ⬜ 待实现 | 查看单个插件详情 |
 | `curator` | `curator` | ext | P1 | ⬜ 待实现 | 后台技能维护（curator） |
-| `curator status` | `curator status` | core | P1 | ⬜ 待实现 | 查看 curator 状态与技能统计 |
-| `curator usage` | `curator usage` | core | P1 | ⬜ 待实现 | 查看全部技能的使用遥测 |
-| `curator run` | `curator run` | core | P1 | ⬜ 待实现 | 立即触发一次 curator 复查 |
+| `curator status` | `curator status` | core | P1 | ✅ 已实现 | 查看 curator 状态与技能统计 |
+| `curator usage` | `curator usage` | core | P1 | ✅ 已实现 | 查看全部技能的使用遥测 |
+| `curator run` | `curator run` | core | P1 | ✅ 已实现 | 立即触发一次 curator 复查 |
 | `curator pause` | `curator pause` | core | P1 | ⬜ 待实现 | 暂停 curator |
 | `curator resume` | `curator resume` | core | P1 | ⬜ 待实现 | 恢复 curator |
-| `curator pin` | `curator pin` | core | P1 | ⬜ 待实现 | 固定技能（不再自动迁移） |
-| `curator unpin` | `curator unpin` | core | P1 | ⬜ 待实现 | 取消固定 |
+| `curator pin` | `curator pin` | core | P1 | ✅ 已实现 | 固定技能（不再自动迁移） |
+| `curator unpin` | `curator unpin` | core | P1 | ✅ 已实现 | 取消固定 |
 | `curator list-unmanaged` | `curator list-unmanaged` | core | P1 | ⬜ 待实现 | 列出无 provenance 的可治理技能 |
 | `curator adopt` | `curator adopt` | core | P1 | ⬜ 待实现 | 把无主技能交给 curator 治理 |
-| `curator restore` | `curator restore` | core | P1 | ⬜ 待实现 | 恢复已归档技能 |
+| `curator restore` | `curator restore` | core | P1 | ✅ 已实现 | 恢复已归档技能 |
 | `curator list-archived` | `curator list-archived` | core | P1 | ⬜ 待实现 | 列出已归档技能 |
-| `curator archive` | `curator archive` | core | P1 | ⬜ 待实现 | 手动归档技能 |
-| `curator prune` | `curator prune` | core | P1 | ⬜ 待实现 | 批量归档闲置技能 |
+| `curator archive` | `curator archive` | core | P1 | ✅ 已实现 | 手动归档技能 |
+| `curator prune` | `curator prune` | core | P1 | ✅ 已实现 | 批量归档闲置技能 |
 | `curator backup` | `curator backup` | core | P1 | ⬜ 待实现 | 对技能目录做 tar.gz 快照 |
 | `curator rollback` | `curator rollback` | core | P1 | ⬜ 待实现 | 从快照恢复技能目录 / 单条变更 |
-| `curator ledger` | `curator ledger` | core | P1 | ⬜ 待实现 | 列出逐次变更审计账本 |
+| `curator ledger` | `curator ledger` | core | P1 | ✅ 已实现 | 列出逐次变更审计账本 |
 | `curator purge` | `curator purge` | core | P1 | ⬜ 待实现 | 删除超过 TTL 的归档技能 |
 | `memory` | `memory` | ext | P0 | ⬜ 待实现 | 配置外部记忆供应商 |
 | `memory setup` | `memory setup` | core | P1 | ⬜ 待实现 | 交互选择并配置供应商 |
