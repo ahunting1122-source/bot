@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **407**：已实现 54、部分 2、待实现 351
+命令条目合计 **411**：已实现 82、部分 3、待实现 326
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -33,6 +33,19 @@
 | `config edit` | `config edit` | core | P0 | ✅ 已实现 | 用系统编辑器打开配置文件 |
 | `config check` | `config check` | core | P0 | ✅ 已实现 | 检查缺失/过期的配置项 |
 | `config migrate` | `config migrate` | core | P0 | ✅ 已实现 | 把配置结构升级到当前版本 |
+| `cron` | `cron` | run | P0 | 🟡 部分 | 定时任务管理（不常驻，由外部调度器调用 `cron tick`） |
+| `cron create` | `cron create` | run | P0 | ✅ 已实现 | 创建定时任务 |
+| `cron edit` | `cron edit` | run | P0 | ✅ 已实现 | 编辑已有定时任务 |
+| `cron list` | `cron list` | run | P0 | ✅ 已实现 | 列出定时任务 |
+| `cron remove` | `cron remove` | run | P0 | ✅ 已实现 | 删除定时任务 |
+| `cron run` | `cron run` | run | P0 | ✅ 已实现 | 把任务排到下一次 tick 执行 |
+| `cron runs` | `cron runs` | run | P0 | ✅ 已实现 | 查看持久化的执行记录 |
+| `cron tick` | `cron tick` | run | P0 | ✅ 已实现 | 执行到点任务后退出（给外部调度器调用） |
+| `cron status` | `cron status` | run | P0 | ✅ 已实现 | 查看调度器状态（暂停、到点数、流水行数） |
+| `cron pause` | `cron pause` | run | P0 | ✅ 已实现 | 暂停一个任务（job_id 给 all 则全局暂停） |
+| `cron resume` | `cron resume` | run | P0 | ✅ 已实现 | 恢复任务（job_id 给 all 则解除全局暂停） |
+| `cron doctor` | `cron doctor` | run | P0 | ✅ 已实现 | 体检定时任务（任务表 / 调度 / 流水 / 失败任务） |
+| `cron incidents` | `cron incidents` | run | P0 | ✅ 已实现 | 列出或确认 cron 失败事故 |
 | `model` | `model` | core | P0 | ✅ 已实现 | 选择默认模型与供应商（含 `--list` 列出全部 provider 与模型能力） |
 | `fallback` | `fallback` | core | P0 | ✅ 已实现 | 管理主模型失败时的回退链（触发条件：429 / 529 / 503 / 连接失败） |
 | `fallback list` | `fallback list` | core | P0 | ✅ 已实现 | 查看当前回退链 |
@@ -63,7 +76,17 @@
 | `checkpoints prune` | `checkpoints prune` | ops | P0 | ✅ 已实现 | 按保留期与体积上限清理检查点（需 -f） |
 | `checkpoints clear` | `checkpoints clear` | ops | P0 | ✅ 已实现 | 清空整个检查点库（需 -f） |
 | `checkpoints clear-legacy` | `checkpoints clear-legacy` | ops | P0 | ✅ 已实现 | 删除 v1 legacy 归档（Orbit 没有这类归档，无操作） |
+| `session-search` | `session-search` | core | P0 | ✅ 已实现 | 会话召回：discover / scroll / read / browse 四形态（零模型调用） |
+| `session-search discover` | `session-search discover` | core | P0 | ✅ 已实现 | 按关键词找候选消息，返回锚点（子串匹配，多词 AND） |
+| `session-search scroll` | `session-search scroll` | core | P0 | ✅ 已实现 | 围绕锚点展开 ±window 条，并补首尾书挡 |
+| `session-search read` | `session-search read` | core | P0 | ✅ 已实现 | 读单条消息的头 20 行 + 尾 10 行（中间标省略行数） |
+| `session-search browse` | `session-search browse` | core | P0 | ✅ 已实现 | 按时间倒序列出最近会话 |
 | `setup` | `setup` | core | P0 | ✅ 已实现 | 交互式配置向导（模型 / 权限级别 / 审批模式） |
+| `tools` | `tools` | ext | P0 | ✅ 已实现 | 按平台配置工具启停 |
+| `tools list` | `tools list` | ext | P0 | ✅ 已实现 | 列出全部工具及启停状态 |
+| `tools enable` | `tools enable` | ext | P0 | ✅ 已实现 | 启用 toolset 或 MCP 工具 |
+| `tools disable` | `tools disable` | ext | P0 | ✅ 已实现 | 禁用 toolset 或 MCP 工具 |
+| `tools post-setup` | `tools post-setup` | ext | P0 | ✅ 已实现 | 输出当前平台的启停快照（可直接贴进 data/tools.json） |
 | `portal` | `portal` | core | P1 | ⬜ 待实现 | Nous Portal 登录 / 选模型 / 工具网关 |
 | `portal login` | `portal login` | core | P1 | ⬜ 待实现 | 登录 Nous Portal 并完成设置 |
 | `portal info` | `portal info` | core | P1 | ⬜ 待实现 | 查看 Portal 鉴权与工具网关路由 |
@@ -129,20 +152,6 @@
 | `gateway migrate-legacy` | `gateway migrate-legacy` | core | P1 | ⬜ 待实现 | 清理旧版 hermes.service 单元 |
 | `gateway enroll` | `gateway enroll` | core | P1 | ⬜ 待实现 | 向中继连接器注册本网关 |
 | `serve` | `serve` | run | P0 | ⬜ 待实现 | 启动后端服务（headless） |
-| `cron` | `cron` | run | P0 | ⬜ 待实现 | 定时任务管理 |
-| `cron list` | `cron list` | core | P1 | ⬜ 待实现 | 列出定时任务 |
-| `cron create` | `cron create` | core | P1 | ⬜ 待实现 | 创建定时任务 |
-| `cron edit` | `cron edit` | core | P1 | ⬜ 待实现 | 编辑已有定时任务 |
-| `cron pause` | `cron pause` | core | P1 | ⬜ 待实现 | 暂停任务 |
-| `cron resume` | `cron resume` | core | P1 | ⬜ 待实现 | 恢复已暂停任务 |
-| `cron run` | `cron run` | core | P1 | ⬜ 待实现 | 下个 tick 运行任务 |
-| `cron remove` | `cron remove` | core | P1 | ⬜ 待实现 | 删除任务 |
-| `cron status` | `cron status` | core | P1 | ⬜ 待实现 | 查看调度器运行状态 |
-| `cron runs` | `cron runs` | core | P1 | ⬜ 待实现 | 查看持久化执行记录 |
-| `cron incidents` | `cron incidents` | core | P1 | ⬜ 待实现 | 列出 / 确认失败事件 |
-| `cron notepad` | `cron notepad` | core | P1 | ⬜ 待实现 | 读写任务的持久记事本 |
-| `cron doctor` | `cron doctor` | core | P1 | ⬜ 待实现 | 检查任务健康度 |
-| `cron tick` | `cron tick` | core | P1 | ⬜ 待实现 | 运行一次到期任务后退出 |
 | `send` | `send` | run | P1 | ⬜ 待实现 | 向已配置平台发送消息 |
 | `pause` | `pause` | run | P1 | ⬜ 待实现 | 紧急停止：暂停 cron / 看板调度与新网关轮次 |
 | `resume` | `resume` | run | P1 | ⬜ 待实现 | 解除 `pause` 设置的紧急停止 |
@@ -218,9 +227,9 @@
 | `worktree prune` | `worktree prune` | core | P1 | ⬜ 待实现 | 删除安全 worktree 与已合并分支 |
 | `verify` | `verify` | run | P1 | ⬜ 待实现 | 探测项目运行配方并做冒烟测试 |
 | `sessions` | `sessions` | ops | P0 | ⬜ 待实现 | 会话历史管理（列表 / 改名 / 导出 / 清理） |
-| `sessions list` | `sessions list` | core | P1 | ⬜ 待实现 | 列出近期会话 |
-| `sessions export` | `sessions export` | core | P1 | ⬜ 待实现 | 导出会话为 JSONL / Markdown / QMD |
-| `sessions delete` | `sessions delete` | core | P1 | ⬜ 待实现 | 删除指定会话 |
+| `sessions list` | `sessions list` | core | P1 | ✅ 已实现 | 列出近期会话 |
+| `sessions export` | `sessions export` | core | P1 | ✅ 已实现 | 导出会话为 JSONL / Markdown / QMD |
+| `sessions delete` | `sessions delete` | core | P1 | ✅ 已实现 | 删除指定会话 |
 | `sessions prune` | `sessions prune` | core | P1 | ⬜ 待实现 | 按过滤条件删除旧会话 |
 | `sessions archive` | `sessions archive` | core | P1 | ⬜ 待实现 | 按过滤条件批量归档会话 |
 | `sessions optimize` | `sessions optimize` | core | P1 | ⬜ 待实现 | 合并 FTS 段并 VACUUM 回收空间 |
@@ -229,13 +238,13 @@
 | `sessions repair` | `sessions repair` | core | P1 | ⬜ 待实现 | 修复 state.db 结构 |
 | `sessions repair-routing` | `sessions repair-routing` | core | P1 | ⬜ 待实现 | 重写丢失路由的网关会话 |
 | `sessions recover` | `sessions recover` | core | P1 | ⬜ 待实现 | 把会话数据重建到干净目录 |
-| `sessions stats` | `sessions stats` | core | P1 | ⬜ 待实现 | 查看会话库统计 |
-| `sessions rename` | `sessions rename` | core | P1 | ⬜ 待实现 | 设置会话标题 |
+| `sessions stats` | `sessions stats` | core | P1 | ✅ 已实现 | 查看会话库统计 |
+| `sessions rename` | `sessions rename` | core | P1 | ✅ 已实现 | 设置会话标题 |
 | `sessions pin` | `sessions pin` | core | P1 | ⬜ 待实现 | 固定会话（免自动清理） |
 | `sessions unpin` | `sessions unpin` | core | P1 | ⬜ 待实现 | 取消固定 |
 | `sessions pinned` | `sessions pinned` | core | P1 | ⬜ 待实现 | 列出已固定会话 |
 | `sessions retitle-skills` | `sessions retitle-skills` | core | P1 | ⬜ 待实现 | 按技能重命名自动标题会话 |
-| `sessions browse` | `sessions browse` | core | P1 | ⬜ 待实现 | 交互式浏览 / 搜索会话 |
+| `sessions browse` | `sessions browse` | core | P1 | ✅ 已实现 | 交互式浏览 / 搜索会话 |
 | `sessions import` | `sessions import` | core | P1 | ⬜ 待实现 | 导入 Claude Code / Codex 会话 |
 | `import-agent` | `import-agent` | ops | P1 | ⬜ 待实现 | 导入 Claude Code / Codex CLI 配置 |
 | `migrate` | `migrate` | ops | P1 | ⬜ 待实现 | 迁移已退役模型 / 弃用配置 |
@@ -309,11 +318,6 @@
 | `peer run` | `peer run` | core | P1 | ⬜ 待实现 | 异步发起一次长任务 |
 | `peer status` | `peer status` | core | P1 | ⬜ 待实现 | 读取异步任务状态与输出 |
 | `peer stop` | `peer stop` | core | P1 | ⬜ 待实现 | 停止一个异步对等任务 |
-| `tools` | `tools` | ext | P0 | ⬜ 待实现 | 按平台配置工具启停 |
-| `tools list` | `tools list` | core | P1 | ⬜ 待实现 | 列出全部工具及启停状态 |
-| `tools disable` | `tools disable` | core | P1 | ⬜ 待实现 | 禁用 toolset 或 MCP 工具 |
-| `tools enable` | `tools enable` | core | P1 | ⬜ 待实现 | 启用 toolset 或 MCP 工具 |
-| `tools post-setup` | `tools post-setup` | core | P1 | ⬜ 待实现 | 跑供应商的安装后钩子 |
 | `skills` | `skills` | ext | P0 | ⬜ 待实现 | 技能搜索 / 安装 / 配置 / 管理 |
 | `skills trust` | `skills trust` | core | P1 | ⬜ 待实现 | 信任项目以加载其仓库内技能 |
 | `skills untrust` | `skills untrust` | core | P1 | ⬜ 待实现 | 撤销项目技能信任 |

@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 30 · 🟡 8 · ⬜ 143（完成度 16.6%，截至 W2/W3/W13 收口）
+条目合计 **181**。当前：✅ 42 · 🟡 13 · ⬜ 126（完成度 23.2%，截至 W4/W6/W9 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -85,12 +85,12 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 5.1 | 单一注册表 + 跨 source 遮蔽门禁（默认拒绝，`override=True` 需操作员 opt-in，deregister 同门禁） | 【实证】`tools/registry.py`；调研 02 §1 | W4 | ⬜ | — |
+| 5.1 | 单一注册表 + 跨 source 遮蔽门禁（默认拒绝，`override=True` 才放行，deregister 同门禁，`mcp_` 前缀豁免） | 【实证】`tools/registry.py`；调研 02 §1 | W4 | ✅ | `app/tools.py` 的 `ToolRegistry.register`；`tests/test_toolsets.py` 的遮蔽门禁用例 |
 | 5.2 | 懒发现（AST 索引按需 import + generation 计数失效） | 【实证】`registry.py` `_generation` / `_SKIP_TOOL_FILES` | W4 | ⬜ | — |
 | 5.3 | `check_fn` 可用性探针（30s TTL + 60s 抖动宽限 + profile 维度 key + 512 上限） | 【实证】`registry.py`；调研 02 §1 | W4 | ⬜ | — |
-| 5.4 | 三层结果治理（单条 100K / MCP 50K / 预览 1,500 / 整轮 200K / spillover 落盘 24h 清理） | 【实证】`tools/budget_config.py` `DEFAULT_*` | W4 | ⬜ | — |
-| 5.5 | `tool_output_limits`（max_bytes 50,000 / max_lines 2,000 / 行宽 2,000；终端 40% 头 + 60% 尾） | 【实证】`tools/tool_output_limits.py` | W4 | ⬜ | — |
-| 5.6 | `read_file` 阈值钉死 `inf`（防 persist→read→persist 死循环） | 【实证】`budget_config.py` `PINNED_THRESHOLDS` | W4 | ⬜ | — |
+| 5.4 | 三层结果治理（输出层 50K/2,000 行/2,000 宽 → 落盘层单条 100K、MCP 50K、预览 1,500、24h 清理 → 整轮层 200K 按大小降序先落最大的） | 【实证】`tools/budget_config.py` `DEFAULT_*` | W4 | ✅ | `app/budget.py` 的 `BudgetConfig` / `cap_output` / `spill` / `TurnBudget` / `govern`；已接 `DefaultToolResultPolicy` 与 `graph/nodes.py`（`TurnBudget` 在工具执行步骤创建）；`tests/test_budget.py` |
+| 5.5 | `tool_output_limits`（max_bytes 50,000 / max_lines 2,000 / 行宽 2,000；终端 40% 头 + 60% 尾） | 【实证】`tools/tool_output_limits.py` | W4 | ✅ | `budget.py` 的 `cap_output`（终端 40/60、其它 70/30）；`tests/test_budget.py` |
+| 5.6 | `read_file` 阈值钉死 `inf`（防 persist→read→persist 死循环） | 【实证】`budget_config.py` `PINNED_THRESHOLDS` | W4 | ✅ | `budget.py` 的 `PINNED_THRESHOLDS` / `resolve_threshold` |
 | 5.7 | `hook_output_spill`（10,000 / head 500 / tail 500）+ `spill_safety` 拒符号链接 | 【实证】调研 02 §3 | W4 | ⬜ | — |
 | 5.8 | 危险命令两级：**18 条 hardline 硬地板**（无条件拦）+ **38 条 dangerous**（其中 35 条标破坏类，永不自动加白） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` / `DANGEROUS_PATTERNS` | W13 | ✅ | `app/approvals.py:60,96`；`tests/test_approvals.py` 89 条用例覆盖 |
 | 5.9 | Windows 破坏性操作清单（diskpart / Format / Clear-Disk / vssadmin / bcdedit / reg delete / icacls / iwr\|iex / EncodedCommand） | 【实证】`app/approvals.py` | W13 | ✅ | 同上 |
@@ -109,10 +109,10 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 6.1 | toolset 定义（32 个已注册 toolset） | 【实证】调研 02；【推断】具体成员（PYZ 内） | W4 | ⬜ | — |
-| 6.2 | 四层过滤（平台 / 场景 / profile / 委托） | 【实证】前作报告 + `hermes tools --platform` | W4 | ⬜ | — |
-| 6.3 | `orbit tools {list,enable,disable,post-setup}` | 【实证】`_raw/sub/tools__*.txt` | W4 | ⬜ | — |
-| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ⬜ | — |
+| 6.1 | toolset 定义 | 【实证】调研 02；【推断】具体成员（PYZ 内） | W4 | 🟡 | `app/toolsets.py` **13 个** toolset（core/files/shell/browser/vault/notion/github/memory/history/retrieval/skills/web/mcp），30 个工具全部归类、`unclassified` 为空；Hermes 是 32 个，**覆盖面待扩** |
+| 6.2 | 四层过滤（平台 / 场景 / profile / 委托） | 【实证】前作报告 + `hermes tools --platform` | W4 | 🟡 | 已做**平台层**（`data/tools.json` 的 per-platform 禁用集 + 收窄模式）；场景 / profile / 委托三层未做 |
+| 6.3 | `orbit tools {list,enable,disable,post-setup}` | 【实证】`_raw/sub/tools__*.txt` | W4 | ✅ | `app/cli/commands/tools.py` |
+| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ✅ | `ToolRegistry.specs(platform=...)` 走 `app/toolsets.resolve`；默认 `cli` 与改动前逐名相等（有回归用例） |
 | 6.5 | 工具 schema 校验前置（dict / parameters 必须 object） | 【实证】`registry.register` raise 检查 | W4 | ⬜ | — |
 
 ## L7 Skill / curator 层（Hermes: `skills_*.py` + `bundled-skills`，21 类目 / 91 技能）
@@ -162,10 +162,10 @@
 | 9.3 | 冻结快照注入 + 头部自曝用量（`MEMORY (your personal notes) [99% — 2,181/2,200 chars]`） | 【实证】state.db `sessions.system_prompt` 反查 | W6 | ⬜ | — |
 | 9.4 | 原子批处理 `operations[]`（按最终态校验，全有或全无） | 【实证】`memory_tool.py` `apply_batch` | W6 | ⬜ | — |
 | 9.5 | 一轮 3 次 consolidation 失败熔断（`_MAX_CONSOLIDATION_FAILURES_PER_TURN=3`） | 【实证】调研 07 §2 | W6 | ⬜ | — |
-| 9.6 | CJK 双 FTS 索引（unicode61 + trigram；中文必须走 trigram，否则命中 0） | 【实证】`messages_fts` + `messages_fts_trigram`；`MATCH '记忆'` = 0 | W6 | ⬜ | — |
-| 9.7 | `session_search` 四形态（discover/scroll/read/browse）+ 锚点 ±5 + bookend 3/3 + 300 行 lineage 去重 | 【实证】`session_search_tool.py` 1,271 行 | W6 | ⬜ | — |
-| 9.8 | 检索**零 LLM 成本**（无 summary LLM 路径） | 【实证】docstring "No LLM calls anywhere"；PR #26419 | W6 | ⬜ | — |
-| 9.9 | 检索参数（limit 默认 3 夹 [1,10]、window 默认 5 夹 [1,20]、read head20/tail10、截断 4000/1200） | 【实证】调研 07 §3 | W6 | ⬜ | — |
+| 9.6 | CJK 检索（unicode61 对中文命中 0，必须走子串/trigram） | 【实证】`messages_fts` + `messages_fts_trigram`；`MATCH '记忆'` = 0 | W6 | 🟡 | `app/session_search.py` 用 `LIKE` 子串匹配（中文可用），`%`/`_` 已转义、扫描上限 300。**缺 FTS 索引**：`messages` 表上加 FTS5 需要迁移，本轮没做——LIKE 是线性扫描，库到十万条量级会慢 |
+| 9.7 | `session_search` 四形态（discover/scroll/read/browse）+ 锚点 ±window + bookend 3/3 + 300 行扫描上限 | 【实证】`session_search_tool.py` 1,271 行 | W6 | ✅ | `session_search.py` 的 `SessionSearch.search/discover/anchored_view/read/browse`；`tests/test_session_search.py` |
+| 9.8 | 检索**零 LLM 成本**（无 summary LLM 路径） | 【实证】docstring "No LLM calls anywhere"；PR #26419 | W6 | ✅ | `session_search.py` 不 import 任何模型/连接器（模块 docstring 明示）；CLI 侧 `session-search` 命令同样零模型调用 |
+| 9.9 | 检索参数（limit 默认 3 夹 [1,10]、window 默认 5 夹 [1,20]、read head20/tail10、截断 4000/1200） | 【实证】调研 07 §3 | W6 | ✅ | `session_search.py` 的同名参数与夹取 |
 | 9.10 | 8 个外部 memory provider 插件接口（byterover/hindsight/holographic/honcho/mem0/openviking/retaindb/supermemory） | 【实证】调研 07 §4 | W6 | ⬜ | — |
 | 9.11 | holographic 本地图记忆（HRR dim=1024、权重 fts0.4/jaccard0.3/hrr0.3、trust ±0.05/−0.10） | 【实证】`plugins/memory/holographic/` | W6 | ⬜ | — |
 | 9.12 | 写入门禁（威胁扫描 → 审批三态 → 快照期二次扫描） | 【实证】调研 07 §5 | W6 | ⬜ | — |
@@ -198,12 +198,12 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 11.1 | 定时任务存储 + 调度器 | 【实证】`cron/executions.db`；`tools/cronjob_tools.py` | W9 | ⬜ | — |
-| 11.2 | `orbit cron {create,edit,list,remove,run,runs,tick,status,pause,resume,doctor,incidents,notepad}` | 【实证】`_raw/sub/cron__*.txt`（13 条） | W9 | ⬜ | — |
-| 11.3 | 投递（`--deliver` 到平台） | 【实证】`cron create --deliver` | W9 | ⬜ | — |
-| 11.4 | `--skill` / `--script` / `--no-agent` / `--monitor-script` / `--continuity` 语义 | 【实证】`cron create --help` | W9 | ⬜ | — |
-| 11.5 | 与交互共享 session 平面与权限机制 | 【实证】前作 §4；调研 03 §2 | W9 | ⬜ | — |
-| 11.6 | 紧急停止（`pause` / `resume` 级联 cron/kanban/gateway） | 【实证】`cmd-22/23` | W9 | ⬜ | — |
+| 11.1 | 定时任务存储 + 调度器 | 【实证】`cron/executions.db`；`tools/cronjob_tools.py` | W9 | ✅ | `app/cron.py` 的 `CronStore`（`jobs.json` + `runs.jsonl`，原子写）/ `CronSpec`（`30m` / `every 2h` / 5 字段 cron，自实现不引 croniter）/ `CronRunner.tick`；`tests/test_cron.py` |
+| 11.2 | `orbit cron {create,edit,list,remove,run,runs,tick,status,pause,resume,doctor,incidents,notepad}` | 【实证】`_raw/sub/cron__*.txt`（13 条） | W9 | ✅ | `app/cli/commands/cron.py` |
+| 11.3 | 投递（`--deliver` 到平台） | 【实证】`cron create --deliver` | W9 | 🟡 | 已支持 `none` 与 `file:<path>`；**平台投递未实现**（属 W9 平台层），`create` 时明确报错而不是静默接受 |
+| 11.4 | `--skill` / `--script` / `--no-agent` / `--monitor-script` / `--continuity` 语义 | 【实证】`cron create --help` | W9 | ✅ | `app/cron.py` 的 `Job` 字段 + `--no-agent` 时强制 `--script` 的校验 |
+| 11.5 | 与交互共享 session 平面与权限机制 | 【实证】前作 §4；调研 03 §2 | W9 | ⬜ | 依赖 W8 的 session 平面统一（cron 现在跑在独立存储上） |
+| 11.6 | 紧急停止（`pause` / `resume` 级联 cron/kanban/gateway） | 【实证】`cmd-22/23` | W9 | 🟡 | `cron pause/resume` 与 `pause_all/resume_all`（哨兵文件）已实现；kanban / gateway 尚不存在，级联待 W9 平台层 |
 
 ## L12 Gateway / 多平台层（Hermes: `_internal/gateway/` + `plugins/platforms/` 22 适配器）
 
