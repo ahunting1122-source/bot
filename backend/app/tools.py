@@ -1283,4 +1283,15 @@ class ToolRegistry:
 
 
 def as_tool_text(result: dict) -> str:
-    return json.dumps(result, ensure_ascii=False, default=str)
+    """把工具结果转成模型看到的文本。**这是密钥脱敏的唯一漏斗**。
+
+    为什么在这里脱敏：工具结果是最容易带出密钥的一条路——`read_file` 读到 `.env`、
+    `run_command` 打印 `env`、web 抓取回来一段含 token 的 JSON。模型看到什么，
+    就可能把什么写进回复或记忆里，之后再想收回来就晚了。
+
+    为什么先脱敏 dict 再序列化（而不是脱敏 JSON 字符串）：字符串级替换可能命中
+    JSON 的语法字符，把结构改坏；`redact_obj` 只碰值、不碰结构。
+    """
+    from app import redact
+
+    return json.dumps(redact.redact_obj(result), ensure_ascii=False, default=str)

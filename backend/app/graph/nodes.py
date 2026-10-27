@@ -278,17 +278,30 @@ class Nodes:
         return False
 
     def render_skills(self, skills: list[dict]) -> str:
-        """把技能简述渲染成注入系统提示的一段（与检索片段区分开）。"""
+        """把技能索引渲染成注入系统提示的一段（与检索片段区分开）。
+
+        每条只给 **name + 60 字符描述**，不给正文：索引是**路由信号**，模型据此
+        判断"要不要 `skill_load` 取全文"。把正文塞进索引等于把提示词预算一次性烧光，
+        而且越相关的技能越多、越烧——这是个正反馈。
+
+        描述缺失时退回触发词：老技能（frontmatter 里没写 description）仍要能被召回，
+        否则升级一次索引就把历史技能全变成不可发现的。
+        """
         if not skills:
             return ""
+        from app.skill_index import index_description
+
         lines = [
             "以下技能（流程做法）可能相关，判断相关时用 skill_load 取全文："
         ]
         for skill in skills:
             name = skill.get("name") or ""
-            triggers = (skill.get("triggers") or [])[:2]
             scope = skill.get("scope") or "global"
-            lines.append(f"- {name}（{scope}）：{'；'.join(triggers)}")
+            summary = index_description(skill.get("description") or "")
+            if not summary:
+                triggers = (skill.get("triggers") or [])[:2]
+                summary = "；".join(triggers)
+            lines.append(f"- {name}（{scope}）：{summary}" if summary else f"- {name}（{scope}）")
         return "\n".join(lines)
 
     # ── think ──────────────────────────────────────────────────────────────

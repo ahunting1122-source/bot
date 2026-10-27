@@ -289,6 +289,12 @@ class DefaultToolResultPolicy:
         （既有键一个都没动，调用方不需要改）。
         """
         body = text or ""
+        # 落库前脱敏：`tool_results` 要长期留存，把密钥原样写进去等于埋雷——
+        # 备份、导出、`orbit insights` 都可能把它带到别处。模型侧由
+        # `tools.as_tool_text` 负责，两处都要：它们是两条独立的出口。
+        from app import redact
+
+        body = redact.redact(body).text
         governed = None
         #: 预算账按**模型收到的原文体积**记（`bytes`/`tokens`），不按落库副本记：
         #: 落盘之后存下来的是预览，用预览去记账会让 token 预算严重低估真实消耗。

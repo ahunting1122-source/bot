@@ -79,6 +79,9 @@ def parse_skill(text: str, name: str) -> dict[str, Any]:
         "scope": str(meta.get("scope") or "global"),
         "version": _as_int(meta.get("version")),
         "triggers": [str(t) for t in meta.get("triggers") or []],
+        # 一句话简述。索引注入时按 60 字符预算截断（见 `graph/nodes.render_skills`）：
+        # 索引是**路由信号**不是正文，把整段描述塞进提示词会把预算吃光。
+        "description": str(meta.get("description") or ""),
         # frontmatter 里显式声明的 status（active/unreviewed 等）；缺省为空串，
         # 由 sync_to_store 决定是否据此覆盖表的治理态（见其 docstring）。
         "status": str(meta.get("status") or ""),
@@ -177,6 +180,9 @@ def catalog(root: Path, limit: int = CATALOG_LIMIT) -> list[dict[str, Any]]:
                 "scope": skill["scope"],
                 "version": skill["version"],
                 "triggers": skill["triggers"],
+                # 带上 description：注入索引时要用它（60 字符预算），
+                # 而 `catalog` 是注入侧唯一的数据来源。
+                "description": skill.get("description", ""),
             }
         )
         if len(skills) >= limit:
