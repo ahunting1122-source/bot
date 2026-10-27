@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 25 · 🟡 7 · ⬜ 149（完成度 13.8%，截至 W3/W4/W13 收口）
+条目合计 **181**。当前：✅ 30 · 🟡 8 · ⬜ 143（完成度 16.6%，截至 W2/W3/W13 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -54,9 +54,9 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 3.1 | 三层 prompt 分层，**装配顺序已用 state.db 16 份 system_prompt 全文按字节偏移定死**：`SOUL.md`(0) → 行为/环境/编码/工作区/profile/desktop 段 → `# Project Context` AGENTS.md(15,227) → `## Skills <available_skills>`(24,200) → `MEMORY`(40,080) → `USER PROFILE`(42,424) → Volatile 尾(43,906: Conversation started / Model / Provider / Platform)。16/16 份都以 SOUL.md 开头；**工具 schema 不在 prompt 内**（独立 tools 数组） | 【实证】调研 09 §5 | W3 | ⬜ | — |
-| 3.2 | 项目文件单一优先级加载（`AGENTS.md` vs `HERMES.md`，cwd → git root） | 【实证】调研 09 §5 | W3 | ⬜ | — |
-| 3.3 | `SOUL.md` 独立全局加载，是 prompt 第一块（不受 memory 预算约束） | 【实证】本机 `hermes-home/SOUL.md` 540B；调研 07 | W3 | ⬜ | — |
+| 3.1 | 三层 prompt 分层：**Stable**（SOUL.md + agent.md）→ **Context**（项目上下文 + 画像 + 长期记忆）→ **Volatile**（权限级别 / 站点 / 会话摘要） | 【实证】调研 09 §5（16 份 prompt 按字节偏移定死顺序） | W3 | ✅ | `app/context.py` 的 `build_stable` / `build_context_tier` / `build_volatile_tier`；`tests/test_context_tiers.py` 10 条（含顺序断言与"旧段落一个不少"回归）。**差异**：Orbit 的技能索引由 `graph/nodes.py` 的 prepare 步骤注入（`context_meta["skills_block"]`），不在 `build_context` 里——见 3.5 |
+| 3.2 | 项目文件单一优先级加载（`AGENTS.md` vs `ORBIT.md`，cwd → git root，**找到即停**） | 【实证】调研 09 §5 | W3 | ✅ | `context.py` 的 `load_project_context`（走到 `.git` 止步）；`tests/test_context_tiers.py::test_project_context_*` |
+| 3.3 | `SOUL.md` 独立全局加载，是 prompt 第一块 | 【实证】本机 `hermes-home/SOUL.md` 540B；调研 07 | W3 | ✅ | `context.py` 的 `load_soul`（数据目录 → 仓库根）；`tests/test_context_tiers.py::test_soul_comes_first_in_the_system_prompt` |
 | 3.4 | 记忆注入（冻结快照，会话内不变） | 【实证】`load_from_disk()` + `_system_prompt_snapshot`；调研 07 | W6 | ⬜ | — |
 | 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ⬜ | — |
 | 3.6 | 工具 schema 注入 + 体积可观测 | 【实证】`hermes prompt-size` | W1 | ✅ | `core.py` `run_prompt_size`（当前：系统提示 **4,043 B** / 工具 schema **16,895 B** / **29** 个工具；数值随提示词与工具变化，**不要写死在这里**——以命令输出为准） |
