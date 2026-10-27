@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 69 · 🟡 30 · ⬜ 82（完成度 38.1%，截至 W5/W9/W10/W14 收口）
+条目合计 **181**。当前：✅ 72 · 🟡 29 · ⬜ 80（完成度 39.8%，截至 W3/W13 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -58,8 +58,8 @@
 | 3.1 | 三层 prompt 分层：**Stable**（SOUL.md + agent.md）→ **Context**（项目上下文 + 画像 + 长期记忆）→ **Volatile**（权限级别 / 站点 / 会话摘要） | 【实证】调研 09 §5（16 份 prompt 按字节偏移定死顺序） | W3 | ✅ | `app/context.py` 的 `build_stable` / `build_context_tier` / `build_volatile_tier`；`tests/test_context_tiers.py` 10 条（含顺序断言与"旧段落一个不少"回归）。**差异**：Orbit 的技能索引由 `graph/nodes.py` 的 prepare 步骤注入（`context_meta["skills_block"]`），不在 `build_context` 里——见 3.5 |
 | 3.2 | 项目文件单一优先级加载（`AGENTS.md` vs `ORBIT.md`，cwd → git root，**找到即停**） | 【实证】调研 09 §5 | W3 | ✅ | `context.py` 的 `load_project_context`（走到 `.git` 止步）；`tests/test_context_tiers.py::test_project_context_*` |
 | 3.3 | `SOUL.md` 独立全局加载，是 prompt 第一块 | 【实证】本机 `hermes-home/SOUL.md` 540B；调研 07 | W3 | ✅ | `context.py` 的 `load_soul`（数据目录 → 仓库根）；`tests/test_context_tiers.py::test_soul_comes_first_in_the_system_prompt` |
-| 3.4 | 记忆注入（冻结快照，会话内不变） | 【实证】`load_from_disk()` + `_system_prompt_snapshot`；调研 07 | W6 | ⬜ | — |
-| 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ⬜ | — |
+| 3.4 | 记忆注入（冻结快照，会话内不变） | 【实证】`load_from_disk()` + `_system_prompt_snapshot`；调研 07 | W6 | ✅ | 记忆经 `context.build_context_tier` 注入；**冻结**由 `context.build_prefix` → `context_meta` 的 `system_prefix` 保证（一个任务内逐字节不变）。`tests/test_graph.py::test_system_prefix_is_frozen_across_steps_of_one_task` 锁死。**差异**：Orbit 是「每个任务冻一次」，Hermes 是「每个会话冻一次」——任务比会话短，冻结点更频繁，但同一任务内的一致性等价 |
+| 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ✅ | `graph/nodes.py` 的 `Nodes.render_skills`：每条只给 `name（scope）：<描述>`，描述经 `skill_index.index_description` 截到 **60 字符**（57 + 省略号）；描述缺失时退回触发词（老技能不写 description 仍可发现）。`skills.parse_skill` / `skills.catalog` 已补 `description` 字段。`tests/test_skill_index_injection.py` 7 条（含「正文绝不进索引」） |
 | 3.6 | 工具 schema 注入 + 体积可观测 | 【实证】`hermes prompt-size` | W1 | ✅ | `core.py` `run_prompt_size`（当前：系统提示 **4,043 B** / 工具 schema **16,895 B** / **29** 个工具；数值随提示词与工具变化，**不要写死在这里**——以命令输出为准） |
 | 3.7 | 提示词版本号随事件落库 | Orbit 已有（dsh 派，非 Hermes 派） | W1 | ✅ | `backend/app/context.py:12` `PROMPT_VERSION` |
 | 3.8 | 注入扫描（不可信内容包裹） | 【实证】调研 09 `untrusted-content wrapper` | W13 | ⬜ | — |
@@ -243,7 +243,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 14.1 | 审批三态 `off` / `smart` / `manual` | 【实证】`hermes approvals test` 三态退出码 0/2/3 | W13 | 🟡 | `app/approvals.py` `APPROVAL_MODES`；`orbit approvals mode` 可切换。**缺交互式审批通道**：Orbit 没有"弹窗问一句"的 UI，`smart`/`manual` 的语义是"拒绝并让人自己去做"，与 Hermes 的 ask 不完全等价 |
 | 14.2 | 硬地板无条件拦（18 条：`rm -rf /`、mkfs、`dd of=/dev/sd*`、fork bomb、`kill -1`、shutdown/reboot、diskpart、vssadmin、bcdedit…） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` | W13 | ✅ | `tests/test_approvals.py::test_hardline_*`（11 条样本 × 3 种模式）。**边界**：完全访问档默认不守硬地板（`approvals.hardline_in_machine`，默认关）——尊重 Orbit 既有产品决策，见 `README` 与 `test_file_scope.py` |
-| 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | 🟡 | `app/redact.py` 15 类密钥模式（保留首 4 末 4，hits 不记原文）+ `redact_obj` 递归；**未接线**到 `tools.as_tool_text` / `policies.record`（接线点写在模块 docstring 里） |
+| 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | ✅ | `app/redact.py` 16 类模式 + `redact_obj` 递归；**已接线到两条独立出口**：① `tools.as_tool_text`（模型侧唯一漏斗，先脱敏 dict 再序列化，避免字符串替换破坏 JSON 结构）② `policies.DefaultToolResultPolicy.record`（落库侧）。`tests/test_redact_wiring.py` 6 条锁死（含「非密钥内容没被动」的假阳性回归） |
 | 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | tirith 执行前扫描未做 |
 | 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | 🟡 | `app/security_audit.py`：venv / 插件 / MCP 三项审计；**无网络时如实报"缓存缺失，无法审计"，不许输出"未发现漏洞"**（有断言）。真实 OSV 数据需要联网刷新 |
 | 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ✅ | `app/secrets.py` 五个源：keyring / env / file（明文在 `describe()` 里明确警示）/ Bitwarden / 1Password（未安装则 `available()=False` + 安装提示） |
