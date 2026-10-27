@@ -198,7 +198,7 @@ def classify(
     command: str,
     *,
     mode: str = "off",
-    allowlist: tuple[str, ...] | tuple[tuple[str, str], ...] = (),
+    allowlist: tuple[str, ...] = (),
     env_type: str = "local",
     hardline_in_machine: bool = False,
     machine_wide: bool = False,

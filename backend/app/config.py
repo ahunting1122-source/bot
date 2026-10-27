@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     #: 它在两档都生效，避免一条挂住的命令把整轮任务钉死。
     command_timeout: int = 120
     model: str = ""
+    #: 当前 provider id（`app/providers.py` 注册表里的键，如 `deepseek`）。**留空 = 由
+    #: `model_base_url` 反查**。之所以需要这个显式字段：反查天生有歧义（同一端点可能
+    #: 对应多个 profile，如 `https://api.moonshot.cn/v1` 既是 kimi-coding-cn 也是
+    #: moonshot 开放平台），用户明确选过的 provider 不该被"猜"覆盖。由 `orbit model`
+    #: 写入 `data/settings.json`，也可用 `ORBIT_MODEL_PROVIDER` 覆盖。
+    model_provider: str = ""
     model_base_url: str = "https://api.openai.com/v1"
     model_api_key: SecretStr = SecretStr("")
     github_token: SecretStr = SecretStr("")

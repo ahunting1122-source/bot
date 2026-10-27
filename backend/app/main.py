@@ -134,6 +134,13 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         registry = ToolRegistry(settings, app.state.store)
         registry.register(GITHUB_TOOLS, app.state.github.execute)
         registry.register(BROWSER_TOOLS, app.state.browser.execute)
+        # 联网检索与正文抽取。Orbit 是"网页操作特化"的 agent，但在此之前它**没有搜索工具**
+        # ——上网全靠浏览器点，成本高且容易被页面结构变化打穿。这两个工具补的就是这个缺口：
+        # `web_search` 只负责"找到候选 URL"，`web_extract` 只负责"把已知 URL 读成正文"。
+        from app.web import WEB_TOOLS, WebTools
+
+        app.state.web = WebTools(settings)
+        registry.register(WEB_TOOLS, app.state.web.execute)
         registry.browser = app.state.browser
         app.state.registry = registry
         # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。

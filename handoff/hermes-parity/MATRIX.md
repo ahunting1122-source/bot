@@ -64,12 +64,12 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 4.1 | Provider 注册表 + `ProviderProfile` 7 个钩子（fetch_models / build_extra_body / build_api_kwargs_extras / prepare_messages / resolve_aux_model / default_vision_model / supported_reasoning_efforts） | 【实证】48 个 provider 调用点反推；调研 06 §2 | W3 | ⬜ | — |
-| 4.2 | 5 种 transport（`chat_completions` / `anthropic_messages` / `codex_responses` / `bedrock_converse` / `copilot_acp`） | 【实证】调研 06 §3 | W3 | ⬜ | — |
+| 4.1 | Provider 注册表 + `ProviderProfile` 钩子（fetch_models / build_extra_body / build_api_kwargs_extras / prepare_messages / resolve_aux_model / default_vision_model / supported_reasoning_efforts） | 【实证】48 个 provider 调用点反推；调研 06 §2 | W3 | 🟡 | `app/providers.py` 16 家（Hermes 48 profile）：`deepseek openai anthropic gemini openrouter zai kimi-coding minimax moonshot qwen groq mistral xai ollama bedrock custom`；注册表与钩子齐全，**覆盖面待扩** |
+| 4.2 | 多 transport（`chat_completions` / `anthropic_messages` / `codex_responses` / `bedrock_converse` / `copilot_acp`） | 【实证】调研 06 §3 | W3 | 🟡 | 已实现 3 种（`chat_completions` 走 langchain、`anthropic_messages` / `gemini` 走 httpx）；`bedrock_converse` 声明但**明确抛错**（无 boto3）；`codex_responses` / `copilot_acp` 未做 |
 | 4.3 | per-model 动态协议路由（Claude→Messages、GPT-5/Codex/Grok→Responses、其余→chat） | 【实证】调研 06 §3.3 | W3 | ⬜ | — |
 | 4.4 | 逐 provider 推理线格式翻译表（5 种落点 + 互斥/拒绝/强制规则） | 【实证】调研 06 §3.5（16 行差异） | W3 | ⬜ | — |
-| 4.5 | fallback 链（触发 429/529/503/连接失败；9 家白名单） | 【实证】`hermes fallback --help`；调研 06 | W3 | ⬜ | — |
-| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | ⬜ | — |
+| 4.5 | fallback 链（触发 429/529/503/连接失败；其它错误不切换） | 【实证】`hermes fallback --help`；调研 06 | W3 | ✅ | `app/fallback.py` `FallbackChain` / `FAILOVER_STATUS`；`tests/test_fallback.py` |
+| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | ✅ | `app/fallback.py` `CredentialPool` / `CredentialLease` / `CredentialPoolExhausted`；密钥走 keyring |
 | 4.7 | `proxy` 本地 OpenAI 兼容代理（到 OAuth provider） | 【实证】`cmd-11-proxy.txt` | W3 | ⬜ | — |
 | 4.8 | `egress` 出口凭证注入防火墙（iron-proxy） | 【实证】`cmd-08-egress.txt` | W13 | ⬜ | — |
 | 4.9 | 辅助模型 slot 18 个（`auxiliary.*`，含 vision） | 【实证】调研 06 §4 | W3 | ⬜ | — |
@@ -96,7 +96,8 @@
 | 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ⬜ | — |
 | 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | ⬜ | — |
 | 5.14 | 内置工具数量对齐（94 个；Orbit 现 28 个） | 【实证】调研 02 口径说明 | W4 | ⬜ | — |
-| 5.15 | 19 个功能域覆盖（file/terminal/code_execution/browser/web/专项搜索/memory/skills/MCP/委派/媒体生成/视觉/TTS/kanban/cronjob/桌面窗口/协作消息/HomeAssistant/元工具） | 【实证】调研 02 §2 | W4 | ⬜ | — |
+| 5.15 | 19 个功能域覆盖（file/terminal/code_execution/browser/web/专项搜索/memory/skills/MCP/委派/媒体生成/视觉/TTS/kanban/cronjob/桌面窗口/协作消息/HomeAssistant/元工具） | 【实证】调研 02 §2 | W4 | 🟡 | 已有 file/terminal/browser/**web**/memory/skills/MCP/元工具 8 域；缺 code_execution、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant |
+| 5.19 | `web_search` + `web_extract`（4 家搜索 provider + URL 安全闸 + 结果缓存） | 【实证】`plugins/web/` 9 provider；`tools/url_safety.py`、`web_result_cache.py` | W4 | ✅ | `app/web.py` + `app/web_providers.py`（searxng / brave / tavily / ddgs，契约照 Hermes）；`tests/test_web.py` 41 条。已接线 `app/main.py` |
 | 5.16 | `file_operations` / `patch_parser`（结构化补丁编辑） | 【实证】`tools/patch_parser.py` | W4 | ⬜ | — |
 | 5.17 | `code_execution` + `code_kernel`（持久内核） | 【实证】`tools/code_execution_tool.py` | W4 | ⬜ | — |
 | 5.18 | `terminal` 后端抽象（本地/远程/容器） | 【实证】`tools/terminal_tool.py` 217KB | W4 | ⬜ | — |

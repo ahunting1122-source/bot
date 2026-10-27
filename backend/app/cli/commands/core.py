@@ -1036,8 +1036,12 @@ def _tool_specs() -> list[dict[str, Any]]:
     from app.browser import BROWSER_TOOLS
     from app.connectors import GITHUB_TOOLS
     from app.tools import LOCAL_TOOLS
+    from app.web import WEB_TOOLS
 
-    return [tool.specification() for tool in (*LOCAL_TOOLS, *BROWSER_TOOLS, *GITHUB_TOOLS)]
+    return [
+        tool.specification()
+        for tool in (*LOCAL_TOOLS, *BROWSER_TOOLS, *GITHUB_TOOLS, *WEB_TOOLS)
+    ]
 
 
 def run_prompt_size(context: Context, args) -> int:

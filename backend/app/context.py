@@ -9,7 +9,7 @@ from app.storage import Conversation, Memory, Message, Store, Task, now
 #: 系统提示词版本号。改 agent.md 内容就 +1，并让它随 message_started 事件落库——
 #: 事件流里能查到"这次回答用的是哪版提示词"，回滚 = git revert + 版本号可追溯。
 #: 版本号是手写常量（与 agent.md 正文分离），改提示词时记得手动 +1。
-PROMPT_VERSION = "2026-10-12.1"
+PROMPT_VERSION = "2026-10-27.1"
 
 #: 每次注入上下文的记忆条数上限。
 MEMORY_LIMIT = 12
@@ -38,6 +38,7 @@ Notion 写入优先 notion_append_summary，它有恢复核对；不要用普通
 导航结果标注 entry_weak 说明可能未真正进入或需要登录，换一个入口网址重试，或请求用户接管。
 用户要打开或浏览网站时使用通用浏览器工具，Notion 专用工具仅用于 Notion 页面。
 需要回看此前读过的网页或工具结果时用 retriever_search，它默认只在当前会话里找，要找更早的内容才把 scope 设为 global；常识问题不要用它。
+要找还不知道网址的资料时用 web_search，它返回带来源地址的候选结果；拿到网址后用 web_extract 读正文。不要用浏览器去搜索引擎页面里点。
 引用回填是硬要求：如果上下文里给了检索到的片段（带来源地址），回答里必须写出用到的来源地址；没有来源就不要声称内容来自历史记录。
 系统提示里会列出可能相关的技能（流程做法）。判断相关时用 skill_load 取该技能全文，按里面的步骤和坑来执行；不要在没有技能时臆造步骤。
 """
