@@ -37,10 +37,10 @@
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 2.1 | 单循环 + 传输适配器归一化多 provider | 【推断】`agent/conversation_loop.py` | W3 | ⬜ | — |
-| 2.2 | 父/子迭代预算（父 250、子默认 50，`delegation.max_iterations` 可配） | 【实证】`tools/delegate_tool.py:1150` `DEFAULT_MAX_ITERATIONS=250`；:1947 注释 | W11 | ⬜ | — |
-| 2.3 | 心跳 30s + 双阈值判卡死（idle 450s / in-tool 1200s） | 【实证】`delegate_tool.py:1169,1184,1185` | W11 | ⬜ | — |
-| 2.4 | 中断时补发 `tool_result` 占位保持消息配对合法 | 【实证】`tools/interrupt.py`；delegate_tool 心跳停 | W11 | ⬜ | — |
-| 2.5 | 循环结束触发后台 review / 学习回路 | 【推断】curator `background_review` 读写门 | W5 | ⬜ | — |
+| 2.2 | 三套**独立不叠加**的迭代预算：父 `agent.max_turns` 默认 **90**、子 `delegation.max_iterations` 默认 **50**、`DEFAULT_MAX_ITERATIONS=250` 只是 config 缺省兜底（不是运行值）；desktop 入口另有 500 档 | 【实证】`delegate_tool.py:1150`；本机日志 `budget=…/90` 327 条、`max_iterations_reached(50/50)`；调研 09 §1 | W11 | ⬜ | — |
+| 2.3 | 心跳 30s + 双阈值判卡死（idle 15 周期=**450s** / in-tool 40 周期=**1200s**），超阈值只 break 续命、由 gateway inactivity 超时执行真正的杀 =「级联」 | 【实证】`delegate_tool.py:1169,1184,1185`；调研 09 §2 | W11 | ⬜ | — |
+| 2.4 | 中断配对：工具**返回** `{"output":"[interrupted]","returncode":130}` 而非抛异常；父中断时未完成 child 被合成 `status=interrupted` 结果条目；不可修 arguments 降级为 `{}` | 【实证】`tools/interrupt.py`；`delegate_tool.py:4289-4327` | W11 | ⬜ | — |
+| 2.5 | 循环结束后台动作：bg-review 线程 + 同会话追加一轮「Review the conversation above and update the skill library」学习回路 + curator | 【实证】`agent.background_review` 日志实证；调研 09 §4 | W5 | ⬜ | — |
 | 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | ⬜ | — |
 | 2.7 | `context_overflow` → 压缩后重试 | 【实证】bot_failure_reasons 映射 | W8 | ⬜ | — |
 | 2.8 | per-thread 中断（可打断单条线程） | 【实证】`tools/interrupt.py` | W11 | ⬜ | — |
@@ -51,8 +51,8 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 3.1 | 三层 prompt 分层（Stable / Context / Volatile） | 【实证】调研 01/09；前作报告一致 | W3 | ⬜ | — |
-| 3.2 | 项目文件单一优先级加载（`AGENTS.md` vs `HERMES.md`，cwd → git root） | 【实证】前作 §2；调研 09 | W3 | ⬜ | — |
+| 3.1 | 三层 prompt 分层，**装配顺序已用 state.db 16 份 system_prompt 全文按字节偏移定死**：`SOUL.md`(0) → 行为/环境/编码/工作区/profile/desktop 段 → `# Project Context` AGENTS.md(15,227) → `## Skills <available_skills>`(24,200) → `MEMORY`(40,080) → `USER PROFILE`(42,424) → Volatile 尾(43,906: Conversation started / Model / Provider / Platform)。16/16 份都以 SOUL.md 开头；**工具 schema 不在 prompt 内**（独立 tools 数组） | 【实证】调研 09 §5 | W3 | ⬜ | — |
+| 3.2 | 项目文件单一优先级加载（`AGENTS.md` vs `HERMES.md`，cwd → git root） | 【实证】调研 09 §5 | W3 | ⬜ | — |
 | 3.3 | `SOUL.md` 独立全局加载，是 prompt 第一块（不受 memory 预算约束） | 【实证】本机 `hermes-home/SOUL.md` 540B；调研 07 | W3 | ⬜ | — |
 | 3.4 | 记忆注入（冻结快照，会话内不变） | 【实证】`load_from_disk()` + `_system_prompt_snapshot`；调研 07 | W6 | ⬜ | — |
 | 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ⬜ | — |
@@ -177,7 +177,7 @@
 | 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | ⬜ | — |
 | 10.2 | 消息追加日志 + `id` AUTOINCREMENT 作游标（不复用） | 【实证】调研 03 §5（max id 14,597 > 行数 14,595） | W8 | ⬜ | — |
 | 10.3 | 归档不删（`active=0 AND compacted=1`） | 【实证】调研 03 §3（2,101 条） | W8 | ⬜ | — |
-| 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`） | 【实证】调研 03 §3 | W8 | ⬜ | — |
+| 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`）；压缩阈值 **0.50** / 目标比 **0.20**；产物前缀 `[CONTEXT COMPACTION` / `[CONTEXT SUMMARY]:`；实测 529k→199k、503k→191k（≈37.6%） | 【实证】调研 09 §6、03 §3 | W8 | ⬜ | — |
 | 10.5 | `system_prompts` 内容寻址（hash）+ `compression_locks` | 【实证】调研 03 §1 | W8 | ⬜ | — |
 | 10.6 | 幂等键 + 至少一次投递账本（`delivery_obligations` / `async_delegations` / `tasks.idempotency_key`） | 【实证】调研 03 §1（123 行） | W8 | ⬜ | — |
 | 10.7 | 孤儿回收（`startup_orphan_reap` 67 条 / `ws_orphan_reap` 3 条） | 【实证】调研 03 §3 | W8 | ⬜ | — |
@@ -225,7 +225,7 @@
 | 13.2 | `requires_env` / `optional_env` 富字典 6 子字段（自动注入 setup 向导） | 【实证】168 条声明实测 | W10 | ⬜ | — |
 | 13.3 | `provides_tools` 影响发现期 import 时机 | 【实证】调研 05 §1 | W10 | ⬜ | — |
 | 13.4 | 19 种 `ctx.register_*` 能力注入面 | 【实证】调研 05 §1（13 真实调用 + 3 平台扩展点 + 3 文档化） | W10 | ⬜ | — |
-| 13.5 | 17 个 hook 事件 | 【实证】调研 05 §1 | W10 | ⬜ | — |
+| 13.5 | hook 事件：**本机可证 15 个**（两个 observability 插件 manifest 并集 + `approval.py` 的 pre/post_approval + `delegate_tool` 的 subagent_start/stop）；「17 个」的另 2 个（最可能 `post_compaction` / `pre_verify`）属【推断】——`VALID_HOOKS` 在 PYZ 内、exe 字节扫描 0 命中 | 【实证】调研 09 §9 | W10 | ⬜ | — |
 | 13.6 | `plugin_guard` 三级裁决（safe/caution/dangerous，`--force` 不得覆盖 dangerous） | 【实证】`tools/plugin_guard.py` | W10 | ⬜ | — |
 | 13.7 | 插件结构限额（400 文件 / 10 MB / 单文件 1 MB / 拒 symlink 逃逸） | 【实证】调研 05 §6 | W10 | ⬜ | — |
 | 13.8 | dashboard 插件契约（manifest.json 8 字段 + 模块级 `router` + `/api/plugins/<name>/`） | 【实证】调研 05 §6 | W10 | ⬜ | — |
