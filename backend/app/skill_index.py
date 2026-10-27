@@ -46,7 +46,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
+# mypy 的 types-PyYAML stub 本机没有、也装不了（无网络）。局部忽略：
+# `app/plugins.py` 也 `import yaml` 且未忽略，那是既有文件、不在本波次改动范围。
+import yaml  # type: ignore[import-untyped]
 
 # ── 数值上限（逐条对齐 Hermes 常量，见调研 04 §3.6）────────────────────────────
 
@@ -716,10 +718,15 @@ class SkillIndex:
         return result
 
     def _signature(self) -> str:
-        """目录元数据摘要：每个目录的 mtime_ns + 条目数 + 路径。
+        """目录 + 文件元数据摘要：``目录 mtime_ns/条目数`` + ``SKILL.md 的 mtime_ns/size``。
 
-        不读文件内容（那是缓存要省掉的开销）；掺条目数是为了兜 NTFS 目录 mtime
-        惰性更新——只看 mtime 会漏掉"新建/删除技能后目录 mtime 没变"。
+        不读文件内容（那是缓存要省掉的开销），但**必须**把每个 SKILL.md 的
+        ``mtime_ns + size`` 掺进来：NTFS 上改文件内容只更新文件自身的 mtime，
+        父目录的 mtime 一动不动。只看目录元数据的话，"用户改了一个技能"这件事
+        要等 TTL 过期才被发现，而"改了没生效"是最容易让人怀疑实现坏了的现象。
+
+        目录条目数是为了兜另一个坑：新建/删除文件时目录 mtime 也可能不更新
+        （Hermes `skills_tool.py:134-137` 记过这个 Windows 坑）。
         """
         digest = hashlib.sha1()
         for tier, root in self.active_roots():
@@ -737,6 +744,13 @@ class SkillIndex:
                 digest.update(
                     f"{dirpath}|{stat.st_mtime_ns}|{len(filenames)}|{len(dirnames)}".encode()
                 )
+                if "SKILL.md" not in filenames:
+                    continue
+                try:
+                    file_stat = os.stat(os.path.join(dirpath, "SKILL.md"))
+                except OSError:
+                    continue
+                digest.update(f"|{file_stat.st_mtime_ns}|{file_stat.st_size}".encode())
         return digest.hexdigest()
 
     # —— 对外 ——

@@ -20,7 +20,7 @@ import app.cli.commands.chat as chat_cli
 from app.cli.main import main
 from app.config import Settings
 from app.main import migrate
-from app.storage import Conversation, Message, Store, Task
+from app.storage import Message, Store, Task
 
 
 class StubRunner:
@@ -32,7 +32,7 @@ class StubRunner:
         self.enqueued: list[str] = []
 
     async def enqueue(self, task_id, resume=None):
-        from app.storage import Message, Task
+        from app.storage import Message
 
         self.enqueued.append(task_id)
         task = await self.store.get(Task, task_id)
@@ -145,7 +145,7 @@ def test_waiting_user_is_resumed(tmp_path, monkeypatch, capsys):
             self.rounds = 0
 
         async def enqueue(self, task_id, resume=None):
-            from app.storage import Message, Task
+            from app.storage import Message
 
             self.enqueued.append(task_id)
             task = await self.store.get(Task, task_id)
