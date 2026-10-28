@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 112 · 🟡 45 · ⬜ 24（完成度 61.9%，截至 W2/W4/W5/W8 收口；按**状态列**口径）
+条目合计 **181**。当前：✅ 116 · 🟡 45 · ⬜ 20（完成度 64.1%，按**状态列**口径）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -27,11 +27,11 @@
 | 1.8 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ✅ | 全局 flag（`main.py` 的 `_global_options`），`orbit -z "…"` 等价 `orbit chat -z "…"`；`tests/test_chat.py::test_oneshot_prints_only_the_final_answer` / `test_global_oneshot_flag_is_equivalent` |
 | 1.9 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ✅ | `app/cli/commands/chat.py`；`tests/test_chat.py` 9 条。**差异**：不接 MCP（避免一次性会话留孤儿进程）、浏览器工具按需启动 |
 | 1.10 | shell 补全脚本 | `hermes completion {bash,zsh,fish}` | W1 | ✅ | `core.py` `run_completion`（额外支持 powershell） |
-| 1.11 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ⬜ | — |
-| 1.12 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ⬜ | — |
+| 1.11 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ✅ | `app/cli/commands/ui.py` 的 `orbit serve`：**只做启动器**——`serve_plan(host, port)` 是纯函数（端口占用检查 + 参数拼装，测试不真起服务），`--status` 只报告端口与进程登记表，`--stop` **如实报未实现**（没有服务进程管理）。`tests/test_console.py` |
+| 1.12 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ✅ | `orbit dashboard`：先探端口是否在监听，在监听才 `webbrowser.open`（**没在监听就不打开**——打开一个连不上的页面是更糟的体验）；`--insecure` 按 Hermes 语义是 **NO-OP**，命令会如实提示「该 flag 在 Orbit 无效果」并给 `orbit serve`；另有 `dashboard pages`（18 页覆盖情况）与 `dashboard replay <session_id>`。`tests/test_console.py` / `tests/test_dashboard.py` |
 | 1.13 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | 🟡 | `orbit desktop` / `orbit gui` **如实报未实现**（exit 3）并给等价做法（`orbit serve` + `orbit dashboard` + `msedge --app=…`），逐条解释 10 个 Hermes flag 为何空转。Orbit 没有原生桌面壳（无 apps/desktop、无任何 Electron/Tauri 工程）。`state=partial`，不谎报 done |
 | 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | 🟡 | `app/cli/commands/acp.py`：stdio 上的 **JSON-RPC 2.0 手写循环**（不引第三方 ACP 库），输入输出可注入（测试用 StringIO）。支持 `initialize` / `session/new` / `session/prompt` / `shutdown`；标准错误码（-32700 解析失败 / -32601 未知方法 / -32602 未知会话 / -32603 内部错），通知（无 id）不回包。**未实现**（docstring 已列）：`session/update` 流式、`session/load|list`、`request_permission`、`session/cancel`、`set_mode|set_model`、`fs/*`、`terminal/*`、`authenticate`。`tests/test_acp.py` |
-| 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
+| 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ✅ | `app/console.py` + `orbit console`：**白名单**安全命令台——只放只读/无害命令（`status` / `doctor` / `config show` / `logs` / `insights` / `monitoring status` 等），**不经 shell**（子进程列表形式），拒 `;` / `|` / `&&` / `$()` / 反引号（shell 注入面）；每次执行记 `<data>/console-audit.jsonl`。**为什么要有它**：这是给「人不在电脑前、通过消息平台远程操作」用的场景，必须假设输入不可信。`tests/test_console.py` |
 | 1.16 | TUI（终端 UI） | `tui/dist` | W12 | 🟡 | `app/tui.py` 最小可用 TUI：三栏布局（左 18 / 中剩余 / 右 20，不够先收右再收左）+ 底部状态栏 + 帮助块；**ASCII 边框**（Unicode 制表符在 CJK 终端是 ambiguous 宽度会错位）；按键 `q` / `Tab` / `j,k` / `?` / Ctrl-C，EOF 不卡死；输入输出可注入（测试用 StringIO 不碰真实终端）。**不是** Hermes 那个完整 TUI：不连库、不流式刷新，格子里是占位行 |
 | 1.17 | 上述 484 条里**有真实现**的比例（当前 **255 / 484**，另有 22 条 `partial`、207 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.18 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
@@ -220,7 +220,7 @@
 | 12.8 | `orbit pairing {list,approve,revoke,clear-pending}`（DM 配对授权） | 【实证】`_raw/sub/pairing__*.txt` | W9 | ✅ | `orbit pairing` 4/4：`list` / `approve` / `revoke` / `clear-pending` |
 | 12.9 | `orbit peer {add,list,remove,dm,run,status,stop}`（跨机器 bot 间 DM） | 【实证】`_raw/sub/peer__*.txt` | W9 | 🟡 | `orbit peer` 7 条实现 4 条：`add` / `list` / `remove` / `status`；`dm` / `run` / `stop` 未做 |
 | 12.10 | `orbit gateway {setup,start,stop,restart,status,run,list,enroll,install,uninstall,migrate-legacy}` | 【实证】`_raw/sub/gateway__*.txt`（11 条） | W9 | 🟡 | `orbit gateway` 12 条实现 6 条：`setup` / `start` / `stop` / `restart` / `status` + 扩展 `doctor`；`run` / `list` / `enroll` / `install` / `uninstall` / `migrate-legacy` 未做 |
-| 12.11 | `orbit monitoring status`（health & diagnostics 导出） | 【实证】`_raw/sub/monitoring__status.txt` | W12 | ⬜ | — |
+| 12.11 | `orbit monitoring status`（health & diagnostics 导出） | 【实证】`_raw/sub/monitoring__status.txt` | W12 | ✅ | `orbit monitoring status`（`app/cli/commands/observability.py`）：输出**不含内容**的健康与诊断摘要（任务/工具/预算计数，不打印消息正文），可 `--json`；另有 `monitoring metrics` 走 `app/metrics.py` 的 12+ 指标。`tests/test_observability.py` |
 
 ## L13 插件层（Hermes: `plugins/` 18 组 / 103 provider）
 
