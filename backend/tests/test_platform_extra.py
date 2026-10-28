@@ -204,15 +204,20 @@ def test_new_platform_specs_are_honest(name):
     assert spec.credentials
 
 
-def test_implemented_count_is_nineteen():
-    """17 → 19：`email`（SMTP）与 `irc`（裸 socket）本轮补上，两者都能离线验证。"""
-    assert len(platforms.IMPLEMENTED_PLATFORMS) == 19
+def test_implemented_count_is_twenty():
+    """19 → 20：`simplex`（本地 daemon 的 WebSocket CLI 命令通道）本轮补上。
+
+    它不需要 SDK 也不需要私钥签名——daemon 的接口就是一条 JSON 命令，
+    连接器可注入，所以"拼命令 → 收发帧 → 解析响应 → 判错"四步离线可验。
+    剩下两个（`buzz` / `photon`）缺的是本机没有的包与 daemon，如实保持未实现。
+    """
+    assert len(platforms.IMPLEMENTED_PLATFORMS) == 20
     pending = [
         platform.value
         for platform in platforms.ALL_PLATFORMS
         if not platforms.PLATFORMS[platform].implemented
     ]
-    assert pending == ["buzz", "photon", "simplex"]
+    assert pending == ["buzz", "photon"]
 
 
 def test_rest_platform_table_documents_every_new_adapter():

@@ -28,15 +28,19 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+from xml.sax.saxutils import escape, quoteattr
 
 from app.platforms import (
     IMPLEMENTED_PLATFORMS,
@@ -334,6 +338,21 @@ class GatewayPaths:
     def paused(self) -> Path:
         """紧急停止哨兵（``<data_dir>/gateway/paused``）。"""
         return self.root / PAUSED_FILENAME
+
+    @property
+    def gateway_id(self) -> Path:
+        """本机的网关身份（``<data_dir>/gateway/gateway-id``）。
+
+        为什么落文件而不是每次现生成：网关 id 要写进中继注册、wake URL 的校验、
+        以及日志对账。每次现生成一个 uuid 会让"注册过的那个 id"再也找不回来 ——
+        而那是 enroll 唯一不可重算的东西。
+        """
+        return self.root / GATEWAY_ID_FILENAME
+
+    @property
+    def setup_state(self) -> Path:
+        """``gateway setup`` 向导留下的**非机密**结果（``<data_dir>/gateway/setup.json``）。"""
+        return self.root / SETUP_FILENAME
 
     def ensure(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)

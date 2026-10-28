@@ -408,14 +408,15 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "send_message",
         "collab",
         "向已接入的消息平台发消息，或列可用 target",
-        status="todo",
-        reason="**做得到、但这一轮刻意不做**：`app/platforms.py` 的 19 个出站适配器都在，"
-        "旁路（console / file / webhook）离线也能验，所以「按 target 发一条」本身不难。"
-        "不做的两条理由：① 归组没有干净的落点 —— collab 域在 `toolsets.DOMAIN_TOOLSETS` 里"
-        "只有 `notion` 一个 toolset（借撑），把平台投递塞进 notion 组会让暴露面清单误导人；"
-        "② 19 家里 17 家要凭证与网络，本机只能验 file/console 两条旁路，"
-        "注册一个「绝大多数 target 都会失败」的工具，正是本模块反复警告的那种坏体验。"
-        "要推它，先给 collab 域一个自己的 toolset，再注册。",
+        ("send_message",),
+        reason="**第三轮做了**：`send_message` 工具（实现见 app/tool_extra_impl2.py）"
+        "`action=list` 列出全部出站目标（21 个适配器 + 3 个未实现平台，逐条写清缺哪个"
+        "凭证/环境变量），`action=send` 走 `app/gateway.py::GatewayService.deliver` —— "
+        "适配器发送、失败重试、`deliveries.jsonl` 记账、平面事件都在那条链上。"
+        "**本机离线可验的只有 console / file 两条旁路**（file 落到 `<data>/outbox.jsonl`），"
+        "其余 17 家要凭证与网络，list 会如实报缺什么。上一轮卡住的那条归组问题本轮解决了："
+        "装配层要给 `collab` 域新开一个 toolset（见 `pending_toolset_mappings()`），"
+        "不再借 `notion` 的壳。",
     ),
     _t("discord", "collab", "Discord 核心动作集（读消息/发消息/搜）", status="unavailable", reason="需要 DISCORD_BOT_TOKEN 与网络。"),
     _t("discord_admin", "collab", "Discord 管理动作集（频道/角色/权限）", status="unavailable", reason="同上。"),
@@ -483,8 +484,13 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "message_agent",
         "meta",
         "bot 模式下给另一个 agent 发消息（条件注册）",
-        status="unavailable",
-        reason="只在 Hermes 的 bot 模式注册；Orbit 没有 bot 模式与多 agent 会话面。",
+        ("send_message",),
+        reason="**第三轮覆盖的是「给另一个 agent 发消息」这件事**，不是 Hermes 的 bot 模式："
+        "`send_message` 的 `peer:<对端名>[/<agent>]` 目标走 `app/peer_client.py::PeerClient.dm`"
+        "（`/peer/dm` 同步返回对端回复正文），对端从 `<data>/gateway/peers.json` 里按名字取。"
+        "**边界**：对端要先 `orbit peer add` 登记、且网络可达；本机无网络，所以这条链的"
+        "证据是 `httpx.MockTransport` 注入下的真跑用例（tests/test_tool_growth_round3.py）。"
+        "Orbit 仍然没有 bot 模式，也没有多 agent 会话面 —— 覆盖的是投递动作，不是那个模式。",
     ),
 )
 
@@ -498,9 +504,14 @@ def orbit_pool() -> tuple[str, ...]:
     * ``app.toolsets.TOOL_TOOLSET`` 里的非 MCP 名字——浏览器 / 联网 / 连接器这些
       由别的模块注册的内置工具（``browser_*`` / ``web_*`` / ``notion_*`` /
       ``github_*`` / ``vault_login``）与运行时特殊处理的 ``ask_user``；
-    * ``app.tool_extra_impl.EXTRA_TOOLS``——**本轮新实现的两个工具**
-      （``tool_describe`` / ``cron_job``）。它们有真实实现、真实 schema、真实分发，
-      但要装配层调一次 ``register_extra_tools(registry)`` 才会进默认注册表。
+    * ``app.tool_extra_impl.EXTRA_TOOLS``——**第一轮新实现的两个工具**
+      （``tool_describe`` / ``cron_job``）；
+    * ``app.tool_extra_impl.GROWTH_TOOLS``——**第二轮新增的 5 个**；
+    * ``app.tool_extra_impl2.ROUND3_TOOLS``——**第三轮新增的 5 个**。
+
+    它们都有真实实现、真实 schema、真实分发，但要装配层各调一次注册函数
+    （``register_extra_tools`` / ``register_growth_tools`` / ``register_round3_tools``）
+    才会进默认注册表。三批分开列，是为了"哪一轮接了几个"能分开数、回滚也能分开回滚。
 
     为什么用声明表而不是 import ``app.browser`` / ``app.web`` 再读它们的 ``*_TOOLS``：
     那些模块会拖进 playwright / httpx，而这张对照表要被 CLI 与测试零成本导入。
@@ -519,6 +530,9 @@ def orbit_pool() -> tuple[str, ...]:
     # MATRIX 5.14 第二轮新增的 5 个（`GROWTH_TOOLS`）。与上一轮那两个分开列，
     # 因为"上一轮接了什么"与"这一轮新增什么"要能分开数（回滚也要能分开回滚）。
     names |= set(growth_tool_names())
+    # MATRIX 5.14 第三轮新增的 5 个（`ROUND3_TOOLS`）：同样是"实现了但还没接线"，
+    # 与上面两批分开列的理由一致。
+    names |= set(round3_tool_names())
     return tuple(sorted(names))
 
 
@@ -546,6 +560,39 @@ def growth_tool_names() -> tuple[str, ...]:
     except Exception:  # noqa: BLE001
         return ()
     return tuple(tool.name for tool in GROWTH_TOOLS)
+
+
+def round3_tool_names() -> tuple[str, ...]:
+    """``app.tool_extra_impl2.ROUND3_TOOLS`` 的名字（**第三轮新增的 5 个**）。
+
+    为什么单独一个函数而不是把三批合并成一个常量：``report()`` 要能分别回答
+    "第一轮 / 第二轮 / 第三轮各接了什么"，而测试也逐批钉名字表（见
+    ``tests/test_tool_growth_round3.py``）。
+    """
+    try:
+        from app.tool_extra_impl2 import ROUND3_TOOLS
+    except Exception:  # noqa: BLE001 - 可选依赖缺失不该让覆盖表整个不可用
+        return ()
+    return tuple(tool.name for tool in ROUND3_TOOLS)
+
+
+def pending_toolset_mappings() -> dict[str, str]:
+    """第三轮那 5 个工具**还需要装配层补**的 toolset 映射（工具名 → toolset）。
+
+    这张表存在的原因：``app/toolsets.py`` 本轮不归这里改，而 ``TOOL_TOOLSET`` 是
+    "工具名 → toolset"的唯一真值源。把"该加哪几行"写成数据，于是
+
+    * 装配层照抄即可（``orbit tools list`` 里它们才会归到正确的组）；
+    * ``tests/test_tool_catalog.py`` 的登记门禁能**只对这 5 个名字**放行，
+      别的名字缺席照样红 —— 放行范围写死在这里，不是一句"以后再说"。
+
+    空字典 = 全部已登记（装配层补完之后这个函数仍可调用，返回值不再被用到）。
+    """
+    try:
+        from app.tool_extra_impl2 import PENDING_TOOLSET_MAPPINGS
+    except Exception:  # noqa: BLE001
+        return {}
+    return dict(PENDING_TOOLSET_MAPPINGS)
 
 
 def registered_extra_tools() -> tuple[str, ...]:
@@ -709,6 +756,20 @@ def report(coverage: Coverage | None = None) -> str:
             )
         if wired:
             lines.append("  已进默认注册表：" + "、".join(wired))
+    # 第三轮（MATRIX 5.14 第三轮）：又一批"实现了但还没接线"的工具。**单列一段**，
+    # 理由同上：三批的进度要能分开回答，回滚也要能分开回滚。
+    round3 = round3_tool_names()
+    if round3:
+        lines.append("")
+        lines.append(
+            f"第三轮新实现 {len(round3)} 个工具（app/tool_extra_impl2.py）：" + "、".join(round3)
+        )
+        mappings = pending_toolset_mappings()
+        if mappings:
+            lines.append(
+                "  其中**还没在 `toolsets.TOOL_TOOLSET` 登记**（装配层加这几行即可）："
+                + "、".join(f"{name} → {toolset}" for name, toolset in sorted(mappings.items()))
+            )
     return "\n".join(lines)
 
 
@@ -722,6 +783,8 @@ __all__ = [
     "extra_tool_names",
     "orbit_coverage",
     "orbit_pool",
+    "pending_toolset_mappings",
     "registered_extra_tools",
     "report",
+    "round3_tool_names",
 ]

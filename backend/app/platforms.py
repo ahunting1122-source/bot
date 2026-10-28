@@ -1,4 +1,4 @@
-"""多平台适配层：22 个平台枚举、适配器基类契约、19 个可离线验证的适配器。
+"""多平台适配层：22 个平台枚举、适配器基类契约、20 个可离线验证的适配器。
 
 为什么单独一层（而不是把"发消息"塞进 tools 或 cron）：
 
@@ -12,7 +12,7 @@
 
 本轮的诚实边界（不要被下面的类名骗了）：
 
-- **19 个平台真的能发消息**（22 里的 19），分四组：
+- **20 个平台真的能发消息**（22 里的 20），分五组：
   1. 简单 HTTP POST：``ntfy`` / ``raft`` / ``a2a``（各自的 body 形状写在工厂里）；
   2. 8 个 webhook 平台：``slack`` / ``discord`` / ``google_chat`` / ``teams`` /
      ``dingtalk`` / ``wecom`` / ``feishu`` / ``telegram``（形状在 `WEBHOOK_PLATFORMS`）；
@@ -26,9 +26,14 @@
      webhook 也不是 REST，各自一个类（:class:`EmailAdapter` / :class:`IrcAdapter`），
      把"连服务器"这一步做成**可注入**（``smtp_factory`` / ``connector``），
      于是构造 MIME、连接、发信三步在无网络环境下都能断言。见 `STDLIB_PLATFORMS`。
-  剩下 3 个（``buzz`` / ``photon`` / ``simplex``）只有声明
-  （``implemented=False``），一发送就抛 :class:`PlatformNotImplemented` 并说清缺什么
-  凭证。**不假装支持**。
+  5. 1 个 **WebSocket 协议**平台（``simplex``）：连本地 simplex-chat daemon，
+     发的是 daemon 自己的 CLI 命令（``/_send``）。连接器同样可注入
+     （:class:`SimplexAdapter`），所以"拼命令 → 收发帧 → 解析响应 → 判错"四步
+     离线可验。
+  剩下 2 个（``buzz`` / ``photon``）只有声明（``implemented=False``），一发送就抛
+  :class:`PlatformNotImplemented` 并说清缺什么。**不假装支持**，而且"为什么不做"
+  写的是实测结论：本机 ``coincurve``/``ecdsa``/``secp256k1``/``grpcio`` 四个包一个
+  都没有（见各自 `PlatformSpec.reason`）。
 - ``ConsoleAdapter`` / ``FileAdapter`` 是**开发旁路**（stdout / ``outbox.jsonl``），
   不对应任何真实平台：它们存在的理由是"本机无网络时也要能端到端验证投递路径"。
 - 交互 UX（按钮/菜单/模态/线程/引用回复）默认**返回** :class:`NotSupported`，
@@ -138,7 +143,9 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         label="Buzz",
         description="轮询 + 本地 CLI：shell out 到 buzz 命令，走 Nostr relay 收发",
         credentials=("BUZZ_PRIVATE_KEY",),
-        reason="需要 Nostr 私钥与本地 buzz CLI；本机无网络也装不了 buzz，无法验证任何一步",
+        reason="需要 Nostr 私钥签名（secp256k1 / BIP-340 Schnorr）与本地 buzz CLI。"
+        "本机实测 `coincurve` / `ecdsa` / `secp256k1` 三个包**都没有**，也没有 buzz CLI、"
+        "没有 relay——签名这一步无法离线验证，所以不做",
     ),
     Platform.DINGTALK: PlatformSpec(
         platform=Platform.DINGTALK,
@@ -256,7 +263,9 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         label="Photon",
         description="长连接 gRPC：经受监管的 Node sidecar（无 webhook / 无签名密钥）",
         credentials=("PHOTON_PROJECT_ID", "PHOTON_PROJECT_SECRET"),
-        reason="需要 spectrum-ts Node sidecar + 项目凭证 + 设备登录 token（auth.json）",
+        reason="需要 `grpcio` + spectrum-ts 的 Node sidecar + 项目凭证 + 设备登录 token"
+        "（auth.json）。本机实测 `grpcio` / `grpc` **都没有**，也没有 Node sidecar——"
+        "gRPC 这一层既实现不了也验证不了",
     ),
     Platform.RAFT: PlatformSpec(
         platform=Platform.RAFT,
@@ -270,9 +279,14 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     Platform.SIMPLEX: PlatformSpec(
         platform=Platform.SIMPLEX,
         label="SimpleX",
-        description="长连接 WebSocket：连本地 simplex-chat daemon",
+        description="长连接 WebSocket：连本地 simplex-chat daemon，用它的 CLI 命令（/_send）发消息",
         credentials=("SIMPLEX_WS_URL",),
-        reason="需要一个跑起来的 simplex-chat daemon（本机没有），且 SimpleX 联系人 ID 是连接时生成的不透明值",
+        implemented=True,
+        adapter="simplex",
+        scope="仅出站文本（WebSocket 一条 `{\"corrId\":…,\"cmd\":\"/_send @<contact> <text>\"}`，"
+        "按 corrId 匹配响应、`chatCmdError` 翻成失败；daemon 默认 ws://127.0.0.1:5225，"
+        "连接器可注入所以离线可验）；无入站（订阅 daemon 推送、灌进 on_message）、"
+        "无附件与群组管理、无联系人创建（联系人 id 是 daemon 生成的不透明值，本层不猜）",
     ),
     Platform.SLACK: PlatformSpec(
         platform=Platform.SLACK,
@@ -1476,6 +1490,321 @@ class IrcAdapter(PlatformAdapter):
         )
 
 
+# ── SimpleX：连本地 daemon 的 WebSocket 命令通道 ─────────────────────────────
+#
+# 这是 22 个平台里唯一一个"协议本身不是 HTTP"的（buzz 是 Nostr relay、photon 是
+# gRPC sidecar、simplex 是本地 daemon 的 WebSocket 命令通道）。重新评估的结论：
+#
+# * `buzz`：Nostr 事件签名要 secp256k1（BIP-340 Schnorr）。本机实测
+#   `coincurve` / `ecdsa` / `secp256k1` **三个包都没有**，而且没有 buzz CLI、
+#   没有 relay —— 两个判据（实现存在吗 / 本机能验吗）都是否，如实保持未实现。
+# * `photon`：要 `grpcio` + spectrum-ts 的 Node sidecar + 设备登录 token。
+#   本机实测 `grpcio` / `grpc` 都没有，保持未实现。
+# * `simplex`：**这一层能做**。daemon 的接口就是一条 WebSocket 上的 JSON 命令
+#   （`{"corrId": …, "cmd": "/_send @<contact> <text>"}`），不需要 SDK、不需要
+#   私钥签名，`websockets` 本机已装。所以"连 daemon + 发消息"这一层在这里是真的，
+#   只是**入站**（订阅 daemon 的推送）与群组/文件没做，`scope` 里如实写。
+
+#: daemon 的默认地址。SimpleX 的 CLI 模式默认监听 5225（`simplex-chat -p 5225`）。
+SIMPLEX_DEFAULT_URL = "ws://127.0.0.1:5225"
+
+#: 一次 `_send` 最多读多少帧 daemon 的推送就要放弃。
+#: 为什么要上限：daemon 会**主动推**订阅事件（新消息、状态变化），`corrId` 对不上的
+#: 帧必须跳过；但没有上限的话，一个坏掉的 daemon 会让 `send_text` 永远转下去。
+SIMPLEX_MAX_FRAMES = 12
+
+
+def _default_simplex_connector(url: str, timeout: float) -> Any:
+    """默认连接器：`websockets` 的同步客户端。
+
+    **延迟 import**：`websockets` 是可选的（不在 pyproject 的 dependencies 里）。
+    没有它的时候报 `PlatformNotImplemented` 而不是 ImportError —— 前者带"装什么"，
+    后者只会甩一个栈给用户。
+    """
+    try:
+        from websockets.sync.client import connect
+    except ImportError as exc:  # pragma: no cover - 本机装了 websockets
+        raise PlatformNotImplemented(
+            "simplex",
+            reason="需要 `websockets` 包才能连 SimpleX daemon 的 WebSocket（本机未安装）",
+            credentials=("SIMPLEX_WS_URL",),
+        ) from exc
+    return connect(url, open_timeout=timeout, close_timeout=timeout)
+
+
+def simplex_target(channel: str) -> str:
+    """把 channel 规范成 daemon 认的联系人标识。
+
+    SimpleX 的联系人 id 是 daemon 生成的**不透明数字**，命令里要带前缀：
+    ``@42`` = 单聊、``#42`` = 群组。用户手写时经常会漏掉前缀，这里补上默认的 ``@``
+    （单聊）——但**不猜 id 本身**：传进来的必须是 daemon 已经告诉过你的那个数字。
+    """
+    text = str(channel or "").strip()
+    if not text:
+        return ""
+    if text[0] in "@#":
+        return text
+    return f"@{text}"
+
+
+def simplex_command(channel: str, text: str) -> str:
+    """拼 daemon 的命令行文本：``/_send @<contact> <正文>``。
+
+    **不做转义**：SimpleX 的 CLI 协议里正文就是行尾剩下的全部内容（换行会被当成
+    命令分隔），所以这里只把换行压成空格 —— 逐字符转义反而会改变用户看到的正文。
+    """
+    target = simplex_target(channel)
+    body = " ".join(str(text or "").splitlines()).strip()
+    return f"/_send {target} {body}"
+
+
+class SimplexAdapter(PlatformAdapter):
+    """SimpleX：连本地 ``simplex-chat`` daemon 的 WebSocket，用它的 CLI 命令发消息。
+
+    **可注入的连接器**（``connector``）是这一层的核心设计，理由与 IRC / 邮件一致：
+    本机没有 daemon、也没有网络，只有把"开连接"这一步做成可注入的，构造命令、
+    收发帧、解析响应、判错这四步才能在离线环境里被完整断言 —— 否则它只是一段
+    没人跑过的代码。
+
+    诚实边界（写进 `PLATFORMS[Platform.SIMPLEX].scope`）：
+
+    * 做的是**出站文本**：一条 `/_send`，等 daemon 回 `corrId` 匹配的那一帧；
+    * 入站（订阅 daemon 推送、把消息灌进 gateway 的 `on_message`）**没做**；
+    * 附件、群组管理、联系人创建都没做；
+    * `available()` 只判"daemon 地址配了没"，**不去连**：本机无网络，
+      一个会真去连的 `available()` 在离线环境里要么超时、要么谎报"daemon 在线"。
+    """
+
+    name = "simplex"
+    platform = Platform.SIMPLEX
+
+    #: 这个适配器读哪些环境变量（用于"缺哪个变量"的报错与 health 展示）。
+    ENV_NAMES: tuple[str, ...] = ("SIMPLEX_WS_URL",)
+
+    def __init__(
+        self,
+        url: str = "",
+        *,
+        name: str = "simplex",
+        connector: Callable[[str, float], Any] | None = None,
+        timeout: float = 10.0,
+        max_frames: int = SIMPLEX_MAX_FRAMES,
+    ) -> None:
+        super().__init__(name=name)
+        self.url = str(url or "").strip()
+        self.connector = connector
+        self.timeout = max(1.0, float(timeout))
+        self.max_frames = max(1, int(max_frames))
+        #: 当前连接（`start()` 之后才有）。`None` = 还没连或已关。
+        self._connection: Any = None
+
+    # ── 能力 ──
+    def available(self) -> bool:
+        """daemon 地址配了就算"可能可用"。**不探测**（见类 docstring 最后一条）。"""
+        return bool(self.url)
+
+    # ── 生命周期 ──
+    def start(self) -> None:
+        """建立到 daemon 的连接（幂等：已经连着就什么都不做）。"""
+        if self._connection is not None:
+            return
+        self._connection = self._open()
+
+    def stop(self) -> None:
+        """关连接。**可重复调用**（契约要求：重复 stop 不报错）。"""
+        connection, self._connection = self._connection, None
+        if connection is None:
+            return
+        try:
+            connection.close()
+        except Exception:  # noqa: BLE001 —— 关连接失败不该把调用方带崩
+            return None
+
+    # ── 发送 ──
+    def send_text(self, channel: str, text: str) -> SendResult:
+        """一条 `/_send`。失败**返回** ``SendResult(ok=False)``（网络/协议错误可重试）。"""
+        if not self.available():
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=channel,
+                error=(
+                    "未配置 simplex 的 daemon 地址：设置 SIMPLEX_WS_URL"
+                    "（默认 `ws://127.0.0.1:5225`，daemon 用 `simplex-chat -p 5225` 起）"
+                ),
+            )
+        target = simplex_target(channel)
+        if not target:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=channel,
+                error=(
+                    "SimpleX 的 channel 必须是 daemon 给你的联系人 id（如 `@42` / `#42`）；"
+                    "它是连接时生成的不透明值，本层不会去猜。"
+                ),
+            )
+        body = " ".join(str(text or "").splitlines()).strip()
+        if not body:
+            return SendResult(
+                ok=False, platform=self.name, channel=target, error="正文是空的：没什么可发的。"
+            )
+        corr_id = uuid.uuid4().hex
+        frame = json.dumps(
+            {"corrId": corr_id, "cmd": simplex_command(target, body)}, ensure_ascii=False
+        )
+        try:
+            connection = self._ensure_connection()
+            connection.send(frame)
+            reply = self._await_corr(connection, corr_id)
+        except PlatformNotImplemented as exc:
+            return SendResult(ok=False, platform=self.name, channel=target, error=str(exc))
+        except Exception as exc:  # noqa: BLE001 —— 连接/协议错误都归成"这次没发出去"
+            # 出错就把连接丢掉：daemon 重启或帧错位之后，复用同一条连接只会继续错。
+            self.stop()
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=target,
+                error=f"与 SimpleX daemon 通信失败：{type(exc).__name__}: {exc}",
+                detail={"corr_id": corr_id},
+            )
+        return self._parse_reply(reply, target, corr_id)
+
+    def send_media(self, channel: str, path: str, *, caption: str = "") -> SendOutcome:
+        """附件没做：daemon 的 `/_send file` 要先把文件路径交给它自己的文件服务器。"""
+        return self._not_supported(
+            "send_media", "SimpleX 适配器只做文本；附件要 daemon 侧的文件服务器配合"
+        )
+
+    def health(self) -> AdapterHealth:
+        """自检：地址配了没、连接开着没。**不连**（同 `available()`）。"""
+        configured = self.available()
+        connected = self._connection is not None
+        if not configured:
+            return AdapterHealth(
+                ok=False,
+                platform=self.name,
+                detail="未配置 SIMPLEX_WS_URL（daemon 默认 ws://127.0.0.1:5225）",
+                extra={"env": list(self.ENV_NAMES), "connected": False},
+            )
+        return AdapterHealth(
+            ok=True,
+            platform=self.name,
+            detail=(
+                f"daemon 地址已配置：{self.url}"
+                + ("；连接已建立" if connected else "；尚未连接（首次 send 时连）")
+            ),
+            extra={"env": list(self.ENV_NAMES), "connected": connected, "url": self.url},
+        )
+
+    def standalone_sender_fn(self) -> StandaloneSender:
+        return self.send_text
+
+    # ── 内部 ──
+    def _open(self) -> Any:
+        """开一条到 daemon 的 WebSocket。**唯一碰网络的一步**。"""
+        connector = self.connector or _default_simplex_connector
+        return connector(self.url, self.timeout)
+
+    def _ensure_connection(self) -> Any:
+        if self._connection is None:
+            self.start()
+        return self._connection
+
+    def _await_corr(self, connection: Any, corr_id: str) -> dict[str, Any]:
+        """读帧直到 `corrId` 对上（daemon 会主动推订阅事件，必须跳过）。
+
+        超过 ``max_frames`` 就放弃：那说明 daemon 在推别的流，或者这一条命令
+        永远不会被回应 —— 两种情况都不该让一次发送无限期挂着。
+        """
+        for _ in range(self.max_frames):
+            raw = connection.recv(timeout=self.timeout)
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError):
+                continue  # 非 JSON 的帧（daemon 的启动横幅之类）直接跳过
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("corrId") or "") == corr_id:
+                return payload
+        raise TimeoutError(
+            f"daemon 在 {self.max_frames} 帧内没有回应 corrId={corr_id}"
+            "（它可能只推订阅事件，或这条命令不被支持）"
+        )
+
+    def _parse_reply(self, reply: Mapping[str, Any], target: str, corr_id: str) -> SendResult:
+        """把 daemon 的响应翻成 `SendResult`。
+
+        SimpleX 的响应是 ``{"corrId":…, "resp": {"type": …}}``：成功是
+        ``newChatItems`` / ``newMemberItems`` 这类，失败统一是 ``chatCmdError``。
+        """
+        resp = reply.get("resp")
+        if not isinstance(resp, dict):
+            return SendResult(
+                ok=True,
+                platform=self.name,
+                channel=target,
+                message_id=corr_id,
+                detail={"corr_id": corr_id, "resp_type": "（无 resp 字段）"},
+            )
+        kind = str(resp.get("type") or "")
+        if kind == "chatCmdError":
+            error = resp.get("chatError") or {}
+            detail = error.get("errorType") if isinstance(error, dict) else error
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=target,
+                error=f"daemon 拒绝了这条命令：{detail or '（未给出原因）'}",
+                detail={"corr_id": corr_id, "resp_type": kind},
+            )
+        return SendResult(
+            ok=True,
+            platform=self.name,
+            channel=target,
+            message_id=self._item_id(resp) or corr_id,
+            detail={"corr_id": corr_id, "resp_type": kind},
+        )
+
+    @staticmethod
+    def _item_id(resp: Mapping[str, Any]) -> str:
+        """从 `newChatItems` 里取 daemon 分配的消息 id（取不到就返回空串）。"""
+        items = resp.get("chatItems")
+        if not isinstance(items, list) or not items:
+            return ""
+        first = items[0]
+        if not isinstance(first, dict):
+            return ""
+        chat_item = first.get("chatItem")
+        if not isinstance(chat_item, dict):
+            return ""
+        meta = chat_item.get("meta")
+        if not isinstance(meta, dict):
+            return ""
+        return str(meta.get("itemId") or "")
+
+
+def simplex_adapter(
+    *,
+    url: str | None = None,
+    connector: Callable[[str, float], Any] | None = None,
+) -> SimplexAdapter:
+    """SimpleX：没配 `SIMPLEX_WS_URL` 时退回 daemon 的默认本地地址。
+
+    为什么默认值不是空串：daemon 默认就监听 5225，而"没配地址"与"daemon 没起"
+    在用户眼里是同一件事。给一个默认地址之后，`health()` 至少能说清
+    "地址是 ws://127.0.0.1:5225，只是还没连上"。
+    """
+    resolved = url if url is not None else os.environ.get("SIMPLEX_WS_URL", "")
+    return SimplexAdapter(
+        (resolved or SIMPLEX_DEFAULT_URL).strip(),
+        connector=connector,
+    )
+
+
 def _as_port(value: int | str | None, default: int) -> int:
     """端口解析：坏值退回默认端口（不抛——端口写错不该让整层建不起来）。"""
     if value is None or str(value).strip() == "":
@@ -2003,9 +2332,9 @@ REST_ADAPTER_FACTORIES: dict[Platform, Any] = {
 def default_adapters(
     data_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None
 ) -> dict[str, PlatformAdapter]:
-    """默认适配器集合：**19 个已实现平台** + 2 个开发旁路（console / file）。
+    """默认适配器集合：**20 个已实现平台** + 2 个开发旁路（console / file）。
 
-    19 个真实平台分四组：
+    20 个真实平台分五组：
     - 简单 HTTP POST：`ntfy` / `raft` / `a2a`（各自的 body 形状写在工厂里）
     - webhook 平台：`slack` / `discord` / `google_chat` / `teams` / `dingtalk` /
       `wecom` / `feishu` / `telegram`（形状在 `WEBHOOK_PLATFORMS`，逐条可对照官方文档）
@@ -2014,8 +2343,10 @@ def default_adapters(
       路径里的资源 id 与 form-encoded body）
     - 标准库协议平台：`email`（SMTP）/ `irc`（裸 socket）——形状在
       `STDLIB_PLATFORMS`，连接那一步可注入，所以离线也能验证
+    - WebSocket 协议平台：`simplex`（本地 daemon 的 CLI 命令通道）——连接器可注入，
+      所以离线也能验证"拼命令 → 收发帧 → 解析响应 → 判错"四步
 
-    其余 3 个平台（`buzz` / `photon` / `simplex`）仍然没有适配器，
+    其余 2 个平台（`buzz` / `photon`）仍然没有适配器，
     `resolve_adapter` 会返回 `UnimplementedAdapter`，发送时抛
     `PlatformNotImplemented` 并给出所需凭证与 SDK。**没有假装支持。**
     """
@@ -2039,6 +2370,8 @@ def default_adapters(
     # 两个标准库协议平台：注册名与平台枚举值同名，不需要上面那种双键处理。
     pool["email"] = email_adapter()
     pool["irc"] = irc_adapter()
+    # WebSocket 协议平台：同样注册名与平台枚举值同名。
+    pool["simplex"] = simplex_adapter()
     return pool
 
 
@@ -2944,11 +3277,14 @@ INBOUND_MISSING: dict[Platform, str] = {
     Platform.SMS: "Twilio 入站走 webhook（要公网 HTTPS + 签名校验）。",
     Platform.HOMEASSISTANT: "Home Assistant 入站走 WebSocket 事件流（要实例地址 + 长连接）。",
     Platform.MATRIX: "Matrix 入站走 /sync 长轮询（要 homeserver 可达 + access token）。",
-    # 这 3 个连出站都没有（见 `PLATFORMS` 的 `implemented=False`），入站自然也没有：
+    # 这 2 个连出站都没有（见 `PLATFORMS` 的 `implemented=False`），入站自然也没有：
     # 它们缺的是**平台私有 daemon / 设备登录**，不是"少写一个轮询函数"。
     Platform.BUZZ: "buzz 要私有 daemon 与设备私钥，出站都未实现（见 PLATFORMS 的 reason）。",
     Platform.PHOTON: "photon 要私有 daemon 与设备私钥，出站都未实现。",
-    Platform.SIMPLEX: "simplex 要 simplex-chat CLI + 本地 daemon，出站都未实现。",
+    # simplex 的出站已经有了（`SimplexAdapter`），入站是**另一件事**：daemon 会主动
+    # 推订阅事件，要把它们接进 gateway 的 on_message 还得有一个常驻订阅循环 —— 本轮没做。
+    Platform.SIMPLEX: "simplex 出站已实现（SimplexAdapter），但入站要常驻订阅 daemon 的推送流"
+    "（订阅事件 → 归并成 InboundMessage → ack），本轮没做。",
 }
 
 
@@ -3073,11 +3409,14 @@ __all__ = [
     "REST_ADAPTER_FACTORIES",
     "REST_PLATFORMS",
     "RenderedChoices",
+    "SIMPLEX_DEFAULT_URL",
+    "SIMPLEX_MAX_FRAMES",
     "SLASH_CHOICES",
     "STDLIB_PLATFORMS",
     "SendOutcome",
     "SendResult",
     "SendTarget",
+    "SimplexAdapter",
     "StandaloneSender",
     "UX_LABELS",
     "UxCapability",
@@ -3103,6 +3442,9 @@ __all__ = [
     "render_choices",
     "resolve_adapter",
     "send_clarify",
+    "simplex_adapter",
+    "simplex_command",
+    "simplex_target",
     "sms_adapter",
     "spec_for",
     "whatsapp_cloud_adapter",

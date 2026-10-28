@@ -186,7 +186,11 @@ def test_instance_rows_says_single_instance_honestly(tmp_path):
     row = view["instances"][0]
     assert row["is_local"] is True
     assert row["dispatcher"] == "未运行"
-    assert row["platforms"] == "19/22"
+    # 数量跟着 `IMPLEMENTED_PLATFORMS` 走，不写死：加一个适配器不该改这条测试，
+    # 它要守的是"报告里的分子分母与实际一致"。
+    from app.platforms import IMPLEMENTED_PLATFORMS, PLATFORMS
+
+    assert row["platforms"] == f"{len(IMPLEMENTED_PLATFORMS)}/{len(PLATFORMS)}"
 
 
 def test_instance_rows_reads_multi_instance_registry(tmp_path):
@@ -485,14 +489,15 @@ def test_stdlib_platform_specs_are_honest():
     assert set(platforms.STDLIB_PLATFORMS) == {platforms.Platform.EMAIL, platforms.Platform.IRC}
 
 
-def test_implemented_platform_count_is_nineteen():
-    assert len(platforms.IMPLEMENTED_PLATFORMS) == 19
+def test_implemented_platform_count_is_twenty():
+    """19 → 20：`simplex`（本地 daemon 的 WebSocket CLI 命令通道）本轮补上。"""
+    assert len(platforms.IMPLEMENTED_PLATFORMS) == 20
     pending = [
         platform.value
         for platform in platforms.ALL_PLATFORMS
         if not platforms.PLATFORMS[platform].implemented
     ]
-    assert pending == ["buzz", "photon", "simplex"]
+    assert pending == ["buzz", "photon"]
 
 
 def test_default_adapters_include_email_and_irc(tmp_path):

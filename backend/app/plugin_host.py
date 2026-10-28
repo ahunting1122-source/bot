@@ -44,15 +44,23 @@
   钩子进了宿主的注册表、能被 emit 到"，不保证"主循环会 emit 那个事件"。
 - ``dispatch_slash`` 是斜杠命令的最后一段（真的调 handler）。**接口已冻结**：
   `dispatch_slash(text) -> (name, outcome) | None`（不是插件命令返回 ``None``，调用方
-  把它当普通消息）。它仍没有调用方——``app/cli/commands/chat.py`` 由装配层接线——
-  所以 ``register_slash_command`` 保持 ``exposed``，但 ``ready=True``。
-- MATRIX 13.4 的第二轮把 ``exposed`` 那 4 条的**宿主侧入口**都建起来了（见
-  :meth:`PluginHost.memory_providers` / :meth:`PluginHost.exporters` /
-  ``ACTION_ROUTES`` + :meth:`PluginHost.dispatch_action` / :meth:`PluginHost.dispatch_slash`）。
-  **这不等于 wired**：``wired`` 的判据是"有人真的来取"，而取它的那几行分别在
-  ``app/memory_providers.py`` 的调用方、``app/exporters.py`` 的池子合并、
-  ``app/dashboard_api.py`` 的 webhook 收件路径与 ``app/cli/commands/chat.py`` 的输入循环里
-  ——都不在本模块。所以状态仍是 ``exposed``，只是多了一个可断言的 ``ready``。
+  把它当普通消息）。异步孪生是 :meth:`PluginHost.dispatch_slash_async`（HTTP 路由走它，
+  因为 ``_run_sync`` 在运行中的事件循环里只能如实报错）。
+- MATRIX 13.4 的第三轮把 ``exposed`` 里的两条真的推到了 ``wired``，靠的是**在宿主里
+  建出真实调用方**而不是改别人的文件：
+
+  * ``register_slack_action_handler`` —— :meth:`PluginHost.mount_routes` 提供
+    ``POST /api/plugin/actions``（解析 Slack Block Kit 的 ``actions[].action_id``）与
+    ``POST /api/plugin/actions/{action_id}``，两条都真的转给
+    :meth:`PluginHost.dispatch_action`；
+  * ``register_slash_command`` —— 同一条路由表里的 ``POST /api/plugin/slash`` 真的调
+    :meth:`PluginHost.dispatch_slash_async` 并带回 handler 的返回值。
+
+  另外两条仍是 ``exposed``，缺的那一步不在本模块：``register_memory_provider`` 缺装配处
+  把 provider 传给 ``build_router``（本模块已给 :meth:`PluginHost.memory_provider_for`），
+  ``register_observability_exporter`` 缺主循环的发射点（``app/hooks.py::WIRING_POINTS``，
+  本模块已给 :meth:`PluginHost.exporters_for`）。**入口就位 ≠ 已经跑起来**，
+  所以 ``ready`` 与 ``wired`` 始终是两个字段。
 """
 
 from __future__ import annotations
@@ -230,6 +238,8 @@ class PluginHost:
         #: 本宿主收到的 ``action_id → 回调``（从插件上下文搬来；模块级 ``ACTION_ROUTES``
         #: 是同一份事实的进程级视图，供拿不到宿主实例的调用方查）。
         self.action_routes: dict[str, Any] = {}
+        #: 已经挂到 FastAPI app 上的入站路由（挂过就不再挂第二遍）。
+        self._mounted_routes: list[str] = []
 
     # ── 装配 ────────────────────────────────────────────────────────────────
     @classmethod
@@ -415,12 +425,129 @@ class PluginHost:
             return name, outcome
         return None
 
+    async def dispatch_slash_async(self, text: str) -> tuple[str, Any] | None:
+        """``dispatch_slash`` 的**异步孪生**（给 HTTP / 异步入口用）。
+
+        为什么不能只有同步那个：``_run_sync`` 在"已经有运行中事件循环"时会**如实报错**
+        （它没法 await）。FastAPI 的路由天然在事件循环里，所以异步入口必须走这条路，
+        否则"插件写了个 async 斜杠命令"就变成"点了没反应 + 一条看不懂的异常"。
+
+        ``dispatch_slash`` 的签名**保持不变**（它已被测试与文档冻结成
+        ``dispatch_slash(text) -> (name, outcome) | None``），这里只是加一个兄弟方法。
+        """
+        for item in self.runtime.loaded:
+            context = item.context
+            if context is None:
+                continue
+            found = plugin_capabilities.resolve_slash_command(context, text)
+            if found is None:
+                continue
+            name, handler, rest = found
+            outcome = handler(rest)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            return name, outcome
+        return None
+
+    def mount_routes(self, app: Any) -> dict[str, Any]:
+        """把宿主自己的**入站路由**挂到 FastAPI app 上（幂等）。返回挂了哪几条。
+
+        这三条路由就是 MATRIX 13.4 里"缺的那一层"——它们都是**真实的生产调用方**：
+
+        * ``POST /api/plugin/actions/{action_id}`` —— 显式 id 的动作回调（Slack 交互式
+          按钮点进来的最小形态）；
+        * ``POST /api/plugin/actions`` —— **Slack Block Kit 整包**：从 ``actions[].action_id``
+          里取出 id 再转给 :meth:`dispatch_action`。`app/dashboard_api.py` 的 webhook
+          收件路径此前只把载荷落进收件箱、没有解析这一段，所以插件登记的回调永远等不到
+          人来调；这一段补上之后 `register_slack_action_handler` 才算真的有消费者；
+        * ``POST /api/plugin/slash`` —— 斜杠命令的 HTTP 入口：调
+          :meth:`dispatch_slash_async`，**真的执行插件 handler** 并把返回值原样带回。
+
+        为什么放在宿主而不是 `app/dashboard_api.py`：那三条路由属于"插件宿主"这一层，
+        与 dashboard 的页面/静态资源无关；放在这里，`main.py` 粘一行
+        :data:`MAIN_WIRING_CODE` 就同时得到路由，不需要再改第二个文件。
+
+        **边界**：这些路由只有 `attach_to_app` 被调过之后才存在（也就是 `main.py` 粘上
+        那一行之后）。本机单用户 loopback，与 `/api/*` 其余端点同一暴露面；
+        真部署到公网时必须先有认证层（`register_dashboard_auth` 仍是 unsupported 的原因）。
+        """
+        post = getattr(app, "post", None)
+        if not callable(post):
+            return {
+                "routes": [],
+                "skipped": f"{type(app).__name__} 没有 post()（不是 FastAPI app，跳过入站路由）",
+            }
+        if self._mounted_routes:
+            return {"routes": list(self._mounted_routes), "skipped": "已挂载过（幂等）"}
+
+        async def plugin_action(
+            action_id: str, payload: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            body = dict(payload or {})
+            outcome = self.dispatch_action(action_id, body)
+            return {
+                "ok": outcome is not None,
+                "action_id": action_id,
+                "outcome": _jsonable(outcome),
+            }
+
+        async def plugin_block_kit(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            body = dict(payload or {})
+            raw = body.get("actions")
+            handled: list[dict[str, Any]] = []
+            for item in raw if isinstance(raw, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                key = str(item.get("action_id") or "").strip()
+                if not key:
+                    continue
+                outcome = self.dispatch_action(key, item)
+                handled.append(
+                    {"action_id": key, "handled": outcome is not None, "outcome": _jsonable(outcome)}
+                )
+            return {
+                "ok": bool(handled),
+                "handled": handled,
+                # 查不到的 action_id 不是错误：按钮可能来自已经卸载的插件（消息还在
+                # 聊天记录里），这时"什么都不做"是正确行为，Slack 也不该被 500 触发重投。
+                "note": "按 actions[].action_id 逐条派发；未登记的 action_id 返回 handled=false。",
+            }
+
+        async def plugin_slash(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            text = str((payload or {}).get("text") or "")
+            found = await self.dispatch_slash_async(text)
+            if found is None:
+                return {
+                    "handled": False,
+                    "text": text,
+                    "note": "不是已登记的插件斜杠命令（调用方应把它当普通消息处理，不吞输入）。",
+                }
+            name, outcome = found
+            return {"handled": True, "name": name, "outcome": _jsonable(outcome)}
+
+        routes: list[str] = []
+        try:
+            post("/api/plugin/actions/{action_id}", name="orbit_plugin_action")(plugin_action)
+            post("/api/plugin/actions", name="orbit_plugin_block_kit")(plugin_block_kit)
+            post("/api/plugin/slash", name="orbit_plugin_slash")(plugin_slash)
+            routes = [
+                "POST /api/plugin/actions/{action_id}",
+                "POST /api/plugin/actions",
+                "POST /api/plugin/slash",
+            ]
+        except Exception as exc:  # noqa: BLE001 —— 挂不上不该让宿主起不来
+            log.warning("插件入站路由挂载失败（已隔离）：%s", exc)
+            return {"routes": [], "skipped": f"{type(exc).__name__}: {exc}"}
+        self._mounted_routes = routes
+        return {"routes": list(routes), "skipped": ""}
+
     def attach_to_app(self, app: Any) -> dict[str, Any]:
         """把宿主挂到一个 FastAPI app 上——``app/main.py`` 需要的**那一行**。
 
-        做三件事：① ``start()``（warmup + 接线）；② 把宿主记到 ``app.state.plugin_host``
+        做四件事：① ``start()``（warmup + 接线）；② 把宿主记到 ``app.state.plugin_host``
         （之后任何请求都能拿到同一个宿主实例）；③ 挂 dashboard 插件路由
-        （:func:`app.plugin_dashboard.mount_into_app`，**会执行第三方插件代码**）。
+        （:func:`app.plugin_dashboard.mount_into_app`，**会执行第三方插件代码**）；
+        ④ 挂宿主自己的入站路由（:meth:`mount_routes`：动作回调与斜杠命令的 HTTP 入口）。
 
         ``main.py`` 是禁改区，所以本方法目前没有生产调用方；一旦有人调用，
         :meth:`describe` 的 ``wired_into_main`` 立刻变成 ``True``——它查的是"有没有人真的
@@ -444,7 +571,11 @@ class PluginHost:
         except Exception as exc:  # noqa: BLE001 —— 挂载失败不该让宿主起不来
             mounted = {"error": f"{type(exc).__name__}: {exc}"}
             log.warning("dashboard 插件路由挂载失败（已隔离）：%s", exc)
-        return {"started": started, "mounted": mounted}
+        try:
+            routes = self.mount_routes(app)
+        except Exception as exc:  # noqa: BLE001
+            routes = {"routes": [], "skipped": f"{type(exc).__name__}: {exc}"}
+        return {"started": started, "mounted": mounted, "routes": routes}
 
     # ── 视图 ────────────────────────────────────────────────────────────────
     def tools(self) -> dict[str, Any]:
@@ -509,6 +640,55 @@ class PluginHost:
                     found[key] = exporter
         return found
 
+    def memory_provider_for(self, name: str) -> Any:
+        """按 id 取**插件登记的那一个**记忆 provider（取不到返回 ``None``）。
+
+        为什么装配层需要这个而不是自己翻字典：装配处真正要的是"按名字换掉当前生效的
+        provider"（Hermes 的 register_memory_provider 是**排他激活**语义：同一时刻只有
+        一个生效）。有了它，装配层那一行是：
+
+            router = build_router(providers=[host.memory_provider_for("plugin-mem") or
+                                             *default_providers(store=..., data_dir=...)])
+
+        查不到返回 ``None`` 而不是抛：插件可能已被卸载，而调用方这时该退回内置 provider
+        ——抛异常会把"插件没了"变成"记忆整体不可用"。
+        """
+        key = str(name or "").strip()
+        if not key:
+            return None
+        return self.memory_providers().get(key)
+
+    def exporters_for(self, event: str) -> dict[str, Any]:
+        """只取**挂在这个事件上**的 exporter：``{name: exporter}``。
+
+        与 :meth:`exporters` 的差别：那个是"有哪些 exporter"，这个是"这个事件会流到谁"。
+        差别很重要——`exporters()` 拿去做池子合并时，装配层无法回答"我 emit 一次
+        ``pre_tool_call``，哪些 exporter 会收到"。这里按 ``attach_observability_exporter``
+        记进台账的 ``events`` 过滤，答案就是确定的。
+
+        事件名走 :func:`app.hooks.normalize_event`（别名归一 + 未知事件当场抛）：
+        拼错的事件名在这里必须炸，否则"查不到 exporter"会被读成"没有 exporter"。
+        """
+        wanted = hooks_module.normalize_event(event)
+        found: dict[str, Any] = {}
+        for item in self.runtime.loaded:
+            context = item.context
+            if context is None:
+                continue
+            for record in context.capability_ledger.get(
+                "register_observability_exporter", []
+            ):
+                if not isinstance(record, dict):
+                    continue
+                events = record.get("events")
+                if not isinstance(events, (list, tuple)) or wanted not in events:
+                    continue
+                exporter = record.get("exporter")
+                key = str(record.get("name") or getattr(exporter, "name", "") or "").strip()
+                if key and exporter is not None:
+                    found[key] = exporter
+        return found
+
     def register_action_route(self, action_id: str, callback: Any, *, override: bool = False) -> str:
         """把一条 ``action_id → 回调`` 同时记进本宿主与模块级表（供 webhook 直接查）。"""
         key = register_action_route(action_id, callback, override=override)
@@ -560,6 +740,8 @@ class PluginHost:
             "memory_providers": sorted(self.memory_providers()),
             "exporters": sorted(self.exporters()),
             "action_routes": sorted(self.action_routes),
+            # 已经挂到 app 上的入站路由（空 = 还没人调过 attach_to_app）
+            "routes": list(self._mounted_routes),
             "capabilities": self.capability_readiness(),
             "pending_lazy": runtime_view["pending_lazy"],
             "errors": runtime_view["errors"],
@@ -581,12 +763,14 @@ class PluginHost:
     def capability_readiness(self) -> dict[str, dict[str, Any]]:
         """``exposed`` 那几条能力的就位情况：``ready`` / ``host_entry`` / ``missing``。
 
-        只列 ``exposed`` 与"已就位但还没人取"的：``wired`` 的不需要这张表（它们已经有
-        消费者），``unsupported`` 的连入口都没有（缺的是整层，写在 landing 里）。
+        列的判据是"**还没 wired** 或者 **入口已就位**"（``EXPOSED`` 或 ``ready``）：
+        ``unsupported`` 的连入口都没有（缺的是整层，写在 landing 里），所以不在表里；
+        而第三轮升成 ``wired`` 的两条（斜杠命令 / slack 动作）入口仍在、仍值得报，
+        于是靠 ``ready`` 留在表里 —— 状态变了不该让"入口在哪"这件事从快照里消失。
         """
         rows: dict[str, dict[str, Any]] = {}
         for item in plugin_capabilities.CAPABILITIES:
-            if item.orbit_status != plugin_capabilities.EXPOSED:
+            if item.orbit_status != plugin_capabilities.EXPOSED and not item.ready:
                 continue
             rows[item.name] = {
                 "ready": item.ready,
@@ -614,6 +798,23 @@ def _sink_has_tool(sink: Any, tool: Any) -> bool:
         return False
     source = tool.source
     return bool(source) and getattr(existing, "source", None) == source
+
+
+def _jsonable(value: Any) -> Any:
+    """把插件回调的返回值转成能塞进 JSON 响应的形态（转不动就退回字符串）。
+
+    为什么不直接原样返回：插件 handler 返回自定义对象是合法写法（它不知道宿主会把它
+    塞进 HTTP 响应），而路由里抛序列化异常会让 Slack 收到 500 并**不停重投同一个点击**。
+    退回 ``str()`` 至少让人看到"它返回了什么"，比 500 好查得多。
+    """
+    if value is None or isinstance(value, (str, int, float, bool, list, dict)):
+        return value
+    try:
+        from fastapi.encoders import jsonable_encoder
+
+        return jsonable_encoder(value)
+    except Exception:  # noqa: BLE001 —— 序列化失败不该变成 500
+        return str(value)
 
 
 def _run_sync(awaitable: Any, name: str) -> Any:

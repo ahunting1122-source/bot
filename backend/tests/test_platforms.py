@@ -91,11 +91,11 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
     """已实现的平台集合 = `IMPLEMENTED_PLATFORMS`，且每个都必须说清**覆盖范围**。
 
     这条从「只有 3 个」改成「集合自洽」：数量本身不是契约，**声明与实现一致**才是。
-    19 个已实现全是「仅出站」，`scope` 必须写清没有入站、没有媒体、没有按钮——
-    否则会被读成和 Hermes 一样全功能。
+    20 个已实现全是「仅出站」（simplex 只做出站文本），`scope` 必须写清没有入站、
+    没有媒体、没有按钮——否则会被读成和 Hermes 一样全功能。
     """
     implemented = [platform for platform in ALL_PLATFORMS if PLATFORMS[platform].implemented]
-    assert len(implemented) == len(IMPLEMENTED_PLATFORMS) == 19
+    assert len(implemented) == len(IMPLEMENTED_PLATFORMS) == 20
     assert set(implemented) == set(IMPLEMENTED_PLATFORMS)
     assert {platform.value for platform in implemented} == {
         "ntfy",
@@ -119,6 +119,8 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
         # 2 个标准库协议平台（SMTP / 裸 socket，连接那一步可注入所以离线可验）
         "email",
         "irc",
+        # 1 个 WebSocket 协议平台（本地 simplex-chat daemon 的 CLI 命令通道）
+        "simplex",
     }
     for platform in implemented:
         spec = PLATFORMS[platform]
@@ -128,13 +130,12 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
 
 
 def test_unimplemented_platforms_explain_reason_and_credentials():
-    """未实现的 3 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
+    """未实现的 2 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
     pending = [platform for platform in ALL_PLATFORMS if not PLATFORMS[platform].implemented]
-    assert len(pending) == 3
+    assert len(pending) == 2
     assert {platform.value for platform in pending} == {
         "buzz",
         "photon",
-        "simplex",
     }
     for platform in pending:
         spec = PLATFORMS[platform]

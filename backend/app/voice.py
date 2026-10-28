@@ -7,19 +7,35 @@ Hermes 内置 11 个 TTS provider 与 8 个 STT provider（调研 06 §6.3 / §6
 deepinfra）与 6 家 STT **全部**需要联网，本机无网络、且本层禁止安装依赖，所以它们
 `available() = False`，每一家都带"缺哪个包 / 缺哪个环境变量 / 装什么"。
 
-**本机真能跑的是这 3 条**（不是 1 条 —— 上一轮的结论偏保守，见
-`app/voice_local.py` 的实测数字）：
+**本机真能跑的 TTS 是 3 家**（命令通道 + SAPI + flite —— 上一轮只算到 2 家）：
 
 1. `CommandTts`（`command`，单列在最前面）：用户配的外部命令；
 2. `LocalTtsProvider`（`sapi`，见 `app/voice_local.py`）：Windows 自带的
    `System.Speech.Synthesis`，**真合成出合法 RIFF/WAVE**，完全离线；
-3. `LocalSttProvider`（`sapi`）：`System.Speech.Recognition` + `DictationGrammar`
-   配 `SetInputToWaveFile`，**真能转写**，但实测质量差（置信度 0.35 级别），
-   所以照实标成 `quality="poor"` 并推荐 `stt_command`（faster-whisper）。
+3. `FfmpegFliteTts`（`flite`，见 `app/voice_piper.py`）：ffmpeg 的 libflite 滤镜，
+   **本机实测合成出 126,798 字节 wav**（英文），零额外安装 —— 但它**只支持英文**，
+   中文会合成出接近静音，所以 `synthesize()` 对非 ASCII 文本当场拒绝并指路。
 
-`piper` / `kittentts` / `neutts` 三家本来就是纯本地的，这一轮把它们的
-`available()` 从**恒 False** 换成**真检测**（`shutil.which` / `find_spec`），
-见 `app/voice_local.py::BinaryTts`。
+STT 那边有 2 条本地通道：
+
+* `LocalSttProvider`（`sapi`）：`System.Speech.Recognition` + `DictationGrammar`
+  配 `SetInputToWaveFile`，**真能转写**，但实测质量差（置信度 0.35 级别），
+  所以照实标成 `quality="poor"` 并推荐 `stt_command`（faster-whisper）；
+* `FfmpegWhisperStt`（`whisper_cpp`，见 `app/voice_piper.py`）：ffmpeg 的 `whisper`
+  filter（whisper.cpp）。本机 **filter 在、模型不在**，所以如实 `False` 并给出
+  ggml 模型的下载地址 —— 装上模型就能用，不需要改代码。
+
+`piper` / `kittentts` / `neutts` 三家本来就是纯本地的。`kittentts` / `neutts`
+用 `app/voice_local.py::BinaryTts` 做真检测（`find_spec`）；`piper` 换成了
+`app/voice_piper.py::PiperTts` —— 它比 `BinaryTts` 多两段阶梯：**找模型** 与
+**实测一次最小合成**。理由很具体：只有二进制没有 `.onnx` 模型时 piper 一跑就报
+"no model"，而 `shutil.which` 却说"可用"——这和 SAPI 那边"装了音色 ≠ 能用音色"
+是同一类坑，判据必须落到"真跑一次"。
+
+`espeak` / `espeak-ng` / `festival` / `say` / `pico2wave` 五家常见本地 TTS 本机
+**实测全部不在 PATH**（`Get-Command` 逐个 MISS），所以它们在
+`app/voice_piper.py::EXTRA_LOCAL_TTS` 里如实登记：`available()` 走
+`shutil.which` + 真跑一次最小合成，`describe()` 给各自的安装方式。
 
 **不假装**：每个不可用的 provider 都给出**具体原因**（缺哪个包 / 缺哪个环境变量 /
 本机无网络）与**安装提示**（真要有网时该 `pip install` 什么）。一句"不可用"会让
@@ -51,6 +67,7 @@ Hermes 的 TTS 命令通道是**另一套注册表**（`tts.providers.<name>: ty
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shlex
@@ -61,6 +78,12 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from app.voice_local import LOCAL_SAPI_STT, LOCAL_SAPI_TTS, LOCAL_TTS_PROVIDERS
+from app.voice_piper import (
+    EXTRA_LOCAL_TTS,
+    FLITE_TTS,
+    PIPER_TTS,
+    WHISPER_STT,
+)
 
 #: 语音配置文件名（落在 `<data>/voice.json`）。与 `settings.json` 分开：
 #: 语音配置是"这台机器上装了什么命令"，跟模型选择不是一类东西，混在一起会让
@@ -277,6 +300,86 @@ class UnavailableStt:
             parts.append(f"需要 {self.requires}")
         reason = "；".join(parts)
         return f"{reason}。{self.hint}" if self.hint else reason
+
+
+# ── 本地但依赖 Python 包的 STT：faster-whisper ───────────────────────────────
+
+
+@dataclass(frozen=True)
+class FasterWhisperStt:
+    """STT 清单里那一家 `local`（Hermes 的首选：faster-whisper）。
+
+    为什么它不再是 `UnavailableStt`：那个类的 `available()` **恒 False**，于是
+    "没装"与"装了但没人检测"在输出里长得一模一样 —— 用户 `pip install faster-whisper`
+    之后回来一看还是"不可用"，只会以为自己装错了。换成真检测（`find_spec`）之后，
+    装上就真的变成可用，不用等下一次改代码。
+
+    判据只到"包在不在"这一层，**没有**做"试转一段"：faster-whisper 的一次最小转写
+    要加载几十 MB 权重（首次还要联网下载），而 `describe_all()` 会把每家问一遍。
+    这个取舍写在明面上，而不是假装判据比它实际更硬 —— 真正的转写质量由
+    `transcribe()` 那次调用回答。
+    """
+
+    name: str = "local"
+    #: Python 包名（`importlib.util.find_spec` 的目标）。
+    module: str = "faster_whisper"
+    #: 权重缓存目录（`download_root` 的默认位置；不判断内容，只用来告诉用户去哪看）。
+    weights_hint: str = "~/.cache/huggingface/hub（或 ORBIT_WHISPER_DOWNLOAD_ROOT）"
+
+    def available(self) -> bool:
+        """包在就算可用。**不联网**：`find_spec` 只查已安装的包。"""
+        try:
+            return importlib.util.find_spec(self.module) is not None
+        except (ImportError, ValueError):  # 损坏的包 / 非法的 spec —— 都算没有
+            return False
+
+    def transcribe(self, audio: bytes) -> str:
+        """真转写。包不在时抛 `ProviderUnavailable`（带装什么）。
+
+        这条通道的实现是 faster-whisper 的 Python API（不是外部命令）：
+        `WhisperModel(...).transcribe(...)` 返回一个生成器，要遍历才拿到段。
+        """
+        if not self.available():
+            raise ProviderUnavailable(self._reason())
+        if not audio:
+            raise VoiceError("音频是空的：没什么可转写的。")
+        try:
+            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - available() 已经挡过一次
+            raise ProviderUnavailable(self._reason()) from exc
+        with tempfile.TemporaryDirectory(prefix="orbit-fw-") as tmp:
+            path = Path(tmp) / "in.wav"
+            path.write_bytes(audio)
+            # `int8` + CPU：本层不假设有 GPU，也不假设用户愿意为一次转写下载 fp16 权重。
+            model = WhisperModel("base", device="cpu", compute_type="int8")
+            segments, _info = model.transcribe(str(path))
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+        if not text:
+            raise VoiceError(
+                "faster-whisper 没有转写出任何内容（音频是静音、太短，或与语言不符）。"
+            )
+        return text
+
+    def _reason(self) -> str:
+        return (
+            f"Python 包 `{self.module}` 未安装（本机 find_spec 为 None）；"
+            "本机无网络（本层不发真实请求），装不了也下不了权重"
+        )
+
+    def describe(self) -> str:
+        """同 TTS 版：`reason` / `requires` / `install` 三件套。"""
+        if self.available():
+            return (
+                f"local：可用 —— 本机已装 `{self.module}`（faster-whisper）；"
+                "requires: 已满足；install: 已安装；"
+                f"reason: 纯本地 CTranslate2 推理，权重缓存在 {self.weights_hint}。"
+            )
+        return (
+            f"local：不可用 —— reason: {self._reason()}；"
+            "requires: `faster-whisper` 包 + 模型权重（tiny/base/small/medium/large-v3）；"
+            "install: 有网后 `pip install faster-whisper`，首次 `transcribe()` 会自动下 "
+            "base 权重（约 145MB）。"
+        )
 
 
 # ── 唯一能真跑的通道 ────────────────────────────────────────────────────────
@@ -555,14 +658,15 @@ TTS_PROVIDERS: tuple[TtsProvider, ...] = (
         requires="ELEVENLABS_API_KEY",
         hint="字符上限随 model_id 变化（eleven_v3 5000 / multilingual_v2 10000）。",
     ),
-    # ── 下面三家**本来就是纯本地**的：实现换成了 `app/voice_local.py::BinaryTts` ──
+    # ── 下面三家**本来就是纯本地**的：neutts / kittentts 走 `voice_local.BinaryTts`，
+    #    piper 走 `voice_piper.PiperTts`（多两段阶梯：找模型 + 实测一次最小合成）──
     #
     # 为什么不是 `UnavailableTts`：那个类的 `available()` 恒 `False`，于是"没装"与
     # "装了也没人检测"在输出里长得一模一样。换成真检测之后，装上 piper 就真的可用，
     # 不用等下一次改代码。名字与顺序**逐字不变**（对齐调研 06 §6.4 的清单）。
     _LOCAL_TTS["neutts"],
     _LOCAL_TTS["kittentts"],
-    _LOCAL_TTS["piper"],
+    PIPER_TTS,
     UnavailableTts(
         "deepinfra",
         requires="DEEPINFRA_API_KEY",
@@ -571,13 +675,12 @@ TTS_PROVIDERS: tuple[TtsProvider, ...] = (
 )
 
 #: 8 个 STT provider（调研 06 §6.3 的清单，顺序 = Hermes 的 auto-detect 优先级）。
-#: 只有 `local_command` 是**活的实现**（`CommandStt`），其余 7 家全部不可用。
+#: 其中 `local`（faster-whisper，**真检测**包在不在）与 `local_command`（用户配的命令）
+#: 是两条活的实现；其余 6 家是云服务，本机无网络所以不可用并带原因。
 STT_PROVIDERS: tuple[SttProvider, ...] = (
-    UnavailableStt(
-        "local",
-        requires="`faster-whisper` + 模型权重（tiny/base/small/medium/large-v3，未下载）",
-        hint="Hermes 的首选；有网后 `pip install faster-whisper` 再让它下权重。",
-    ),
+    # Hermes 的首选：faster-whisper。上一轮这里是 `UnavailableStt`（恒 False），
+    # 于是"装了 faster-whisper 也永远显示不可用"——换成真检测后装上就能用。
+    FasterWhisperStt(),
     # Hermes 的 `local_command`：用户自己配的命令通道。这是唯一离线可用的那一家。
     CommandStt(),
     UnavailableStt(
@@ -618,7 +721,12 @@ COMMAND_TTS: CommandTts = CommandTts()
 
 
 def tts_provider(name: str, *, data_dir: str | Path | None = None) -> TtsProvider:
-    """按名字取 TTS provider（`command` / `sapi` 也可取）。找不到抛 `VoiceError`。"""
+    """按名字取 TTS provider（`command` / `sapi` / `flite` / `espeak` … 都可取）。
+
+    查找顺序：命令通道 → SAPI → 11 家登记表 → **本机二进制类**（flite / espeak /
+    espeak-ng / festival / say / pico2wave）。最后那一组不在 11 家里（见模块
+    docstring 末段），但它们是真正能在本机跑的实现，不能只出现在清单里取不到。
+    """
     key = (name or "").strip().lower()
     if key in {"command", "local_command"}:
         return CommandTts(data_dir=data_dir) if data_dir is not None else COMMAND_TTS
@@ -629,24 +737,32 @@ def tts_provider(name: str, *, data_dir: str | Path | None = None) -> TtsProvide
     for provider in TTS_PROVIDERS:
         if provider.name == key:
             return provider
-    raise VoiceError(
-        f"未知 TTS provider：{name}"
-        f"（可用：command / sapi / {' / '.join(p.name for p in TTS_PROVIDERS)}）"
-    )
+    for extra in (FLITE_TTS, *EXTRA_LOCAL_TTS):
+        if extra.name == key:
+            return extra
+    names = " / ".join([p.name for p in TTS_PROVIDERS] + [p.name for p in (FLITE_TTS, *EXTRA_LOCAL_TTS)])
+    raise VoiceError(f"未知 TTS provider：{name}（可用：command / sapi / {names}）")
 
 
 def stt_provider(name: str, *, data_dir: str | Path | None = None) -> SttProvider:
-    """按名字取 STT provider。`local_command` 会用传入的 `data_dir` 现读配置。"""
+    """按名字取 STT provider。`local_command` 会用传入的 `data_dir` 现读配置。
+
+    `whisper_cpp` 是 ffmpeg 的 `whisper` filter（whisper.cpp），不在 8 家清单里 ——
+    同 TTS 侧 `flite` 的理由：它是本机真实存在的一条本地通道，必须有名字可取。
+    """
     key = (name or "").strip().lower()
     if key in {"local_command", "command"}:
         return CommandStt(data_dir=data_dir) if data_dir is not None else STT_PROVIDERS[1]
     if key in {"sapi", "local_sapi"}:
         return LOCAL_SAPI_STT
+    if key in {"whisper_cpp", "whisper.cpp"}:
+        return WHISPER_STT
     for provider in STT_PROVIDERS:
         if provider.name == key:
             return provider
     raise VoiceError(
-        f"未知 STT provider：{name}（可用：sapi / {' / '.join(p.name for p in STT_PROVIDERS)}）"
+        f"未知 STT provider：{name}"
+        f"（可用：sapi / whisper_cpp / {' / '.join(p.name for p in STT_PROVIDERS)}）"
     )
 
 
@@ -654,11 +770,15 @@ def describe_all(*, data_dir: str | Path | None = None) -> list[dict[str, object
     """19 家 + 本地通道的可用性清单（CLI 表格 + `--json` 用）。
 
     顺序固定：`command` 单列最前（`kind="command"`）→ 11 家 TTS（`kind="tts"`）→
-    8 家 STT（`kind="stt"`）→ 两条 SAPI 本地通道（`kind="local"` / `kind="local-stt"`）。
+    8 家 STT（`kind="stt"`）→ 两条 SAPI 本地通道（`kind="local"` / `kind="local-stt"`）→
+    **本机二进制类通道**：`flite` + espeak/festival/say/pico2wave（`kind="local-tts"`）
+    与 whisper.cpp（`kind="local-stt-bin"`）。
 
-    为什么 SAPI 单列成新的 `kind` 而不是混进 11/8：那两张表是 **Hermes 的清单**
-    （调研 06 §6.3/§6.4 的条数被测试逐字钉住），SAPI 是 Orbit 自己的本地通道。
-    混进去会让"对齐 Hermes 的账"算不清 —— 而这张清单的用途恰恰是"对齐到了哪"。
+    为什么 SAPI / flite / whisper 单列成新的 `kind` 而不是混进 11/8：那两张表是
+    **Hermes 的清单**（调研 06 §6.3/§6.4 的条数被测试逐字钉住），而这些是
+    Orbit 自己的本地通道。混进去会让"对齐 Hermes 的账"算不清 —— 而这张清单的
+    用途恰恰是"对齐到了哪"。反过来说：**不在 11/8 里，不等于不可用**，
+    `flite` 就是本机真能合成的那一家，它必须出现在这张清单上。
     """
     config = VoiceConfig.load(data_dir)
     tts_command = CommandTts(config, data_dir=data_dir)
@@ -713,6 +833,25 @@ def describe_all(*, data_dir: str | Path | None = None) -> list[dict[str, object
             "quality": LOCAL_SAPI_STT.quality,
         }
     )
+    # 本机二进制类通道：flite 打头（本机唯一一个零安装就能真合成的），
+    # 后面跟 5 家常见本地 TTS（本机全都不在 PATH，如实登记 + 安装方式）。
+    for extra in (FLITE_TTS, *EXTRA_LOCAL_TTS):
+        rows.append(
+            {
+                "kind": "local-tts",
+                "name": extra.name,
+                "available": extra.available(),
+                "describe": extra.describe(),
+            }
+        )
+    rows.append(
+        {
+            "kind": "local-stt-bin",
+            "name": WHISPER_STT.name,
+            "available": WHISPER_STT.available(),
+            "describe": WHISPER_STT.describe(),
+        }
+    )
     return rows
 
 
@@ -720,16 +859,21 @@ __all__ = [
     "AUDIO_PLACEHOLDER",
     "COMMAND_TTS",
     "DEFAULT_TIMEOUT",
+    "EXTRA_LOCAL_TTS",
+    "FLITE_TTS",
     "LOCAL_SAPI_STT",
     "LOCAL_SAPI_TTS",
     "LOCAL_TTS_PROVIDERS",
+    "PIPER_TTS",
     "STT_PROVIDERS",
     "TEXT_PLACEHOLDER",
     "TTS_PROVIDERS",
     "VOICE_CONFIG_NAME",
+    "WHISPER_STT",
     "CommandNotConfigured",
     "CommandStt",
     "CommandTts",
+    "FasterWhisperStt",
     "ProviderUnavailable",
     "SttProvider",
     "TtsProvider",

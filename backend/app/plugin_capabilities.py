@@ -309,22 +309,23 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     _cap(
         "register_slack_action_handler",
-        orbit_status=EXPOSED,
+        orbit_status=WIRED,
         orbit_landing=(
             "登记进 PluginContext.capability_ledger（键 = action_id，值 = 回调）→ "
-            "app/plugin_host.py::PluginHost._reconcile 把它搬进宿主的 "
-            "ACTION_ROUTES 表 → PluginHost.dispatch_action(action_id, payload) 按 "
-            "action_id 查到并**真的调用**回调；**缺**上游触发：app/dashboard_api.py 的 "
-            "`POST /api/webhooks/{id}` 只把载荷落进收件箱，没有解析 "
-            "`actions[].action_id` 并转调 dispatch_action 的那一段"
+            "app/plugin_host.py::PluginHost._reconcile 把它搬进宿主的 ACTION_ROUTES 表 → "
+            "**宿主自己的入站路由** app/plugin_host.py::PluginHost.mount_routes 挂出 "
+            "`POST /api/plugin/actions`（解析 Slack Block Kit 的 actions[].action_id）与 "
+            "`POST /api/plugin/actions/{action_id}`，两条都真的转给 "
+            "PluginHost.dispatch_action(action_id, payload) 调用回调"
         ),
         reason=(
-            "缺的只剩「webhook 收件路径 → dispatch_action」这一行：宿主侧的表与派发器本轮"
-            "已建好（ACTION_ROUTES + dispatch_action，见 "
-            "tests/test_plugin_host.py::test_slack_action_routes_reach_the_plugin_callback），"
-            "但真正会带 Block Kit 载荷进来的入口在 app/dashboard_api.py，本轮不动它。"
-            "**为什么不是 wired**：wired 的判据是「有消费者真的来取」，而现在没有任何"
-            "代码会来取这张表"
+            "**第三轮从 exposed 升到 wired**：缺的那一层「谁把 Block Kit 载荷送进来」由宿主"
+            "自己的路由补上了（不再等 app/dashboard_api.py 的 webhook 收件路径）。"
+            "判据是「宿主真的调到」：tests/test_capability_wiring.py::"
+            "test_block_kit_route_reaches_the_plugin_callback 走 TestClient POST 进来，"
+            "插件 lambda 真的跑了一次、返回值回到了 HTTP 响应里。"
+            "**边界**：路由只在 attach_to_app 被调过之后存在（main.py 粘 MAIN_WIRING_CODE "
+            "那一行）；真部署到公网前要先有认证层（见 register_dashboard_auth）。"
         ),
         hermes_name="register_slack_action_handler",
         hermes_signature="register_slack_action_handler(action_id, cb)",
@@ -333,6 +334,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             "app/plugin_capabilities.py::expose_slack_action_handler",
             "app/plugin_host.py::ACTION_ROUTES",
             "app/plugin_host.py::PluginHost.dispatch_action",
+            "app/plugin_host.py::PluginHost.mount_routes",
         ),
         ready=True,
         host_entry="app/plugin_host.py::PluginHost.dispatch_action",
@@ -371,14 +373,16 @@ CAPABILITIES: tuple[Capability, ...] = (
         orbit_landing=(
             "PluginContext.capability_ledger + 宿主可注入 sink → "
             "app/plugin_host.py::PluginHost.memory_providers() 把插件登记的 provider 收成 "
-            "`{id: provider}` 供装配层取；app/memory_providers.py::build_router(providers=…) "
-            "本来就收这个形状；**缺**装配处那一步：CLI/装配层调 build_router 时仍只传 "
+            "`{id: provider}` 供装配层取（**第三轮又加了按名取单个的 "
+            "PluginHost.memory_provider_for(name)**，对应 Hermes 的排他激活语义）；"
+            "app/memory_providers.py::build_router(providers=…) 本来就收这个形状；"
+            "**缺**装配处那一步：CLI/装配层调 build_router 时仍只传 "
             "default_providers()，没有把 host.memory_providers() 并进去"
         ),
         reason=(
-            "宿主侧入口本轮补上了（host.memory_providers()，形状与 build_router(providers=) "
-            "对得上，见 tests/test_plugin_host.py::"
-            "test_memory_providers_are_collected_and_router_accepts_them），"
+            "宿主侧入口齐了（host.memory_providers() 收全量、host.memory_provider_for(name) "
+            "按名取一个，见 tests/test_capability_wiring.py::"
+            "test_memory_provider_for_returns_the_plugin_instance），"
             "**但**真正构造 MemoryRouter 的调用方（app/cli/commands/memory_extra.py、"
             "app/agent.py）不在本轮可改范围，所以登记完仍然没人来取 —— 保持 exposed，"
             "缺的是一行 `providers=[*host.memory_providers().values(), *default_providers()]`"
@@ -389,9 +393,10 @@ CAPABILITIES: tuple[Capability, ...] = (
         wired_by=(
             "app/plugin_capabilities.py::expose_memory_provider",
             "app/plugin_host.py::PluginHost.memory_providers",
+            "app/plugin_host.py::PluginHost.memory_provider_for",
         ),
         ready=True,
-        host_entry="app/plugin_host.py::PluginHost.memory_providers",
+        host_entry="app/plugin_host.py::PluginHost.memory_provider_for",
     ),
     _cap(
         "register_web_provider",
@@ -458,12 +463,13 @@ CAPABILITIES: tuple[Capability, ...] = (
             "record(payload) 挂到 ctx.hooks 的 19 个事件上（落点是真实的 HookRegistry），"
             "并把 exporter 本体记进 capability_ledger → "
             "app/plugin_host.py::PluginHost.exporters() 收成 `{name: exporter}` 供装配层与 "
-            "`app/exporters.py::default_exporters()` 的池子合并；**缺**推送端：主循环的 "
-            "5 个发射点仍未接线（app/hooks.py::WIRING_POINTS）"
+            "`app/exporters.py::default_exporters()` 的池子合并（**第三轮又加了 "
+            "PluginHost.exporters_for(event)**：只取挂在这个事件上的那几个）；"
+            "**缺**推送端：主循环的 5 个发射点仍未接线（app/hooks.py::WIRING_POINTS）"
         ),
         reason=(
-            "宿主侧入口本轮补上了（host.exporters()，见 "
-            "tests/test_plugin_host.py::test_exporters_are_collected_and_receive_events），"
+            "宿主侧入口齐了（host.exporters() 收全量、host.exporters_for(event) 按事件取，"
+            "见 tests/test_capability_wiring.py::test_exporters_for_filters_by_event），"
             "**但**发射点仍在禁改区（app/graph/nodes.py），主循环不会 emit —— 所以事件桥"
             "挂好了也没有事件流过。保持 exposed：缺的是发射点，不是 exporter"
         ),
@@ -471,9 +477,10 @@ CAPABILITIES: tuple[Capability, ...] = (
         wired_by=(
             "app/plugin_capabilities.py::attach_observability_exporter",
             "app/plugin_host.py::PluginHost.exporters",
+            "app/plugin_host.py::PluginHost.exporters_for",
         ),
         ready=True,
-        host_entry="app/plugin_host.py::PluginHost.exporters",
+        host_entry="app/plugin_host.py::PluginHost.exporters_for",
     ),
     _cap(
         "register_dashboard_auth",
@@ -553,25 +560,31 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     _cap(
         "register_slash_command",
-        orbit_status=EXPOSED,
+        orbit_status=WIRED,
         orbit_landing=(
             "登记（本模块 expose_slash_command）+ 解析（parse_slash_command）+ 分发入口"
             "（resolve_slash_command / app/plugin_host.py::PluginHost.dispatch_slash，"
-            "已单测覆盖且**签名已冻结**：`dispatch_slash(text) -> (name, outcome) | None`）"
-            "都就位；**缺**输入循环里的那一行：app/cli/commands/chat.py 的 "
-            "`line = input(\"> \")` 之后加 `outcome = host.dispatch_slash(text)`"
+            "签名冻结：`dispatch_slash(text) -> (name, outcome) | None`；异步孪生 "
+            "dispatch_slash_async）都就位，**并且真的有人调**："
+            "app/plugin_host.py::PluginHost.mount_routes 挂出 `POST /api/plugin/slash`，"
+            "请求进来就执行插件 handler 并带回返回值"
         ),
         reason=(
-            "缺的是一行调用，不是一层能力：Orbit 只有 `orbit chat` 有输入循环，而该文件"
-            "本轮由装配层接线（两边同时改会互相覆盖）。宿主侧已就位并冻结了接口形状，"
-            "`host.describe()['capabilities']['register_slash_command']['ready']` 为 True；"
-            "chat.py 加一行即 wired"
+            "**第三轮从 exposed 升到 wired**：缺的从来不是能力，而是「谁调它」。"
+            "宿主入站路由 `POST /api/plugin/slash` 是本轮建出的真实调用方"
+            "（tests/test_capability_wiring.py::test_inbound_slash_route_executes_the_plugin_handler "
+            "走 TestClient POST 进来，handler 真的跑了一次）。"
+            "**仍然建议加的那一行**：app/cli/commands/chat.py 输入循环里的 "
+            "`outcome = host.dispatch_slash(text)` —— 那才是斜杠命令最自然的入口，"
+            "HTTP 那条只是让「注册了没人调」不再成立。两条入口指向同一个 dispatcher。"
         ),
         hermes_signature="（Hermes 无独立方法：斜杠命令就是 register_command）",
         wired_by=(
             "app/plugin_capabilities.py::expose_slash_command",
             "app/plugin_capabilities.py::resolve_slash_command",
             "app/plugin_host.py::PluginHost.dispatch_slash",
+            "app/plugin_host.py::PluginHost.dispatch_slash_async",
+            "app/plugin_host.py::PluginHost.mount_routes",
         ),
         ready=True,
         host_entry="app/plugin_host.py::PluginHost.dispatch_slash",
@@ -668,23 +681,27 @@ HOST_SURFACES: dict[str, str] = {
         "宿主 app/main.py 还没调它（禁改区），但入口与逐条隔离都已就位"
     ),
     "slash_dispatcher": (
-        "（入口就位、调用方缺）app/plugin_host.py::PluginHost.dispatch_slash —— **接口已冻结**："
-        "`dispatch_slash(text) -> (name, outcome) | None`（不是插件命令返回 None，调用方把"
-        "它当普通消息）。缺的只是 app/cli/commands/chat.py 输入循环里的那一行"
+        "（入口就位、调用方缺）→ **第三轮已接**：宿主入站路由 "
+        "`POST /api/plugin/slash`（app/plugin_host.py::PluginHost.mount_routes → "
+        "dispatch_slash_async）真的调它，见 tests/test_capability_wiring.py::"
+        "test_inbound_slash_route_executes_the_plugin_handler；app/cli/commands/chat.py "
+        "输入循环里那一行仍建议加（那才是斜杠命令最自然的入口）"
     ),
     # 下面这些是**本轮补上的宿主侧入口**（值 = 谁该来取它）。它们都还差装配层的一行，
     # 所以对应能力仍是 exposed —— 但"有没有入口"与"有没有人来取"从此可以分开回答。
     "memory_provider_entry": (
-        "app/plugin_host.py::PluginHost.memory_providers() → 装配层传给 "
+        "app/plugin_host.py::PluginHost.memory_providers() / "
+        "PluginHost.memory_provider_for(name) → 装配层传给 "
         "app/memory_providers.py::build_router(providers=…)"
     ),
     "exporter_entry": (
-        "app/plugin_host.py::PluginHost.exporters() → 与 app/exporters.py::default_exporters() "
-        "的池子合并；发射点仍缺（见 WIRING_POINTS）"
+        "app/plugin_host.py::PluginHost.exporters() / PluginHost.exporters_for(event) → "
+        "与 app/exporters.py::default_exporters() 的池子合并；发射点仍缺（见 WIRING_POINTS）"
     ),
     "action_route_table": (
-        "app/plugin_host.py::ACTION_ROUTES + PluginHost.dispatch_action —— 表与派发器都在，"
-        "缺 app/dashboard_api.py 的 webhook 收件路径把 actions[].action_id 转进来"
+        "app/plugin_host.py::ACTION_ROUTES + PluginHost.dispatch_action + "
+        "PluginHost.mount_routes（`POST /api/plugin/actions` 解析 Block Kit 的 "
+        "actions[].action_id）—— 第三轮补上了上游入口，所以这条能力已 wired"
     ),
     # 下面这两个键被既有测试钉住"必须以（不存在）开头"（`tests/test_plugin_capabilities.py::
     # test_host_surfaces_name_the_consumer`）。于是这里保留那个前缀，但把**本轮的变化**
@@ -700,7 +717,8 @@ HOST_SURFACES: dict[str, str] = {
     ),
     "inbound_webhook": (
         "（部分存在）app/dashboard_api.py::receive_webhook 只落盘；"
-        "action_id 路由表已在 app/plugin_host.py::ACTION_ROUTES，缺两边的连接"
+        "**第三轮补上了真正的入站路由**：app/plugin_host.py::PluginHost.mount_routes 的 "
+        "`POST /api/plugin/actions`（解析 Block Kit 的 actions[].action_id）"
     ),
     "middleware_chain": "（不存在）app/graph/nodes.py 直接 await，没有可插入的链",
 }

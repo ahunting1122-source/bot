@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **180**。当前：✅ 165 · 🟢 4 · ⚫ 3 · 🟡 8 · ⬜ 0（严格完成度 93.9% = ✅+🟢；可验证 95.5% = (✅+🟢)/(总数−⚫)）
+条目合计 **181**。当前：✅ 165 · 🟢 4 · ⚫ 3 · 🟡 9 · ⬜ 0（严格完成度 93.4% = ✅+🟢；可验证 94.9% = (✅+🟢)/(总数−⚫)）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -20,6 +20,7 @@
 | 日期 | 变更 | 分母 | 说明 |
 |---|---|---|---|
 | 2026-10-28 | 移除元指标行 `1.17` | 181 → **180** | 1.17 的内容是「上述 N 条里有真实现的比例」——一条**比率**，不是能力。它永远不可能 ✅（除非 548 条命令全实现，含占位平台），会在 🟡 里永久占一格，把真工作稀释掉；而且它让同一张表出现**两个分母**（181 与 548）。它的数字也是手抄的、早已过期（写 506/290，实际 548/354）。现改为文末「命令面指标」节，由 `matrix_stats.py` 现算。**完成度 88.4% → 88.9% 是分母变小，不是进展。** |
+| 2026-10-28 | 拆分 `1.13` 为 `1.13a` + `1.13b` | 180 → **181** | 原 1.13 一条 🟢 里同时装着两样东西：「有个图形界面」（Orbit 的 Web UI 等价）与「原生桌面壳与 OS 集成」（Orbit 真没有）。一条 🟢 装两样，**就把真缺口掩盖了**——这是「垃圾桶」的另一面。拆后 1.13a(界面) 保持 🟢、1.13b(原生集成) 如实标 🟡。**严格完成度 93.9% → 93.4% 是全项目第一次「越做越低」，而它是对的**：下降说明一个之前看不见的缺口变可见了，不是退步。判据来自监视子agent：**🟢 必须写得出代价；写不出来就说明是「少了一层」而不是「做法不同」**。 |
 
 ## L1 入口 / CLI 层（Hermes: `hermes_cli/`，74 顶层命令 / 295 二级 / 36 三级 = 408 可调用节点 / 23 全局 flag）
 
@@ -37,7 +38,8 @@
 | 1.10 | shell 补全脚本 | `hermes completion {bash,zsh,fish}` | W1 | ✅ | `core.py` `run_completion`（额外支持 powershell） |
 | 1.11 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ✅ | `app/cli/commands/ui.py` 的 `orbit serve`：**只做启动器**——`serve_plan(host, port)` 是纯函数（端口占用检查 + 参数拼装，测试不真起服务），`--status` 只报告端口与进程登记表，`--stop` **如实报未实现**（没有服务进程管理）。`tests/test_console.py` |
 | 1.12 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ✅ | `orbit dashboard`：先探端口是否在监听，在监听才 `webbrowser.open`（**没在监听就不打开**——打开一个连不上的页面是更糟的体验）；`--insecure` 按 Hermes 语义是 **NO-OP**，命令会如实提示「该 flag 在 Orbit 无效果」并给 `orbit serve`；另有 `dashboard pages`（18 页覆盖情况）与 `dashboard replay <session_id>`。`tests/test_console.py` / `tests/test_dashboard.py` |
-| 1.13 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | 🟢 | **这是有意差异，不是缺口。** Hermes 的 `desktop` 是一个 Electron 应用（`apps/desktop`：装 node 依赖 → 打包 → 启动）；Orbit 用**浏览器面板**（`frontend/` Vite 预构建 `dist` 由 FastAPI 直接服务）。**差异：** Orbit 不做原生壳——`orbit desktop` 与 `orbit gui` 如实报未实现，**并给出功能等价的做法**：`orbit serve --host 127.0.0.1 --port 9119` + `orbit dashboard`（探测端口并开浏览器），或 `msedge --app=http://…` / `chrome --app=http://…` 得到「一个窗口」。**为什么这样选**：Electron 要 node 依赖 + 打包链 + 自动更新通道三套东西；Orbit 的前端是静态 `dist`，FastAPI 直接服务，**零安装**。**代价**：没有系统托盘 / 菜单栏 / 全局快捷键 / 原生通知；「一个窗口」靠浏览器应用模式，不是真正的独立进程；用户得自己记住先起 `serve` 再开面板。Hermes 的那些 flag（`--source` / `--build-only` / `--fake-boot`）在 Orbit **全是空转**——不是「没实现细节」，是没有对应物，命令里逐条写明了 |
+| 1.13a | 图形界面（Hermes 的 `desktop` / `gui` 提供的可视化面板） | 【实证】`cmd-74-desktop.txt` | W1 | 🟢 | Orbit 有**真的 Web UI**：`frontend/` 是 Vite 工程且 `dist` 已预构建，由 FastAPI 直接服务；`orbit serve` 起后端 + 面板，`orbit dashboard` 探测端口并开浏览器。**差异：** 载体不同——Hermes 用 Electron 壳装一个 React 面板，Orbit 直接用浏览器（或 `msedge --app=http://…` / `chrome --app=http://…` 得到「一个窗口」）。**代价：** 用户得到「打开浏览器访问」，**失去「双击即开 / 托盘常驻 / 无需先起服务」**——每次要先 `orbit serve`。这三样是 1.13b 的事，不在本条。 |
+| 1.13b | 原生桌面壳与 OS 集成（Electron 打包 / 托盘 / 全局快捷键 / 文件关联 / 开机自启 / 原生通知 / 系统授权） | 【实证】`cmd-74-desktop.txt` 的 `--setup-tcc-identity` 明列 TCC 授权项 | W1 | 🟡 | **真缺，不是做法不同。** 证据是 `desktop --setup-tcc-identity` 的说明：它要让 **macOS TCC 授权（Full Disk Access / Accessibility / Files and Folders / microphone）**在重建后存活——`Accessibility` 与 `microphone` 是**浏览器给不了**的原生能力。Orbit 既没有 `apps/desktop`，也没有任何 Electron / Tauri 工程，所以这条整体缺失：无托盘常驻、无全局快捷键、无文件关联、无开机自启、无原生通知、无系统授权申请。`orbit desktop` / `orbit gui` 如实报未实现并给出浏览器等价做法（见 1.13a）。**要真做得从零建一个 Electron/Tauri 工程**，且本机无网络装不了 node 依赖。 |
 | 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | 🟡 | `app/cli/commands/acp.py`：stdio 上的 **JSON-RPC 2.0 手写循环**（不引第三方 ACP 库），输入输出可注入（测试用 StringIO）。支持 `initialize` / `session/new` / `session/prompt` / `shutdown`；标准错误码（-32700 解析失败 / -32601 未知方法 / -32602 未知会话 / -32603 内部错），通知（无 id）不回包。**未实现**（docstring 已列）：`session/update` 流式、`session/load|list`、`request_permission`、`session/cancel`、`set_mode|set_model`、`fs/*`、`terminal/*`、`authenticate`。`tests/test_acp.py` |
 | 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ✅ | `app/console.py` + `orbit console`：**白名单**安全命令台——只放只读/无害命令（`status` / `doctor` / `config show` / `logs` / `insights` / `monitoring status` 等），**不经 shell**（子进程列表形式），拒 `;` / `|` / `&&` / `$()` / 反引号（shell 注入面）；每次执行记 `<data>/console-audit.jsonl`。**为什么要有它**：这是给「人不在电脑前、通过消息平台远程操作」用的场景，必须假设输入不可信。`tests/test_console.py` |
 | 1.16 | TUI（终端 UI） | `tui/dist` | W12 | ✅ | TUI **接了真实数据**：`load_from_store(store)` 只 `SELECT` `conversations` / `tasks` / `task_events` 三张表（只读，不写库）；`StoreFeed` 把异步快照缓存给同步按键循环；`refresh(interval)` 用**注入的 clock + loader**，测试用假 clock 驱动、不真 sleep；`r` 强制刷、`/` 过滤（回车确认、Esc 取消）。**实测 `orbit tui --snapshot` 打出真会话标题与真事件时间戳**（不是占位行）。**如实边界**：这不是 Hermes 那个完整 TUI——没有鼠标、没有富文本、没有主题系统。`tests/test_tui.py` 31 条 + `tests/test_tui_render.py` |
