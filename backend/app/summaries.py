@@ -3,7 +3,9 @@
 import asyncio
 import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -195,7 +197,7 @@ class SummaryService:
         if profile is None:
             log.warning("auxiliary.summary 指向未知 provider %r，按主模型处理", slot.provider)
             return None
-        key = providers.resolve_api_key(profile, self.settings)
+        key = self._slot_key(slot, profile)
         if not key:
             log.warning(
                 "auxiliary.summary 配了 %s，但本机没有该家的密钥，按主模型处理"
@@ -210,6 +212,64 @@ class SummaryService:
             timeout=slot.timeout,
             max_retries=1,
         )
+
+    def _slot_key(self, slot, profile) -> str:
+        """取**槽位那一家**的密钥。**绝不拿主模型的钥匙去冒充别家的。**
+
+        ## 这是一个真 bug 的修复，不是一个补全
+
+        第一版直接调 `providers.resolve_api_key(profile, self.settings)`，
+        而它的第一步是
+
+        ```python
+        key = _secret_value(getattr(settings, "model_api_key", None))
+        if key: return key          # ← 与 profile 无关，非空就返回
+        ```
+
+        于是「主模型 deepseek、槽位配 openai」时拿到的是 **deepseek 的钥匙**，
+        `if not key` 那道闸门**根本不触发**：不告警、照造客户端，
+        然后拿 deepseek 的钥匙去打 openai 的端点——**必然 401**。
+
+        **也就是说 docstring 里承诺的「不造一个必然 401 的客户端」，实现恰好相反。**
+        **问题不是"拿不到钥匙"，是闸门位置错了**：它防在 `if not key` 上，
+        而 `key` 的取值根本不区分 provider。
+
+        ## 取值顺序
+
+        1. **同一家** → `resolve_api_key` 就是对的（那把钥匙确实是这家的）；
+        2. **换了一家** → 只认这家的：先该家的环境变量，再凭证池
+           （`PoolKeyRing` 不传 `primary`，**`primary=None` 就是"不回退主钥匙"**）。
+           **拿不到就返回空串**，让上层退回主模型并告警——
+           **宁可不用，也不要拿错钥匙去撞 401。**
+        """
+        from app import aux_slots, providers
+
+        main_provider = aux_slots._main_slot(self.settings)[0]
+        # **要的是主模型那一家，不是槽位那一家**——第一版错在这里：
+        # `resolve_slot("summary")` 在槽位配过时返回的就是**槽位自己的** provider，
+        # 于是 `slot.provider == main_provider` 恒真，闸门形同不存在，
+        # 主模型的钥匙照样被拿去打别家的端点。
+        if slot.provider == main_provider:
+            return providers.resolve_api_key(profile, self.settings)
+
+        for name in getattr(profile, "key_env_names", ()) or ():
+            value = os.environ.get(name, "").strip()
+            if value:
+                return value
+
+        try:
+            from app import fallback as fb
+
+            service = f"orbit:{Path(self.settings.data_dir).resolve()}"
+            pool = fb.CredentialPool(fb.KeyringStore(service))
+            # **`primary` 不传 = 不回退主钥匙**，这正是"换了一家"时需要的语义
+            slot_key = fb.PoolKeyRing(pool).next(slot.provider)
+        except Exception as exc:  # noqa: BLE001 —— 池坏了就当没钥匙，别拦摘要
+            log.warning("读凭证池失败（auxiliary.summary 按主模型处理）：%s", exc)
+            return ""
+        if slot_key is not None:
+            return str(slot_key.secret or "")
+        return ""
 
     def _model(self):
         if self.model is not None:

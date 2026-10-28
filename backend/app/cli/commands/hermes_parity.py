@@ -1598,6 +1598,13 @@ SPECS: tuple[Spec, ...] = (
                 ),
             ),
             Spec(name="delete", help="删除指定会话", options=_o("-y, --yes", "session_id")),
+            # 重置：清空当前对话、**保留长期记忆**（MATRIX 13.5）。
+            # 与 `delete` 的区别要在 help 里说清——两者都不可恢复，但清的层次不同。
+            Spec(
+                name="reset",
+                help="清空当前对话上下文（保留长期记忆；有活跃任务时拒绝）",
+                options=_o("-y, --yes", "session_id"),
+            ),
             Spec(
                 name="prune",
                 help="按过滤条件删除旧会话",

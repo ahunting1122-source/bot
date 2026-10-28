@@ -179,11 +179,17 @@ ALL_EVENTS: tuple[str, ...] = HOOK_EVENTS + INFERRED_EVENTS
 #:   - `transform_tool_result`（`graph/nodes.py::digest`，**治理之后**发——订阅方看到的
 #:     是模型真正拿到的那份，不是原始结果）
 #:
-#: **只剩 `on_session_reset` 没有发射点，而且这不是钩子缺口、是功能缺口**：
+#: **`on_session_reset` 之前没有发射点，而且那不是钩子缺口、是功能缺口**：
 #: Orbit 没有「会话重置」这个动作（`orbit sessions` 有 `delete` / `archive`，但没有
-#: `/new` / `/reset` 那种"清空当前会话继续聊"的语义）。**给它编一个发射点
+#: `/new` / `/reset` 那种「清空当前会话继续聊」的语义）。**给它编一个发射点
 #: 会把 `delete` 谎报成 `reset`**，订阅方会收到一个名字对、语义错的事件——
-#: 那比没有更糟。要补它得先实现重置功能。
+#: 那比没有更糟。
+#:
+#: **13.5 第一步已补**：`orbit sessions reset <ID> --yes` 真的存在了
+#: （`cli/commands/sessions.py::run_reset`），它清 `Message` 行、**保留 `MEMORY.md`**、
+#: 有活跃任务时拒绝。发射点在 `run_reset` 里，payload 带
+#: `conversation_id` / `cleared_messages` / `scope="messages_only"`——
+#: **`scope` 是给订阅方判断要不要动自己缓存用的**，不是装饰。
 EMITTED_EVENTS = frozenset(
     {
         "pre_llm_call",
@@ -196,6 +202,7 @@ EMITTED_EVENTS = frozenset(
         "on_session_start",
         "on_session_end",
         "on_session_finalize",
+        "on_session_reset",
         "subagent_start",
         "subagent_stop",
         "pre_approval_request",

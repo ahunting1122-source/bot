@@ -529,12 +529,113 @@ def _bind(path: str, handler: Any) -> None:
         target.state = "done"
 
 
+# ── sessions reset ─────────────────────────────────────────────────────────
+
+
+def run_reset(context: Context, args) -> int:
+    """``sessions reset <ID>``：清空当前对话上下文，**保留长期记忆**（MATRIX 13.5）。
+
+    ## 为什么需要这条
+
+    Orbit 之前**没有「会话重置」这个动作**——只有 ``delete``（连会话一起删）与
+    ``archive``。于是钩子事件 ``on_session_reset`` **一直没有发射点**。
+    而这不能靠「在 delete 里顺手 emit」糊过去：**``delete`` 不是 ``reset``**，
+    把删除伪装成重置会让订阅者收到一句假话。
+
+    ## 语义（四件，都是刻意选的）
+
+    1. **清什么**：这条会话的 ``Message`` 行（当前对话上下文）。
+    2. **不清什么**：``Conversation`` 行本身、**以及 ``MEMORY.md`` / 长期记忆**。
+       理由是**破坏性不对称**——不清可以手动清，**清了不可恢复**；
+       长期记忆是跨会话的事实，重置的是「这次对话说到哪了」，
+       不是「关于用户知道什么」。
+    3. **有活跃任务时拒绝**：任务在跑（``PENDING`` / ``RUNNING`` / ``WAITING_USER``）
+       就报错退出。**这不是实现细节，是并发语义**：等 = 用户点了没反应，
+       夺 = 任务被腰斩，两者都不可接受，所以先拒绝并说清楚。
+       **活跃任务下的重置语义单独排期**（13.5 第二步），不在这条里蒙过去。
+    4. **必须显式 ``--yes``**：与 ``delete`` 同一条理由——不可恢复的操作要有硬门禁。
+
+    ## 必须说清边界
+
+    输出里明写「**已清空当前对话；长期记忆保留**」。不写这句，用户不知道清到哪，
+    会以为记忆也被清了（或反之）。
+    """
+    from sqlalchemy import delete, func, select
+
+    from app import hooks
+    from app.storage import Conversation, Message, Task
+
+    session_id = _session_id(getattr(args, "session_id", ""))
+    if not session_id:
+        raise CliError("用法：orbit sessions reset <会话ID> --yes")
+    if not getattr(args, "yes", False):
+        raise CliError(
+            "拒绝执行：重置会清空当前对话且不可恢复，必须显式加 --yes 确认"
+            f"（orbit sessions reset {session_id} --yes）"
+        )
+
+    async def go() -> Any:
+        store = context.store
+        async with store.lock, store.sessions() as session:
+            conversation = await session.get(Conversation, session_id)
+            if conversation is None:
+                return None
+            active = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Task)
+                    .where(
+                        Task.conversation_id == session_id,
+                        Task.status.in_(["PENDING", "RUNNING", "WAITING_USER"]),
+                    )
+                )
+            ).scalar_one()
+            if active:
+                raise CliError(
+                    f"拒绝执行：会话 {session_id} 还有 {active} 个未结束的任务。"
+                    "**重置只支持无活跃任务的会话**——任务在跑时「等」会让用户点了没反应、"
+                    "「夺」会把任务腰斩，两种都不该由一条清理命令替你决定。"
+                    "请先 `orbit sessions list` 确认，或等任务结束后再试。"
+                )
+            cleared = (
+                await session.execute(
+                    delete(Message).where(Message.conversation_id == session_id)
+                )
+            ).rowcount or 0
+            await session.commit()
+        return {"cleared": int(cleared)}
+
+    result = context.run(go())
+    if result is None:
+        raise CliError(f"找不到会话：{session_id}")
+    cleared = result["cleared"]
+
+    # **发射点在这里**（MATRIX 13.5）：Orbit 之前没有「重置」这个动作，
+    # 所以 `on_session_reset` 一直没地方发。现在有了，就必须发。
+    hooks.emit(
+        "on_session_reset",
+        {
+            "conversation_id": session_id,
+            "cleared_messages": cleared,
+            "scope": "messages_only",
+        },
+    )
+
+    context.out(f"已重置会话 {session_id}：清空 {cleared} 条消息。")
+    context.out("**已清空当前对话；长期记忆（MEMORY.md / USER.md）保留。**")
+    context.emit(
+        {"ok": True, "id": session_id, "cleared_messages": cleared, "memory_kept": True}
+    )
+    return 0
+
+
 _bind("sessions list", run_list)
 _bind("sessions browse", run_browse)
 _bind("sessions stats", run_stats)
 _bind("sessions rename", run_rename)
 _bind("sessions export", run_export)
 _bind("sessions delete", run_delete)
+_bind("sessions reset", run_reset)
 
 
 def _json_option() -> Option:

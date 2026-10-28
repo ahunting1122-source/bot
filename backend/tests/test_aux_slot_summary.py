@@ -96,3 +96,47 @@ def test_the_summary_service_really_consults_the_slot():
         "`SummaryService._model()` 不再查槽位了——`auxiliary.*` 又变回零消费者"
     )
     assert "aux_slots.resolve_slot(" in code, "没有调 `resolve_slot`，槽位解析又是死接口"
+
+
+def test_a_foreign_main_key_is_never_used_for_the_slot(tmp_path, monkeypatch, caplog):
+    """**真 bug 的回归测试**：主模型有钥匙 + 槽位换了一家 → **不能拿主钥匙去撞 401**。
+
+    ## 这是一个实现与承诺相反的 bug
+
+    第一版直接调 providers.resolve_api_key(profile, settings)，而它第一步是
+
+    `python
+    key = _secret_value(getattr(settings, "model_api_key", None))
+    if key: return key          # ← 与 profile 无关，非空就返回
+    `
+
+    于是「主模型 deepseek、槽位配 openai」时拿到的是 **deepseek 的钥匙**，
+    if not key 那道闸门**根本不触发**：不告警、照造客户端，然后必然 401。
+    **docstring 里承诺的「不造一个必然 401 的客户端」，实现恰好相反。**
+
+    ## 为什么这条测试之前不存在
+
+    _service 建 Settings(..., model="deepseek-chat") **不设 model_api_key**，
+    主 key 恒空 → 走环境变量 → 绿。**危险场景从未被构造。**
+
+    而它恰恰是槽位功能的主要用法：**用户配槽位就是为了换一家便宜的。**
+    """
+    from pydantic import SecretStr
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    service, settings = _service(
+        tmp_path, {"summary": {"provider": "openai", "model": "gpt-4o-mini"}}
+    )
+    # **主模型有钥匙**（deepseek 的），槽位要的是 openai 的
+    settings.model_api_key = SecretStr("sk-deepseek-key")
+
+    with caplog.at_level("WARNING"):
+        client = service._slot_client()
+
+    assert client is None, (
+        "拿主模型的钥匙造了 openai 客户端——请求必然 401，而用户只会看到一个看不懂的错误"
+    )
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("auxiliary.summary" in message for message in messages), (
+        f"没告警——用户不知道槽位没生效：{messages}"
+    )
