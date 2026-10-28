@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 85 · 🟡 37 · ⬜ 59（完成度 47.0%，截至 W13/W14 收口）
+条目合计 **181**。当前：✅ 85 · 🟡 39 · ⬜ 57（完成度 47.0%，截至 W13/W14 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -45,8 +45,8 @@
 | 2.3 | 心跳 30s + 双阈值判卡死（idle 15 周期=**450s** / in-tool 40 周期=**1200s**），超阈值只 break 续命、由 gateway inactivity 超时执行真正的杀 =「级联」 | 【实证】`delegate_tool.py:1169,1184,1185`；调研 09 §2 | W11 | ⬜ | — |
 | 2.4 | 中断配对：工具**返回** `{"output":"[interrupted]","returncode":130}` 而非抛异常；父中断时未完成 child 被合成 `status=interrupted` 结果条目；不可修 arguments 降级为 `{}` | 【实证】`tools/interrupt.py`；`delegate_tool.py:4289-4327` | W11 | ⬜ | — |
 | 2.5 | 循环结束后台动作：bg-review 线程 + 同会话追加一轮「Review the conversation above and update the skill library」学习回路 + curator | 【实证】`agent.background_review` 日志实证；调研 09 §4 | W5 | ⬜ | — |
-| 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | ⬜ | — |
-| 2.7 | `context_overflow` → 压缩后重试 | 【实证】bot_failure_reasons 映射 | W8 | ⬜ | — |
+| 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | 🟡 | `app/errors.py`：**13 类**失败分类（auth / rate_limit / quota / bad_request / context_overflow / not_found / timeout / connection / server / overloaded / content_filter / cancelled / unknown），按「用户下一步该做什么」分而不是按 HTTP 状态码分（同一个 400 可能是「上下文太长」也可能是「参数不合法」，处理完全不同）；**只有 4 类可自动重试**（rate_limit / timeout / connection / overloaded），每类带一句可行动建议。`tests/test_errors.py` 21 条（13 类各自可达 + 只有 4 类可重试 + 未知不硬塞 + 文案顺序）。**未接线**：`Nodes.ask_model` 仍对所有异常重试 `MODEL_ATTEMPTS` 次——那一轮 `app/agent.py` 正被另一个子agent 重写，同时改会互相覆盖 |
+| 2.7 | `context_overflow` → 压缩后重试 | 【实证】bot_failure_reasons 映射 | W8 | 🟡 | `errors.is_context_overflow(exc)` 已实现（按 `maximum context length` / `prompt is too long` / `exceeds the maximum context` 等特征识别）。**未接线**：识别出来之后「压缩再重试」的那一步还没接进 `ask_model` |
 | 2.8 | per-thread 中断（可打断单条线程） | 【实证】`tools/interrupt.py` | W11 | ⬜ | — |
 | 2.9 | 三层预算刹车（动作 / token / 时间） | Orbit 已有 | W1 | ✅ | `app/config.py` 的 `max_actions` / `max_seconds`；`app/policies.py` 的 `DefaultBudgetPolicy`；`app/graph/nodes.py` 的 budget 节点 |
 | 2.10 | 上下文窗口自适应结果阈值（per_result=clamp(win×0.15,8k,100k)、per_turn=clamp(win×0.30,16k,200k)） | 【实证】`tools/budget_config.py` 注释 | W4 | ⬜ | — |
