@@ -1,11 +1,16 @@
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# `event_log` 只依赖标准库（hashlib / json / os / tempfile / threading），
+# **不 import 本模块**——所以这条依赖不会成环。
+from app.event_log import EventLog
 
 #: 同义 key 判定的相似度阈值（字符 bigram Jaccard）。
 #: 实测样本：「报告格式偏好」vs「报告偏好与校验码」= 0.43、「报告偏好与校验码」
@@ -272,6 +277,11 @@ def serialize(row: Base) -> dict[str, Any]:
     return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
 
+#: 事件日志写入失败记账（MATRIX 10.14）。**失败必须可见**——
+#: 审计轨静默坏掉，比没有审计轨更难发现。
+EVENT_LOG_FAILURES: list[str] = []
+
+
 class Store:
     def __init__(self, path):
         self.engine = create_async_engine(
@@ -280,6 +290,10 @@ class Store:
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         self.lock = asyncio.Lock()
         self.wal_enabled = False
+        # 事件日志（MATRIX 10.14）：与 sqlite 同目录的 `events/` 子目录。
+        # 它是**追加式审计轨**，与 `task_events` 表并存——表是查询用的主存储，
+        # 日志是可回放、可压缩、带游标的顺序记录。
+        self.event_log = EventLog(Path(path).parent / "events")
 
     async def tune(self):
         """WAL lets the long-lived SSE reader run while tasks keep writing.
@@ -322,7 +336,24 @@ class Store:
             return saved
 
     async def event(self, task_id: str, kind: str, **payload):
-        return await self.save(TaskEvent(task_id=task_id, event_type=kind, payload=payload))
+        saved = await self.save(TaskEvent(task_id=task_id, event_type=kind, payload=payload))
+        # 同时追加到**事件日志**（MATRIX 10.14）。
+        #
+        # **之前 `app/event_log.py` 是孤立文件**：`grep event_log app/` 零命中，
+        # 只有 tests 引用它。它写好了 append-only 流、cursors、watermarks、压缩，
+        # 但**没有任何生产代码写入或读取它**。
+        #
+        # 接在这里是因为 `Store.event()` 是**唯一的事件写入口**——接一处就覆盖
+        # 全部事件类型，不会漏。
+        #
+        # **失败只记账、不回滚**：`task_events` 表是查询用的主存储（`orbit logs` /
+        # 时间线 / 看板都读它）；事件日志是**追加式审计轨**。让审计轨写失败去
+        # 回滚主存储，等于一个可选的诊断设施能阻止任务推进——方向错了。
+        try:
+            self.event_log.append(task_id, {"kind": kind, **payload})
+        except Exception as exc:  # noqa: BLE001 —— 见上
+            EVENT_LOG_FAILURES.append(f"{kind}: {type(exc).__name__}: {exc}")
+        return saved
 
     async def transition(self, task_id: str, status: str, **fields):
         async with self.lock, self.sessions() as session:
