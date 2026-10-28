@@ -222,7 +222,13 @@ class AuditReport:
 
     def headline(self) -> str:
         """一句话结论。**缓存缺失时绝不出现"未发现漏洞"**。"""
+        # 三种「未审计」必须分开说，否则用户会去查错方向：
+        #   scanned == 0  → 路径配错了，该去查路径
+        #   scanned > 0   → 路径没问题，缺的是通告库/网络，该去挂库或联网
+        # 原来两者共用「目标不存在或无法解析」，于是扫了 24 项也报「目标不存在」。
         if not self.audited:
+            if self.scanned:
+                return f"未审计（已列出 {self.scanned} 项，缺本地通告库未比对）"
             return "未审计（目标不存在或无法解析）"
         if self.cache_missing:
             return "未审计（本地通告缓存缺失）"

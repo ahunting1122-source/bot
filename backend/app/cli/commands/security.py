@@ -92,6 +92,9 @@ def run_audit(context: Context, args: Any) -> int:
     if not getattr(args, "skip_venv", False):
         raw_venv = getattr(args, "venv", None)
         site_packages = Path(raw_venv) if raw_venv else security_audit.default_site_packages()
+        # 注意：这里**不**走 `app/osv.py`。两者扫的不是一回事——
+        # `audit_venv` 扫「这个 venv 里装了什么」，`osv.audit_local` 扫
+        # 「项目声明了什么」。`--venv PATH` 的语义是前者，换过去会忽略用户指定的 venv。
         reports.append(security_audit.audit_venv(site_packages, data_dir=data_dir))
     if not getattr(args, "skip_plugins", False):
         reports.append(security_audit.audit_plugins(data_dir / "plugins"))

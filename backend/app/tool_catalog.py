@@ -273,8 +273,11 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "setup_mcp",
         "mcp",
         "以同意卡片提议一个 MCP server（装目录项 / 重启被禁 server / 自定义命令）",
-        status="unavailable",
-        reason="需要安装目录与网络下载，外加内联同意卡片（运行时 UI）；工具层做不到这两件事。",
+        ("setup_mcp",),
+        reason="**覆盖的是「配置」那一半**（本机真做得到）：增 / 删 / 启 / 停 "
+        "`<data>/mcp.json`，走 MCPManager.save_servers 的字段校验与去重，"
+        "`orbit mcp` 与运行时读同一份文件。**没覆盖**：从远端安装目录装包（要网络）、"
+        "内联同意卡片（要运行时 UI）。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     # ── delegation（2）──────────────────────────────────────────────────────
     _t(
@@ -282,15 +285,22 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "delegation",
         "在隔离上下文里派生 1..N 个子 agent（支持后台 / 编排）",
         status="unavailable",
-        reason="委派编排在图运行时里（app/graph 是禁改区）；工具层单方面起子 agent 无法自证"
-        "（谁回收、谁限并发、失败怎么回传都归图管）。",
+        reason="**做不到，不是没排期**：`app/delegate.py::DelegateRunner` 的 `runner_factory` "
+        "在**全仓库没有任何地方注入**（默认的 `_missing_factory` 一调就抛，"
+        "`app/cli/commands/delegate.py` 自己也写着「未注入子任务 runner」）。"
+        "也就是说「起一个子 agent」这条链现在根本不存在，注册了必然调一次错一次 —— "
+        "而「调了才失败」比「没有这个工具」坏得多。要推它，先由装配层注入一个真的 "
+        "`runner_factory`（在 app/agent.py / app/policies.py 里），再把工具接上。",
     ),
     _t(
         "agent_swarm",
         "delegation",
         "用 prompt 模板 + {{item}} 占位符批量起子 agent",
         status="unavailable",
-        reason="同上，且要并发调度器与限流（Hermes 的 swarm_scheduler）。",
+        reason="同上：调度器（`app/swarm.py::run_plan`，拓扑序 + 同层并发 + 失败隔离）是真的，"
+        "但它下面同样是 `DelegateRunner`，`runner_factory` 未注入 —— 没有子任务 runner，"
+        "再好的调度器也只是把「必然失败」排成了批次。另外 Hermes 的限流相位"
+        "（突发 5 个、之后每 700ms 起 1 个、429 退避）本轮也没做。",
     ),
     # ── 媒体生成（4）────────────────────────────────────────────────────────
     _t(
@@ -329,8 +339,12 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "text_to_speech",
         "tts",
         "文本转语音，返回 MEDIA: 路径由平台投递",
-        status="unavailable",
-        reason="需要 TTS provider（elevenlabs / openai / gemini / xai），本机无网络。",
+        ("text_to_speech",),
+        reason="**本机可用的是本地通道**：Windows SAPI（离线合成 wav，见 "
+        "app/voice_local.py）与 `<data>/voice.json` 的命令通道；19 家云端 provider"
+        "（edge / openai / elevenlabs / gemini / xai / minimax / mistral / deepinfra / "
+        "neutts / kittentts / piper 里的云那半）一律如实报不可用并给出 install / requires / "
+        "reason。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     # ── 看板（14）──────────────────────────────────────────────────────────
     _t("kanban_show", "kanban", "读任务完整状态（title/body/assignee/父任务 handoff）", status="unavailable", reason="kanban 是 Hermes 的服务端看板（多 worker 认领/交接），Orbit 没有对应服务端。"),
@@ -390,7 +404,19 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("desktop_project", "desktop", "桌面 Project（命名工作区）create/switch", status="unavailable", reason="Orbit 的工作目录是单一授权目录，没有多命名工作区。"),
     _t("computer_use", "desktop", "通过 cua-driver 做通用桌面控制", status="unavailable", reason="需要 cua-driver 外部组件，未安装且不能装依赖。"),
     # ── 协作与消息（13）────────────────────────────────────────────────────
-    _t("send_message", "collab", "向已接入的消息平台发消息，或列可用 target", status="unavailable", reason="需要平台接入（Telegram/Discord 等）与凭证，本机无网络。"),
+    _t(
+        "send_message",
+        "collab",
+        "向已接入的消息平台发消息，或列可用 target",
+        status="todo",
+        reason="**做得到、但这一轮刻意不做**：`app/platforms.py` 的 19 个出站适配器都在，"
+        "旁路（console / file / webhook）离线也能验，所以「按 target 发一条」本身不难。"
+        "不做的两条理由：① 归组没有干净的落点 —— collab 域在 `toolsets.DOMAIN_TOOLSETS` 里"
+        "只有 `notion` 一个 toolset（借撑），把平台投递塞进 notion 组会让暴露面清单误导人；"
+        "② 19 家里 17 家要凭证与网络，本机只能验 file/console 两条旁路，"
+        "注册一个「绝大多数 target 都会失败」的工具，正是本模块反复警告的那种坏体验。"
+        "要推它，先给 collab 域一个自己的 toolset，再注册。",
+    ),
     _t("discord", "collab", "Discord 核心动作集（读消息/发消息/搜）", status="unavailable", reason="需要 DISCORD_BOT_TOKEN 与网络。"),
     _t("discord_admin", "collab", "Discord 管理动作集（频道/角色/权限）", status="unavailable", reason="同上。"),
     _t("feishu_doc_read", "collab", "读飞书/Lark 文档全文为纯文本", status="unavailable", reason="需要飞书开放平台凭证与网络。"),
@@ -415,17 +441,24 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "compact",
         "meta",
         "触发上下文压缩（context_engine）",
-        status="unavailable",
-        reason="压缩在 agent 运行时被拦截（Hermes 也是 dispatch 层拦），工具层注册只会是个 stub。",
+        ("compact",),
+        reason="**能真做的那一半做到了**：判定走 `app/compaction.py::plan`（纯函数："
+        "该丢哪几组、压完剩多少 token），动手走装配层注入的 "
+        "`SummaryService.rebuild(conversation_id)` —— 摘要是运行时真的会读的压缩产物"
+        "（`app/context.py::build_volatile_tier(summary=…)`）。**边界**：改不了你正在看的"
+        "那份消息列表（那在运行时手里，禁改区），影响的是**下一轮**的上下文。"
+        "实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     _t(
         "context_usage",
         "meta",
         "查当前上下文占用",
-        status="unavailable",
-        reason="**这一层拿不到那份数据**：ToolRegistry.execute 只把 messages 传给"
-        "本地分发链（app/tools.py 的 local()，本轮禁改），外部执行器只收到 "
-        "(name, args, task_id, operation_id)。算出来的只能是假数。",
+        ("context_usage",),
+        reason="数字来自**已落库的对话正文**（token 按 4 字符/token 估算）+ "
+        "`app/capabilities.py` 的 context_window，判定用 "
+        "`app/session_plane.py::maybe_compact`（纯函数）。**口径写进返回值**：不含系统提示、"
+        "工具结果原文与本轮未落库的增量；窗口读不到时如实报「未知」并拒绝判定，不猜默认值。"
+        "实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     _t("tool_search", "meta", "桥接工具：按自然语言/BM25 检索被延迟的工具", ("tool_search",), reason="Orbit 是关键词打分（名字 > 描述 > toolset），不是 BM25 词干检索。"),
     _t(
@@ -440,10 +473,11 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "tool_call",
         "meta",
         "桥接工具：调用被延迟的工具",
-        status="todo",
-        reason="做得到（按名分发到 registry.execute），但**这一轮刻意不做**：被延迟的工具"
-        "仍在清单里，模型拿到参数表后可以直接按名调用；多一层桥会绕过确认门禁"
-        "（memory_save 那类 confirmation=True 的工具），换来的只是多一层失败点。",
+        ("tool_call",),
+        reason="**本轮做了**：按名字走 `ToolRegistry.execute` 的真实分发链（校验 / 幂等 / "
+        "错误包装都在那条链上）。三道闸写在实现里：未知工具给 tool_search 指路、"
+        "`confirmation=True` 的工具**一律拒绝**（确认必须发生在对话里，不能从桥里绕）、"
+        "不许调用自己。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     _t(
         "message_agent",
@@ -482,11 +516,14 @@ def orbit_pool() -> tuple[str, ...]:
     names = {tool.name for tool in LOCAL_TOOLS}
     names |= {name for name in toolsets.TOOL_TOOLSET if not name.startswith("mcp__")}
     names |= set(extra_tool_names())
+    # MATRIX 5.14 第二轮新增的 5 个（`GROWTH_TOOLS`）。与上一轮那两个分开列，
+    # 因为"上一轮接了什么"与"这一轮新增什么"要能分开数（回滚也要能分开回滚）。
+    names |= set(growth_tool_names())
     return tuple(sorted(names))
 
 
 def extra_tool_names() -> tuple[str, ...]:
-    """``app/tool_extra_impl.EXTRA_TOOLS`` 的名字（**本轮新实现的工具**）。
+    """``app/tool_extra_impl.EXTRA_TOOLS`` 的名字（**上一轮的两个工具**）。
 
     单独一个函数是因为有两处要问同一个问题：``orbit_pool()``（算覆盖）与
     ``report()``（说清"实现了但还没接线"）。两处各写一份 import 迟早会漂。
@@ -496,6 +533,19 @@ def extra_tool_names() -> tuple[str, ...]:
     except Exception:  # noqa: BLE001 - 可选依赖缺失不该让覆盖表整个不可用
         return ()
     return tuple(tool.name for tool in EXTRA_TOOLS)
+
+
+def growth_tool_names() -> tuple[str, ...]:
+    """``app/tool_extra_impl.GROWTH_TOOLS`` 的名字（**本轮新增的 5 个**）。
+
+    与 :func:`extra_tool_names` 分开的理由见 ``orbit_pool``：两批工具分开可数，
+    既有的"上一轮两个"断言也不会被这一轮的增量打红。
+    """
+    try:
+        from app.tool_extra_impl import GROWTH_TOOLS
+    except Exception:  # noqa: BLE001
+        return ()
+    return tuple(tool.name for tool in GROWTH_TOOLS)
 
 
 def registered_extra_tools() -> tuple[str, ...]:

@@ -38,6 +38,28 @@ Orbit 没有这一层，本模块**不假装有**。真正的"令牌代换"至�
   东西，照样能拿到它。这层只是"别把它写进命令行参数"。
 - **不是防火墙**：它只作用于**经过 Orbit 代码**的调用点，管不了机器上别的进程。
 
+## DNS rebinding：为什么按主机名判不够（MATRIX 4.8 补的那一块）
+
+按主机名判有一个天然缺口：**名字和它此刻解析到的地址是两件事**。允许
+`api.example.com` 出站，不等于允许"这个名字**此刻**指向 `127.0.0.1`"。
+攻击形态很具体：攻击者控制一个域名（或拿到某个被 allow 的子域），把它解析到回环地址
+或云元数据端点 `169.254.169.254`，然后 `curl` 一次——第一层按名字放行，请求打到的是本机
+或内网。这就是 rebinding / SSRF 的经典手法。
+
+所以 :meth:`EgressPolicy.check` 在**命中 allow 规则之后**再做一步：把域名解析成 IP，
+任何解析结果落在回环 / 私网 / 链路本地 / 保留 / 组播 / 未指定地址上就整体拒绝。
+三个刻意的边界：
+
+1. **只对命中显式 allow 规则的域名收紧**。走 `default=allow` 的主机不解析——那一档本来
+   就是"全部放行"，再对它加一道会误伤内网用法（`curl http://nas.lan`），而收益为零：
+   策略作者根本没对那个名字表过态。
+2. **主机名本身就是 IP 字面量、或是 `localhost` 时跳过**。用户自己写下 `127.0.0.1`
+   是显式意图，不是 rebinding。
+3. **`allow_private_ips: true` 可以关掉这一层**。用 hosts 文件把某个域名指到内网服务
+   是合法场景；关掉这件事必须写进配置文件（可审计），而不是靠"这层没生效"。
+4. **解析失败不放行也不误杀**：返回原判定，并在 `reason` 里写明"未做 IP 校验"——
+   离线环境下 `getaddrinfo` 必然失败，那时既不能证明安全、也不该把请求全拦死。
+
 ## 默认值为什么是 allow
 
 ``default`` 默认 ``allow``，因为"引入 egress 层"不能改变既有行为——`curl https://…`
@@ -48,14 +70,19 @@ Orbit 没有这一层，本模块**不假装有**。真正的"令牌代换"至�
 from __future__ import annotations
 
 import fnmatch
+import ipaddress
 import json
+import logging
 import os
 import re
-from collections.abc import Sequence
+import socket
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+log = logging.getLogger("orbit.egress")
 
 #: 策略文件名（相对 `data_dir`）。与 `settings.json` / `approvals.json` / `tools.json`
 #: 同规矩：放在数据目录，"换一个数据目录"能连出口策略一起换走。
@@ -249,6 +276,76 @@ def match_host(rule: str, host: str) -> bool:
     return pattern == target
 
 
+#: 域名 → IP 列表的解析函数签名。**做成注入点**（:meth:`EgressPolicy.check` 的
+#: ``resolve=``）：DNS rebinding 防护的正确性必须能离线断言，否则测试要真去查 DNS，
+#: 而本机无网络——那条用例永远只能被跳过，等于没有。
+Resolver = Callable[[str], Sequence[str]]
+
+
+def is_ip_literal(host: str) -> bool:
+    """这个 host 是不是**已经是 IP 字面量**（`127.0.0.1` / `::1` / `10.0.0.1`）。"""
+    try:
+        ipaddress.ip_address((host or "").strip().strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
+def is_loopback_name(host: str) -> bool:
+    """主机名是不是**本身就是回环名**（`localhost` / `*.localhost`）。
+
+    这类名字解析到 `127.0.0.1` 是它的定义，不是 rebinding。把它们一起拦掉会让
+    `curl http://localhost:11434` 这种最普通的本地调试当场失效。
+    """
+    name = (host or "").strip().lower().rstrip(".")
+    return name == "localhost" or name.endswith(".localhost")
+
+
+def is_special_ip(ip: str) -> bool:
+    """这个 IP 是不是"一个公网域名不该指向"的地址。
+
+    覆盖回环 / 私网 / 链路本地 / 保留 / 组播 / 未指定六类。IPv4-mapped 的 IPv6
+    （`::ffff:127.0.0.1`）先摊平成 IPv4 再判——不摊平的话 `::ffff:127.0.0.1` 会以
+    "IPv6 私网"的身份混过去（`is_private` 对映射地址的判定与直觉不一致，实测过）。
+    """
+    try:
+        addr: Any = ipaddress.ip_address((ip or "").strip().strip("[]"))
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return bool(
+        addr.is_loopback
+        or addr.is_private
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def resolve_ips(host: str, port: int = 443) -> list[str]:
+    """用 `socket.getaddrinfo` 把主机名解析成去重保序的 IP 列表（失败返回空表）。
+
+    失败**不抛**：离线环境里 `getaddrinfo` 必然失败，而"解析不出来"既不能证明安全、
+    也不该把请求全拦死——调用方据此在 `reason` 里写明"未做 IP 校验"。
+    """
+    name = (host or "").strip().strip("[]")
+    if not name:
+        return []
+    try:
+        infos = socket.getaddrinfo(name, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError) as exc:
+        log.debug("解析 %s 失败（不做 IP 校验）：%s", name, exc)
+        return []
+    seen: dict[str, None] = {}
+    for info in infos:
+        address = str(info[4][0] or "").strip()
+        if address:
+            seen.setdefault(address, None)
+    return list(seen)
+
+
 def urls_in_command(command: str) -> list[str]:
     """从命令文本里抽出**显式写出**的 http(s) URL（去重保序）。"""
     seen: dict[str, None] = {}
@@ -308,6 +405,14 @@ class EgressPolicy:
     deny: list[str] = field(default_factory=list)
     default: str = DEFAULT_ACTION
     credentials: list[CredentialRule] = field(default_factory=list)
+    #: 关掉 DNS rebinding 那一层（默认关着 = 防护生效）。用 hosts 文件把某个域名指到
+    #: 内网服务的场景需要它；改成 `true` 必须写进配置文件（可审计、可 diff），
+    #: 而不是靠"这层没生效"这种没人看得见的方式。
+    allow_private_ips: bool = False
+    #: 主机名 → IP 的缓存。**为什么要缓存**：`check_chain` 会对同一批主机反复判定，
+    #: 一次 `curl -L` 可能问好几遍；不缓存就变成"每次判定都查一次 DNS"，慢且不稳定。
+    #: 缓存空结果同样是必要的（离线时 `getaddrinfo` 每次都失败，重试没有任何收益）。
+    _resolved: dict[str, list[str]] = field(default_factory=dict, repr=False)
 
     # ── 读写 ────────────────────────────────────────────────────────────────
     @classmethod
@@ -365,6 +470,7 @@ class EgressPolicy:
             deny=_str_list(raw.get("deny")),
             default=default,
             credentials=credentials,
+            allow_private_ips=bool(raw.get("allow_private_ips", False)),
         )
 
     def save(self) -> Path:
@@ -376,6 +482,7 @@ class EgressPolicy:
             "default": self.default,
             "allow": list(self.allow),
             "deny": list(self.deny),
+            "allow_private_ips": bool(self.allow_private_ips),
             "credentials": [rule.as_dict() for rule in self.credentials],
             "_note": "本文件只有 host 规则与 keyring 键名，**没有密钥值**。",
         }
@@ -388,7 +495,9 @@ class EgressPolicy:
         return self.path
 
     # ── 判定 ────────────────────────────────────────────────────────────────
-    def check(self, url: str, *, redirects: Sequence[str] = ()) -> EgressDecision:
+    def check(
+        self, url: str, *, redirects: Sequence[str] = (), resolve: Resolver | None = None
+    ) -> EgressDecision:
         """判定一个目标能不能出站。
 
         判定顺序：**deny → allow → default**。deny 先判是刻意的：`allow` 是便利决策，
@@ -398,12 +507,16 @@ class EgressPolicy:
         `redirects` 是**已知的重定向目标**（调用方从响应头里拿到的那串 `Location`）。
         给了它就按"原始 URL + 每一跳"逐跳判，任何一跳被拒整体就被拒——
         见 :meth:`check_chain`。
+
+        `resolve` 是**域名解析的注入点**（`(host) -> [ip, ...]`）。不注入时用
+        :func:`resolve_ips`（真 `getaddrinfo`）；测试注入一个假解析器，就能证明
+        "域名 allow 但解析到 `127.0.0.1` 时被拒"这件事，而不用真的查 DNS。
         """
         if redirects:
-            return self.check_chain([url, *redirects])
-        return self._decide(url)
+            return self.check_chain([url, *redirects], resolve=resolve)
+        return self._decide(url, resolve=resolve)
 
-    def check_chain(self, urls: Sequence[str]) -> EgressDecision:
+    def check_chain(self, urls: Sequence[str], *, resolve: Resolver | None = None) -> EgressDecision:
         """按重定向链逐跳检查。**任何一跳被拒，整体就拒。**
 
         为什么需要这一步（这是 egress 最容易被绕过的地方）：`check()` 只看调用方
@@ -417,11 +530,11 @@ class EgressPolicy:
         """
         hops = [str(item).strip() for item in urls if str(item or "").strip()]
         if not hops:
-            return self._decide("")
+            return self._decide("", resolve=resolve)
         previous = ""
         last: EgressDecision | None = None
         for index, hop in enumerate(hops):
-            decision = self._decide(hop)
+            decision = self._decide(hop, resolve=resolve)
             if not decision.allowed:
                 if index == 0:
                     return decision
@@ -448,8 +561,8 @@ class EgressPolicy:
             )
         return last
 
-    def _decide(self, url: str) -> EgressDecision:
-        """单跳判定（`check` 的实体）。"""
+    def _decide(self, url: str, *, resolve: Resolver | None = None) -> EgressDecision:
+        """单跳判定（`check` 的实体）：先按主机名判，命中 allow 后再做一次 IP 校验。"""
         host = normalize_host(url)
         if not host:
             return EgressDecision(
@@ -472,12 +585,15 @@ class EgressPolicy:
                 )
         for rule in self.allow:
             if match_host(rule, host):
-                return EgressDecision(
-                    url=str(url or ""),
-                    host=host,
-                    action=ALLOW,
-                    rule=rule,
-                    reason=f"命中 allow 规则「{rule}」",
+                return self._guard_resolved_ip(
+                    EgressDecision(
+                        url=str(url or ""),
+                        host=host,
+                        action=ALLOW,
+                        rule=rule,
+                        reason=f"命中 allow 规则「{rule}」",
+                    ),
+                    resolve=resolve,
                 )
         if self.default == DENY:
             return EgressDecision(
@@ -498,6 +614,72 @@ class EgressPolicy:
             host=host,
             action=ALLOW,
             reason="没有匹配的规则，按 default=allow 放行",
+        )
+
+    # ── DNS rebinding（MATRIX 4.8 补的那一块）───────────────────────────────
+    def ips_for(self, host: str, resolve: Resolver | None = None) -> list[str]:
+        """解析一个主机名（带实例级缓存）。``resolve`` 给了就用它，否则真查 DNS。"""
+        key = (host or "").strip().lower()
+        if not key:
+            return []
+        cached = self._resolved.get(key)
+        if cached is not None:
+            return list(cached)
+        resolver = resolve or resolve_ips
+        try:
+            addresses = [str(item).strip() for item in resolver(key) if str(item).strip()]
+        except Exception as exc:  # noqa: BLE001 - 注入的解析器坏掉不该让判定崩
+            log.debug("注入的解析器对 %s 抛错（按解析失败处理）：%s", key, exc)
+            addresses = []
+        self._resolved[key] = addresses
+        return list(addresses)
+
+    def _guard_resolved_ip(
+        self, decision: EgressDecision, *, resolve: Resolver | None = None
+    ) -> EgressDecision:
+        """命中 allow 之后再看一眼**它此刻解析到哪**（DNS rebinding 防护）。
+
+        四条跳过条件都写在模块 docstring 里，这里是它们的落点：非 ALLOW 不查、
+        显式开了 `allow_private_ips` 不查、IP 字面量 / `localhost` 不查、
+        走 `default=allow`（没有命中任何规则）不查。
+        """
+        if decision.action != ALLOW or self.allow_private_ips:
+            return decision
+        host = decision.host
+        if not host or is_ip_literal(host) or is_loopback_name(host):
+            return decision
+        if not decision.rule:
+            return decision
+        addresses = self.ips_for(host, resolve)
+        if not addresses:
+            return replace(
+                decision,
+                reason=f"{decision.reason}（域名未解析成功，未做 IP 校验）",
+            )
+        blocked = [address for address in addresses if is_special_ip(address)]
+        if blocked:
+            log.warning(
+                "egress 拒绝 %s：命中 allow 规则「%s」但解析到 %s",
+                host,
+                decision.rule,
+                "、".join(blocked),
+            )
+            return EgressDecision(
+                url=decision.url,
+                host=host,
+                action=DENY,
+                rule=decision.rule,
+                reason=(
+                    f"DNS rebinding 防护：{host} 命中 allow 规则「{decision.rule}」，"
+                    f"但它解析到了 {'、'.join(blocked)}（回环 / 私网 / 链路本地 / 保留地址）。"
+                    "允许一个域名出站，不等于允许它把你送到本机或内网——这正是 SSRF 与 "
+                    "DNS rebinding 的经典手法。确实要连内网主机时，在 "
+                    f"{CONFIG_FILENAME} 里设 \"allow_private_ips\": true。"
+                ),
+            )
+        return replace(
+            decision,
+            reason=f"{decision.reason}（解析到 {'、'.join(addresses)}，均通过 IP 策略）",
         )
 
     # ── 注入 ────────────────────────────────────────────────────────────────
@@ -528,6 +710,7 @@ class EgressPolicy:
         四条硬约束，都是"为什么这么写"：
 
         1. **只在内存里**：不写盘、不进日志、不进返回值（返回值只有 header 名）。
+           唯一的 debug 日志记的是**头名**，从不记值——见方法末尾那段注释。
         2. **取不到就不注入**：绝不塞一个 `Bearer <placeholder>` 之类的假值——
            那会让服务端返回 401，而排查方向会跑到"令牌是不是过期了"。
         3. **不覆盖调用方已有的同名头**：调用方显式给的头优先。这条规则让
@@ -543,6 +726,7 @@ class EgressPolicy:
         if not host:
             return merged
         source = self.resolver(resolver)
+        injected: list[str] = []
         for rule in self.credentials:
             if not match_host(rule.host, host):
                 continue
@@ -559,6 +743,13 @@ class EgressPolicy:
                 continue
             scheme = rule.resolved_scheme
             merged[header] = f"{scheme} {value}".strip() if scheme else value
+            injected.append(header)
+        if injected:
+            # **只记头名，不记值**。这条 debug 存在的理由是排障："我明明配了规则，
+            # 为什么没注入" —— 有这行就能看出是规则没命中还是密钥取不到。
+            # 值一旦进日志，这份日志就变成了一份凭据副本（会被转存、被上报、被贴进
+            # issue），这一层存在的意义也就没了。
+            log.debug("egress 注入到 %s 的头：%s（值不记录）", host, "、".join(injected))
         return merged
 
     def injection_plan(
@@ -598,6 +789,7 @@ class EgressPolicy:
             "default": self.default,
             "allow": list(self.allow),
             "deny": list(self.deny),
+            "allow_private_ips": bool(self.allow_private_ips),
             "credentials": [rule.as_dict() for rule in self.credentials],
         }
 
@@ -609,15 +801,21 @@ class EgressPolicy:
         """
         where = str(self.path) if self.path else "<未配置>"
         vendors = sorted({rule.vendor or "openai" for rule in self.credentials})
+        rebinding = (
+            "已关闭（allow_private_ips=true）"
+            if self.allow_private_ips
+            else "生效：命中 allow 规则的域名解析到回环/私网地址时整体拒绝"
+        )
         return (
-            "Orbit 的 egress 只有三层，**没有代理进程**：\n"
+            "Orbit 的 egress 只有四层，**没有代理进程**：\n"
             f"  1) 出站前的静态检查（allow {len(self.allow)} 条 / deny {len(self.deny)} 条 / "
             f"default={self.default}），策略文件 {where}；\n"
             "  2) 重定向链逐跳再审（`check_chain`）：每一跳都要过同一套判据，"
             "任何一跳被拒整体就拒；\n"
             f"  3) 请求头注入（{len(self.credentials)} 条规则，"
             f"供应商形状：{'、'.join(vendors) if vendors else '（无规则）'}；"
-            "值从系统 keyring 取，只在内存里）。\n"
+            "值从系统 keyring 取，只在内存里，日志只记头名）；\n"
+            f"  4) DNS rebinding 防护（`_guard_resolved_ip`）：{rebinding}。\n"
             "缺的 6 样，逐条说明「要真做需要什么」：\n"
             "  1. iron-proxy 那类**独立守护进程** —— 需要一个能长期驻留、独立于 agent "
             "进程生命周期的进程；现在没有进程可起停，所以 `egress start/stop` 只能如实"
@@ -636,7 +834,26 @@ class EgressPolicy:
             "所以**调用方仍然拿得到真密钥**（注入的就是真值），也**挡不住绕过** "
             "（`curl $(cat u)`、脚本自己发请求都认不出）。\n"
             "真正要做令牌代换，需要：独立进程 + 能签发叶证书的 CA + 令牌铸造与轮换 + "
-            "强制出站改道（防火墙/命名空间）。本机没有容器也没有网络，做不了。"
+            "强制出站改道（防火墙/命名空间）。本机没有容器也没有网络，做不了。\n"
+            "如果要真做，**最小可行形态**长这样（不实现，但把路写清）：\n"
+            "  A. 独立进程（约 2-3 人日）：`orbit-egressd` 单文件 asyncio TCP 转发器，"
+            "读 `proxy.yaml`；只做 CONNECT 隧道 + 一个 `/healthz`；"
+            "起停用 `orbit egress start/stop`（拉起子进程 + pid 文件 + 端口探测确认真的在听）。"
+            "验收标准是\"杀掉进程后出站立刻失败\"，而不是\"命令返回 0\"。\n"
+            "  B. 自签 CA（约 1-2 人日）：`cryptography` 生成 CA + 按 SNI 现签叶证书并缓存；"
+            "CA 私钥落 keyring（不落盘），证书链写进 `data/egress/ca.pem`；"
+            "提供 `orbit egress ca install` 把 CA 装进系统信任库（这一步要管理员权限，"
+            "必须显式命令、不能自动做）。没有 CA 就没有 TLS 中间人，也就谈不上令牌代换。\n"
+            "  C. 令牌铸造（约 2 人日）：`orbit egress token mint <vendor>` 生成 "
+            "`og_<vendor>_<随机>`，落一张代理侧映射表（令牌 → keyring 键名），"
+            "支持吊销与过期；沙箱里只放令牌，真密钥只在代理进程里解引用。"
+            "这一步做完，\"调用方拿不到真密钥\"才第一次成立。\n"
+            "  D. 强制出站改道（约 1 人日/平台）：Windows 用 WFP/`netsh` 出站规则，"
+            "Linux 用 network namespace + iptables REDIRECT，容器里用网络策略；"
+            "共同要求是\"未走代理的出站一律丢包\"，并有 `orbit egress doctor` "
+            "实测一条直连会被拦。没有这一步，前面三样都只是自愿遵守。\n"
+            "  合计约 6-8 人日，且**每一项都需要真实网络与管理员权限才能验证**——"
+            "这正是本机（无网络、无容器、无提权）做不了它的原因，而不是\"没时间\"。"
         )
 
 

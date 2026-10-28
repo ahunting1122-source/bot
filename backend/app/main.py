@@ -851,6 +851,26 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
 
     app.include_router(dashboard_api.router)
 
+    # 插件声明的 dashboard 页面路由（MATRIX 13.8）。
+    #
+    # **这一行是 13.8 从「机制在、没挂上」变成「真挂上」的唯一差别**：`build_router()`
+    # 本身早就写好、测试也过，但之前只在测试自己的 app 上挂过——生产里
+    # `/api/plugins/<name>/…` 会 404。模块 docstring 里那五处「main.py 是禁改区」
+    # 是给子agent 的写入约束，不是设计决定，现已作废。
+    #
+    # **必须先 discover 再 mount**：`mount_into_app()` 读的是全局 `PAGES`，
+    # 而 `discover()` 只返回清单、**不往 `PAGES` 里填**。少了发现这一步，
+    # `mount_into_app` 会安静地挂 0 条路由——那种"挂上了但没内容"比 404 更难查。
+    #
+    # 放在 `mount("/")` 之前：静态站会把 /api/* 吃掉。
+    # 插件抛异常已在 `build_router` 里逐条隔离，所以这里不包 try。
+    from app import plugin_dashboard
+
+    found = plugin_dashboard.discover(settings.data_dir / "plugins")
+    for manifest in found.manifests:
+        plugin_dashboard.PAGES.add(manifest)
+    app.state.plugin_pages = plugin_dashboard.mount_into_app(app)
+
     dist = ROOT / "frontend" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")

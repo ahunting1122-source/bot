@@ -15,13 +15,16 @@ OpenAI 面，后端转给非 OpenAI 协议的 provider**（调研 06 §5.5）。
 
 - `openai_to_provider()` / `provider_to_openai()`：`chat/completions` 的
   **messages / tools / usage** 三块的双向翻译，纯函数、可单测、不发请求；
-- `ProxyPlan`：监听地址 + 上游 + 模型映射，`port_in_use()` 做端口占用检查；
+- `ProxyPlan`：监听地址 + 上游 + 模型映射 + 鉴权模式，`port_in_use()` 做端口占用检查；
 - `ProxyServer.handle()`：整包（非流式）链路，纯函数式（转发函数可注入，离线可测）；
 - **SSE 流式透传**（MATRIX 4.7）：`handle_stream()` 把上游的 `text/event-stream`
   逐事件翻成 OpenAI 的 `data: {...}\n\n`，`stream: true` 不再降级成整包；
 - **重试**：只对 5xx / 连接错误 / 超时重试（4xx 立刻失败），每次尝试记在返回值里；
 - **并发控制**：一个信号量（默认 :data:`DEFAULT_CONCURRENCY` = 8），超了**排队**而不是拒；
 - **鉴权**：可选 bearer token（`<data>/proxy.json` 的 `token`）；
+- **两种上游鉴权模式**（MATRIX 4.7 的 OAuth 一半）：`auth_mode="api_key"`（默认）走
+  `x-api-key` / `x-goog-api-key`；`auth_mode="oauth"` 走 `Authorization: Bearer <OAuth
+  令牌>`，令牌由 :func:`oauth_token_provider` 从 keyring 取、过期就刷新；
 - `ProxyServer.serve()`：`http.server` 起的最小 HTTP 服务。
 
 **没做（如实列出）**：
@@ -32,7 +35,11 @@ OpenAI 面，后端转给非 OpenAI 协议的 provider**（调研 06 §5.5）。
 - **重试没有 jitter、不重试 429**：429 是限流信号，重试只会加重限流；本层按 4xx
   立刻失败，把决定权交回客户端（它有完整的退避策略）；
 - **没有 `responses` / `embeddings` / 图片端点**：只有 `/v1/chat/completions`
-  与 `/v1/models`。
+  与 `/v1/models`；
+- **OAuth 供应商的真实端点本机验不了**：取令牌、判过期、选头这些**本地逻辑**是真的
+  且有测试，但"拿 OAuth 令牌去 Anthropic / Gemini 上游真能换回补全"这件事**一次都没
+  跑过**（无网络、无可用 OAuth 客户端凭据）。所以 `describe()` 里把它单列成
+  "代码在、没跑通"，不许它冒充已验证的能力。
 
 ## 一条硬约束：没有 token 就绝不能绑非回环地址
 
@@ -62,6 +69,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app import mcp_oauth_flow as oauth_flow
 from app import providers as pv
 
 #: 默认监听地址。**只默认回环**：代理会把请求转给持有上游凭据的本机，绑 `0.0.0.0`
@@ -101,6 +109,15 @@ UPSTREAM_TRANSPORTS: dict[str, str] = {
     "gemini": "gemini",
 }
 
+#: 上游鉴权的两种模式（MATRIX 4.7 的 OAuth 一半）。
+#:
+#: `api_key` 是原来那条路：静态密钥进 `x-api-key` / `x-goog-api-key`。
+#: `oauth` 是 Hermes 的 proxy 形态：**用 OAuth 令牌而不是 API key** 去访问上游——
+#: 令牌由 `oauth_token_provider()` 从 keyring 取、过期就刷新，请求头变成
+#: `Authorization: Bearer <令牌>`。
+API_KEY, OAUTH = "api_key", "oauth"
+AUTH_MODES: tuple[str, ...] = (API_KEY, OAUTH)
+
 #: Anthropic 的 `max_tokens` 是**必填**字段（缺了直接 400），而 OpenAI 的
 #: `max_tokens` 是可选的。客户端不给时用这个默认值——写在常量里而不是散在代码里，
 #: 因为它会直接决定"最长回答能有多长"。
@@ -130,6 +147,15 @@ class ProxyUpstreamError(ProxyError):
 
 class ProxyAuthError(ProxyError):
     """请求没有带合法的 bearer token（代理开了鉴权时）。"""
+
+
+class OAuthTokenError(ProxyError):
+    """OAuth 上游拿不到可用令牌（没登录 / 没配 data_dir / 令牌过期且刷不了）。
+
+    单独一个类型而不是一句 `ProxyError`：这三种失败的处置完全不同——没登录要去
+    `orbit mcp auth`，过期要出网刷新，没配目录是配置写错了。混成一句话，用户只能
+    拿到一句"上游请求失败"。
+    """
 
 
 # ── 重试 / 并发 / 鉴权的策略对象 ─────────────────────────────────────────────
@@ -248,6 +274,100 @@ def load_token(data_dir: str | Path) -> str:
     return str(raw.get("token", "") or "").strip()
 
 
+# ── OAuth 令牌（MATRIX 4.7 的 OAuth 一半）───────────────────────────────────
+#
+# Hermes 的 proxy 是"到 OAuth provider"：上游不要 API key，要**用户授权拿到的令牌**。
+# 本层能真做的部分是**取令牌与判过期**——两件纯本地的事：
+#
+# * 取：令牌在系统 keyring 里（`mcp_oauth_flow.TokenStore`，服务名带 data_dir 与 server）；
+# * 判：`mcp_oauth_flow.is_expired()` 是纯函数，读的是绝对到期时刻。
+#
+# 真做不到的是**刷新**：`POST <token_endpoint>` 要出网。所以默认的刷新实现如实抛
+# `NetworkUnavailable`，而"注入一个假刷新函数"这条路径能整条跑通（测试就是这么做的）。
+# 由此得到一句如实的结论：**OAuth 模式的本地逻辑是真的，端到端没跑通**。
+
+
+def _config_value(config: Any, key: str, default: Any = "") -> Any:
+    """从 dict 或对象里读一个字段（两种都收，免得调用方为了用它先转一层）。"""
+    if isinstance(config, dict):
+        value = config.get(key)
+    else:
+        value = getattr(config, key, None)
+    return default if value is None else value
+
+
+def oauth_store(
+    config: Any, store: oauth_flow.TokenStore | None = None
+) -> oauth_flow.TokenStore:
+    """OAuth 上游的令牌存储：给了 ``store`` 就用它，否则按配置现建一个。
+
+    为什么需要 ``server`` 与 ``data_dir`` 两项：keyring 的服务名是
+    `orbit:<data_dir>:mcp:<server>`，少一个就不知道该去读哪一条——而"读不到"会被误报成
+    "用户没登录"，排查方向直接跑偏。所以缺项时**报配置错**，不猜。
+    """
+    if store is not None:
+        return store
+    server = str(_config_value(config, "server") or _config_value(config, "name") or "").strip()
+    data_dir = str(_config_value(config, "data_dir") or "").strip()
+    missing = [
+        name for name, value in (("server（或 name）", server), ("data_dir", data_dir)) if not value
+    ]
+    if missing:
+        raise OAuthTokenError(
+            f"OAuth 上游缺少配置：{'、'.join(missing)}。令牌存在系统 keyring 里，"
+            "服务名是 `orbit:<data_dir>:mcp:<server>`，这两项缺一个就不知道该读哪一条。"
+        )
+    return oauth_flow.TokenStore(Path(data_dir).resolve(), server)
+
+
+def oauth_token_provider(
+    config: Any,
+    *,
+    store: oauth_flow.TokenStore | None = None,
+    refresh: Callable[[oauth_flow.TokenPayload], oauth_flow.TokenPayload] | None = None,
+    clock: Callable[[], float] | None = None,
+) -> Callable[[], str]:
+    """造一个"随时给我一个能用的 OAuth 令牌"的函数（`() -> str`）。
+
+    每次调用都重新读 keyring 并判过期——**不做进程内缓存**。理由：代理是长驻进程，
+    令牌会在进程活着的时候过期；缓存住第一次读到的值，等于让代理在几小时后开始
+    稳定收 401，而重启一次就好，这种故障最难查。
+
+    三件事分得很清楚：
+
+    * **取令牌**：纯本地（keyring 读），没有令牌抛 :class:`OAuthTokenError`；
+    * **判过期**：纯本地纯函数（`is_expired`，带 60 秒提前量）；
+    * **刷新**：需要出网。默认实现走 `mcp_oauth_flow.refresh_token(transport=None)`，
+      也就是**如实抛** `NetworkUnavailable`；注入 ``refresh=`` 就能离线跑通整条路。
+
+    ``clock`` 是"现在几点"的注入点：过期判定必须能被测试钉住，否则只能靠 `sleep`。
+    """
+    target = oauth_store(config, store)
+    now = clock or time.time
+
+    def refresh_needs_network(old: oauth_flow.TokenPayload) -> oauth_flow.TokenPayload:
+        """默认刷新：`transport=None` 时 `refresh_token` 会如实抛 `NetworkUnavailable`。
+
+        **故意不吞**——把"刷不了"降级成"拿旧令牌继续"，会让上游回 401，排查方向
+        跑到令牌有效期上去。
+        """
+        return oauth_flow.refresh_token(config, old, store=target)
+
+    def provider() -> str:
+        token = target.load()
+        if token is None:
+            raise OAuthTokenError(
+                f"OAuth 上游没有令牌（keyring 服务名 {target.service}）。先跑一次授权："
+                "`orbit mcp login <server>`，或用 `orbit mcp auth set <server>` 手工写入。"
+            )
+        if oauth_flow.is_expired(token, now=now()):
+            refresher = refresh or refresh_needs_network
+            token = refresher(token)
+        return token.access_token
+
+    return provider
+
+
 # ── 计划 ────────────────────────────────────────────────────────────────────
 
 
@@ -266,6 +386,9 @@ class ProxyPlan:
     upstream_provider: str = "anthropic"
     base_url: str = ""
     model_map: dict[str, str] = field(default_factory=dict)
+    #: 上游鉴权模式（见 :data:`AUTH_MODES`）。**默认 `api_key`**：引入 OAuth 不能改变
+    #: 既有行为——没显式要 OAuth 的人必须还走 `x-api-key` 那条路。
+    auth_mode: str = API_KEY
 
     def __post_init__(self) -> None:
         if self.upstream_provider not in SUPPORTED_UPSTREAMS:
@@ -273,6 +396,11 @@ class ProxyPlan:
                 f"不支持把 `{self.upstream_provider}` 当代理上游：只有 "
                 f"{' / '.join(SUPPORTED_UPSTREAMS)} 的协议与 OpenAI 不同，需要翻译。"
                 "其余 provider 本身就是 OpenAI 兼容面，客户端直连即可。"
+            )
+        if self.auth_mode not in AUTH_MODES:
+            raise ProxyError(
+                f"未知的 auth_mode：`{self.auth_mode}`（可用：{' / '.join(AUTH_MODES)}）。"
+                "`api_key` 走静态密钥头，`oauth` 走 `Authorization: Bearer <OAuth 令牌>`。"
             )
 
     @property
@@ -297,6 +425,7 @@ class ProxyPlan:
             "transport": self.transport,
             "base_url": self.base_url,
             "model_map": dict(self.model_map),
+            "auth_mode": self.auth_mode,
             "url": self.url,
         }
 
@@ -304,10 +433,16 @@ class ProxyPlan:
         """给人看的一段说明。**端口占用不在这里查**——那是 `port_in_use()` 的事，
         计划对象保持"不碰 socket"的纯粹性。"""
         mapped = "、".join(f"{key}→{value}" for key, value in self.model_map.items())
+        auth = (
+            "OAuth 令牌（Authorization: Bearer <令牌>，从 keyring 取、过期刷新）"
+            if self.auth_mode == OAUTH
+            else "API key（x-api-key / x-goog-api-key）"
+        )
         lines = [
             f"监听：{self.url}（OpenAI 兼容面，只有 /v1/chat/completions 与 /v1/models）",
             f"上游：{self.upstream_provider}（线协议 {self.transport}）",
             f"上游端点：{self.base_url or '（未填，需在 Settings 里配 base_url）'}",
+            f"上游鉴权：{auth}",
             f"模型映射：{mapped or '（空：客户端写的模型名原样透传）'}",
         ]
         if self.listen_host not in {"127.0.0.1", "localhost", "::1"}:
@@ -323,6 +458,7 @@ def plan_for(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     model_map: dict[str, str] | None = None,
+    auth_mode: str = API_KEY,
 ) -> ProxyPlan:
     """按 provider 造一份计划：端点取 `providers.PROVIDERS` 的默认值。"""
     key = (provider or "").strip().lower()
@@ -335,6 +471,7 @@ def plan_for(
         upstream_provider=key,
         base_url=profile.default_base_url,
         model_map=dict(model_map or {}),
+        auth_mode=(auth_mode or API_KEY).strip().lower(),
     )
 
 
@@ -1028,13 +1165,28 @@ Forward = Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]]
 StreamForward = Callable[[str, dict[str, str], dict[str, Any]], Iterable[bytes | str]]
 
 
-def auth_headers(plan: ProxyPlan, api_key: str) -> dict[str, str]:
-    """上游鉴权头。**两家不是同一套**：Anthropic 用 `x-api-key` + `anthropic-version`，
-    Gemini 用 `x-goog-api-key`（与 `providers.py` 的两个客户端逐字一致）。
+def auth_headers(plan: ProxyPlan, api_key: str = "", *, token: str = "") -> dict[str, str]:
+    """上游鉴权头，**按 `plan.auth_mode` 选**（MATRIX 4.7）。
 
-    key 只在请求头里用一次，不进 `ProxyPlan`、不进日志：计划对象会被 `to_dict()`
+    `api_key` 模式（默认）：两家不是同一套——Anthropic 用 `x-api-key` +
+    `anthropic-version`，Gemini 用 `x-goog-api-key`（与 `providers.py` 的两个客户端逐字
+    一致）。
+
+    `oauth` 模式：上游要的是**用户授权拿到的令牌**，不是厂商 API key，所以两家都用
+    `Authorization: Bearer <令牌>`（Anthropic 那一侧还要 `anthropic-version`，否则请求
+    形状不完整）。注意这里**只是把令牌放进头**——"OAuth 令牌真能被这两家接受"这件事
+    本机验不了（无网络、无可用 OAuth 客户端），`describe()` 里如实标成"代码在、没跑通"。
+
+    凭据只在请求头里用一次，不进 `ProxyPlan`、不进日志：计划对象会被 `to_dict()`
     序列化，凭据一旦进去就会被打进日志和 `--json` 输出。
     """
+    if plan.auth_mode == OAUTH:
+        if not token:
+            return {}
+        headers = {"authorization": f"Bearer {token}"}
+        if plan.upstream_provider == "anthropic":
+            headers["anthropic-version"] = "2023-06-01"
+        return headers
     if not api_key:
         return {}
     if plan.upstream_provider == "anthropic":
@@ -1122,6 +1274,9 @@ class ProxyServer:
     * **并发**：一个信号量（``concurrency=``），超了排队；`ThreadingHTTPServer`
       每请求一线程，没有这道闸时 20 个客户端就能把上游打到 429；
     * **鉴权**：``token=``，配合 :func:`ensure_bindable` 的"无 token 只能绑回环"。
+
+    `auth_mode="oauth"` 时另外注入 ``token_provider=``（见 :func:`oauth_token_provider`）：
+    每次请求现取一次令牌，取/刷的失败在 `handle()` 里变成可读的 OpenAI 错误体。
     """
 
     def __init__(
@@ -1134,6 +1289,7 @@ class ProxyServer:
         retry: RetryPolicy | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         token: str = "",
+        token_provider: Callable[[], str] | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.plan = plan
@@ -1148,6 +1304,9 @@ class ProxyServer:
         # 鉴权头由启动方（`orbit proxy serve`）注入，本类不自己读 keyring：
         # 代理对象会被 CLI 打印/序列化，凭据不该躺在它的属性里。
         self._extra_headers = dict(headers or {})
+        #: OAuth 模式下"给我一个能用的令牌"的函数。**注入的是函数而不是令牌**：
+        #: 长驻进程里令牌会过期，把值存成属性等于让它一路用下去直到 401。
+        self._token_provider = token_provider
         self.retry = retry or RetryPolicy()
         self.concurrency = max(1, int(concurrency))
         #: 客户端要带的 bearer token（空 = 不鉴权，于是只能绑回环）。
@@ -1255,6 +1414,10 @@ class ProxyServer:
             )
         except ProxyError as exc:
             return self._with_attempts(_error(str(exc), code="proxy_error"))
+        except oauth_flow.NetworkUnavailable as exc:
+            # OAuth 令牌过期且刷新要出网。单独一类 code：客户端看到 `oauth_needs_network`
+            # 就知道"这不是上游挂了，是本机没网/要重新授权"，而不是去退避重试。
+            return self._with_attempts(_error(str(exc), code="oauth_needs_network"))
         except Exception as exc:  # noqa: BLE001 —— 上游异常统一转成可读错误体
             return self._with_attempts(_error(f"上游请求失败：{exc}", code="upstream_error"))
 
@@ -1383,7 +1546,21 @@ class ProxyServer:
         return f"{base}/models/{target}:streamGenerateContent?alt=sse"
 
     def _headers(self) -> dict[str, str]:
-        return {"content-type": "application/json", **self._extra_headers}
+        """这次请求要带的上游头。
+
+        `oauth` 模式下**每次请求现取一次令牌**（`token_provider()`）：取不到就抛，让
+        `handle()` 把它变成可读错误体——静默退回 `api_key` 模式会让请求带着错误的鉴权
+        头发出去，而上游只会回一句 401。
+        """
+        headers = {"content-type": "application/json", **self._extra_headers}
+        if self.plan.auth_mode == OAUTH:
+            if self._token_provider is None:
+                raise OAuthTokenError(
+                    "auth_mode=oauth 但没有注入 token_provider：本层不自己去 keyring 取令牌，"
+                    "由启动方用 `oauth_token_provider(config)` 造一个传进来。"
+                )
+            headers.update(auth_headers(self.plan, token=self._token_provider()))
+        return headers
 
     def authorize(self, header_value: str) -> bool:
         """校验客户端的 `Authorization` 头。没配 token 时**一律放行**（只绑回环）。"""
@@ -1409,21 +1586,38 @@ class ProxyServer:
             if self.token
             else "无鉴权（因此只允许绑回环地址）"
         )
-        return "\n".join(
-            [
-                self.plan.describe(),
-                "能力（已做到）：",
-                "  · 流式：SSE 逐事件翻成 OpenAI `data:` 帧，`stream: true` 不再降级；",
-                f"  · 重试：仅 5xx / 连接错误 / 超时，最多 {self.retry.max_attempts} 次，"
-                "4xx 立刻失败；每次尝试记在响应的 `orbit_attempts` 里；",
-                f"  · 并发：信号量 {self.concurrency} 路，超了排队而不是拒绝；",
-                f"  · 鉴权：{auth}。",
-                "边界（如实说明）：",
-                "  · 流式只翻**文本增量**：thinking / tool_use 增量不转（整包那条路是完整的）；",
-                "  · 重试不覆盖 429（限流重试只会更糟），也不做 jitter；",
-                "  · 只有 /v1/chat/completions 与 /v1/models，没有 responses / embeddings。",
-            ]
+        upstream_auth = (
+            "OAuth 令牌（`Authorization: Bearer <令牌>`，令牌从 keyring 取、过期刷新）"
+            if self.plan.auth_mode == OAUTH
+            else "API key（`x-api-key` / `x-goog-api-key`）"
         )
+        lines = [
+            self.plan.describe(),
+            "能力（已做到）：",
+            "  · 流式：SSE 逐事件翻成 OpenAI `data:` 帧，`stream: true` 不再降级；",
+            f"  · 重试：仅 5xx / 连接错误 / 超时，最多 {self.retry.max_attempts} 次，"
+            "4xx 立刻失败；每次尝试记在响应的 `orbit_attempts` 里；",
+            f"  · 并发：信号量 {self.concurrency} 路，超了排队而不是拒绝；",
+            f"  · 客户端鉴权：{auth}；",
+            f"  · 上游鉴权：{upstream_auth}。",
+            "边界（如实说明）：",
+            "  · 流式只翻**文本增量**：thinking / tool_use 增量不转（整包那条路是完整的）；",
+            "  · 重试不覆盖 429（限流重试只会更糟），也不做 jitter；",
+            "  · 只有 /v1/chat/completions 与 /v1/models，没有 responses / embeddings。",
+        ]
+        if self.plan.auth_mode == OAUTH:
+            lines.extend(
+                [
+                    "OAuth 模式的分项交代（哪些真、哪些只是「代码在」）：",
+                    "  · 真：从 keyring 取令牌、判过期（纯本地）、按 auth_mode 选头；",
+                    "  · 真：刷新逻辑的拼装与回写（`mcp_oauth_flow.refresh_token`）；",
+                    "  · **没跑通**：刷新那次 POST 要出网，本机无网络，默认实现如实抛"
+                    " `NetworkUnavailable`；",
+                    "  · **没跑通**：OAuth 令牌能否被 Anthropic / Gemini 上游接受，"
+                    "一次都没验证过（没有可用 OAuth 客户端凭据、没有网络）。",
+                ]
+            )
+        return "\n".join(lines)
 
     # -- 真起服务（测试不调）----------------------------------------------
     def serve(self) -> None:  # pragma: no cover - 阻塞式服务，单测不启动
@@ -1536,8 +1730,12 @@ def describe() -> str:
             "流式：SSE 逐事件翻成 OpenAI `data:` 帧（只翻文本增量，工具增量不转）",
             f"重试：仅 5xx / 连接错误 / 超时，最多 {DEFAULT_MAX_ATTEMPTS} 次；4xx 立刻失败",
             f"并发：信号量 {DEFAULT_CONCURRENCY} 路，超了排队而不是拒绝",
-            f"鉴权：可选 bearer token（<data>/{PROXY_CONFIG_NAME} 的 token）；"
+            f"客户端鉴权：可选 bearer token（<data>/{PROXY_CONFIG_NAME} 的 token）；"
             "**没有 token 时只允许绑回环地址**",
+            f"上游鉴权：{' / '.join(AUTH_MODES)} 两种模式——`api_key` 走静态密钥头，"
+            "`oauth` 走 `Authorization: Bearer <OAuth 令牌>`（令牌从 keyring 取、过期刷新）",
+            "OAuth 模式的边界（如实）：取令牌 / 判过期 / 选头都是真的且有测试；"
+            "**刷新要出网、本机没跑通**，令牌能否被上游接受也没验证过",
             "没做到：429 重试、流式工具调用增量、responses / embeddings 端点",
             "这是**最小转发层**：够让只认 OpenAI 协议的客户端跑起来，不是生产级网关。",
         ]
@@ -1545,12 +1743,15 @@ def describe() -> str:
 
 
 __all__ = [
+    "API_KEY",
+    "AUTH_MODES",
     "DEFAULT_CONCURRENCY",
     "DEFAULT_HOST",
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_PORT",
     "LOOPBACK_HOSTS",
+    "OAUTH",
     "PROXY_CONFIG_NAME",
     "RETRIABLE_STATUS",
     "SSE_DONE",
@@ -1558,6 +1759,7 @@ __all__ = [
     "UPSTREAM_TRANSPORTS",
     "Attempt",
     "Forward",
+    "OAuthTokenError",
     "ProxyAuthError",
     "ProxyError",
     "ProxyPlan",
@@ -1567,6 +1769,7 @@ __all__ = [
     "StreamForward",
     "StreamTranslator",
     "UnsupportedUpstream",
+    "auth_headers",
     "config_path",
     "describe",
     "ensure_bindable",
@@ -1574,6 +1777,8 @@ __all__ = [
     "http_forward_stream",
     "is_retriable",
     "load_token",
+    "oauth_store",
+    "oauth_token_provider",
     "openai_chunk",
     "openai_to_provider",
     "plan_for",

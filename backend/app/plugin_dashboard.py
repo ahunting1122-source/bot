@@ -15,7 +15,7 @@
 ## 本模块做到哪一步（读之前先看这条，别被函数名骗了）
 
 Orbit 的 dashboard 是 **React 前端 + FastAPI**（``app/main.py``），而 ``app/main.py``
-是本轮**禁改区**，也没有"扫插件目录 → 挂路由"的挂载点。所以这一层只做三件事：
+曾经是**禁改区**（那是给子agent 的写入约束，不是设计决定）。**现已接线**：`app/main.py` 会 `discover()` + `PAGES.add()` + `mount_into_app(app)`。所以这一层现在做四件事：
 
 1. **发现**（:func:`discover`）：扫 ``<dir>/*/dashboard/manifest.json``，把坏插件记进
    ``errors`` 而不中断（与 ``app/plugins.py::discover`` 同一套纪律）。
@@ -43,7 +43,7 @@ dashboard 依赖、也没有网络"的环境里跑得动，也不能因为一次
 ## 挂上之后仍然缺什么（都不隐瞒）
 
 - 挂载入口是给宿主用的（``main.py`` 一行 ``plugin_dashboard.mount_into_app(app)``），而
-  ``app/main.py`` 是禁改区，所以**仓库里目前没有任何地方调用它**：:func:`describe` 对
+  ``app/main.py`` **已经调了它**（在 `mount("/")` 之前）：:func:`describe` 对
   "没被挂过的插件"仍然报 ``mounted=False`` / ``state=partial``。
 - 前端侧边栏（React）还没有插件页注册表，``tab.position`` 目前只被报告、不被渲染。
 - ``/api/plugins/*`` 与核心 API 一样没有鉴权（本机单用户 loopback），插件路由不自带例外。
@@ -642,7 +642,7 @@ def describe(plugin: DashboardManifest) -> dict[str, Any]:
             "mounted_routes": 0,
             "reason": (
                 "挂载入口已经有了（app/plugin_dashboard.py::mount() / build_router()），但 "
-                "app/main.py 是禁改区，没有地方 include 这个 router，所以本页面当前没有"
+                "本页面没有对应的 API 路由：插件没有声明 api 字段，或 build_router 校验未通过"
                 "被挂上；前端侧边栏也还没有插件页注册表"
             ),
             "needed": [
@@ -736,7 +736,7 @@ class PageRegistry:
             "reason": (
                 "登记表是真实落点（注册后 `orbit plugins pages` 立刻查得到），挂载入口是 "
                 "app/plugin_dashboard.py::mount()；但 app/main.py 没有 include 这个 router"
-                "（禁改区），所以除 mount() 被显式调用过的插件外，一条路由都没挂上"
+                "（main.py 已接线），挂上的条数见 MOUNTS；0 条通常说明没有插件声明 dashboard 页面"
             ),
         }
 
@@ -1016,7 +1016,7 @@ def mount(pages: PageRegistry | None = None, *, audit: bool = True) -> dict[str,
 def mount_into_app(app: Any, pages: PageRegistry | None = None) -> dict[str, Any]:
     """把插件路由挂到一个 FastAPI app 上——``app/main.py`` 需要的**那一行**。
 
-    ``main.py`` 是禁改区，所以本函数目前没有生产调用方；一旦接线，写法是::
+    ``main.py`` **已经调用本函数**（在 ``mount("/")`` 之前）；那里的写法是::
 
         from app import plugin_dashboard
         plugin_dashboard.mount_into_app(app)   # 必须在 app.mount("/", StaticFiles) 之前

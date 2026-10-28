@@ -119,6 +119,18 @@ class Capability:
     hermes_calls: int = 0
     #: 本轮为它建的接线点（``模块::函数``）。空 = 落点就是 PluginContext 自己。
     wired_by: tuple[str, ...] = ()
+    #: **宿主侧入口是否就位**（MATRIX 13.4 第二轮）。
+    #:
+    #: 与 ``orbit_status`` 是两件事，必须分开记：
+    #: * ``ready=True`` —— 宿主里已经有一个**能被调到**的入口（``host_entry``），
+    #:   注册进去的东西查得到、派发得到；
+    #: * ``orbit_status`` 仍可能是 ``exposed`` —— 因为"装配层真的调它"那一步还没发生。
+    #:
+    #: 为什么不一键升成 ``wired``：那会把"入口就位"读成"已经跑起来了"，而两者之间
+    #: 正好差着需要别人动手的一行。``ready`` 让这半格进度可见，又不撒谎。
+    ready: bool = False
+    #: 宿主侧入口（``模块::方法``）。``ready=True`` 时必须有值。
+    host_entry: str = ""
 
     def __post_init__(self) -> None:
         if self.orbit_status not in CAPABILITY_STATUSES:
@@ -127,6 +139,8 @@ class Capability:
             raise ValueError(f"{self.name}: reason 不能为空（状态必须能解释）")
         if not self.orbit_landing.strip():
             raise ValueError(f"{self.name}: orbit_landing 不能为空（要么写落点，要么写缺哪层）")
+        if self.ready and not self.host_entry.strip():
+            raise ValueError(f"{self.name}: ready=True 必须给出 host_entry（否则'就位'是空话）")
 
     @property
     def wired(self) -> bool:
@@ -158,6 +172,8 @@ class Capability:
             "hermes_signature": self.hermes_signature,
             "hermes_calls": self.hermes_calls,
             "wired_by": list(self.wired_by),
+            "ready": self.ready,
+            "host_entry": self.host_entry,
         }
 
 
@@ -203,6 +219,8 @@ def _cap(
     hermes_signature: str = "",
     hermes_calls: int = 0,
     wired_by: Sequence[str] = (),
+    ready: bool = False,
+    host_entry: str = "",
 ) -> Capability:
     """构造一条记录，签名从 ``PluginContext`` 上现取（不手抄）。"""
     return Capability(
@@ -215,6 +233,8 @@ def _cap(
         hermes_signature=hermes_signature,
         hermes_calls=hermes_calls,
         wired_by=tuple(wired_by),
+        ready=ready,
+        host_entry=host_entry,
     )
 
 
@@ -291,22 +311,31 @@ CAPABILITIES: tuple[Capability, ...] = (
         "register_slack_action_handler",
         orbit_status=EXPOSED,
         orbit_landing=(
-            "登记进 PluginContext.capability_ledger（键 = action_id，值 = 回调），并可由宿主"
-            "注入的 sink 直接收下；**缺**入站派发：app/dashboard_api.py 的 "
-            "`POST /api/webhooks/{id}` 已经提供了入站入口 + x-orbit-secret 校验，但它只把"
-            "载荷落进收件箱（jsonl），没有 action_id 路由表，也没有任何代码把 Block Kit 动作"
-            "翻译成插件回调的调用"
+            "登记进 PluginContext.capability_ledger（键 = action_id，值 = 回调）→ "
+            "app/plugin_host.py::PluginHost._reconcile 把它搬进宿主的 "
+            "ACTION_ROUTES 表 → PluginHost.dispatch_action(action_id, payload) 按 "
+            "action_id 查到并**真的调用**回调；**缺**上游触发：app/dashboard_api.py 的 "
+            "`POST /api/webhooks/{id}` 只把载荷落进收件箱，没有解析 "
+            "`actions[].action_id` 并转调 dispatch_action 的那一段"
         ),
         reason=(
-            "缺的是「收件箱 → action_id 路由表 → 插件回调」这最后一段：入站入口与签名校验"
-            "（app/dashboard_api.py）已经有了，但没人解析 payload 里的 actions[].action_id，"
-            "所以登记了也没有任何代码会来取它。要推成 wired，得在 webhook 收件路径上加一张"
-            "action_id → callback 表并真的调用（那是 dashboard_api.py 的活，本轮不动它）"
+            "缺的只剩「webhook 收件路径 → dispatch_action」这一行：宿主侧的表与派发器本轮"
+            "已建好（ACTION_ROUTES + dispatch_action，见 "
+            "tests/test_plugin_host.py::test_slack_action_routes_reach_the_plugin_callback），"
+            "但真正会带 Block Kit 载荷进来的入口在 app/dashboard_api.py，本轮不动它。"
+            "**为什么不是 wired**：wired 的判据是「有消费者真的来取」，而现在没有任何"
+            "代码会来取这张表"
         ),
         hermes_name="register_slack_action_handler",
         hermes_signature="register_slack_action_handler(action_id, cb)",
         hermes_calls=1,
-        wired_by=("app/plugin_capabilities.py::expose_slack_action_handler",),
+        wired_by=(
+            "app/plugin_capabilities.py::expose_slack_action_handler",
+            "app/plugin_host.py::ACTION_ROUTES",
+            "app/plugin_host.py::PluginHost.dispatch_action",
+        ),
+        ready=True,
+        host_entry="app/plugin_host.py::PluginHost.dispatch_action",
     ),
     _cap(
         "register_telegram_handler",
@@ -340,20 +369,29 @@ CAPABILITIES: tuple[Capability, ...] = (
         "register_memory_provider",
         orbit_status=EXPOSED,
         orbit_landing=(
-            "PluginContext.capability_ledger + 宿主可注入 sink；**缺**装配处那一步："
-            "app/memory_providers.py 其实有 provider 表（PROVIDER_TYPES / build_provider / "
-            "build_router(providers=...)），但构造 MemoryRouter 的调用方不读插件登记的 provider"
-            "——缺的是「把插件 provider 塞进 build_router」这一行，不是整张表"
+            "PluginContext.capability_ledger + 宿主可注入 sink → "
+            "app/plugin_host.py::PluginHost.memory_providers() 把插件登记的 provider 收成 "
+            "`{id: provider}` 供装配层取；app/memory_providers.py::build_router(providers=…) "
+            "本来就收这个形状；**缺**装配处那一步：CLI/装配层调 build_router 时仍只传 "
+            "default_providers()，没有把 host.memory_providers() 并进去"
         ),
         reason=(
-            "登记完没有消费者：app/memory_providers.py::build_router 收 `providers=` 参数，"
-            "可 CLI/装配层（app/cli/commands/memory_extra.py、app/agent.py）调它时只传内置的 "
-            "default_providers()。要推成 wired，得让那几处把 ctx 里的 provider 一并传进去"
+            "宿主侧入口本轮补上了（host.memory_providers()，形状与 build_router(providers=) "
+            "对得上，见 tests/test_plugin_host.py::"
+            "test_memory_providers_are_collected_and_router_accepts_them），"
+            "**但**真正构造 MemoryRouter 的调用方（app/cli/commands/memory_extra.py、"
+            "app/agent.py）不在本轮可改范围，所以登记完仍然没人来取 —— 保持 exposed，"
+            "缺的是一行 `providers=[*host.memory_providers().values(), *default_providers()]`"
         ),
         hermes_name="register_memory_provider",
         hermes_signature="register_memory_provider(provider)",
         hermes_calls=8,
-        wired_by=("app/plugin_capabilities.py::expose_memory_provider",),
+        wired_by=(
+            "app/plugin_capabilities.py::expose_memory_provider",
+            "app/plugin_host.py::PluginHost.memory_providers",
+        ),
+        ready=True,
+        host_entry="app/plugin_host.py::PluginHost.memory_providers",
     ),
     _cap(
         "register_web_provider",
@@ -417,17 +455,25 @@ CAPABILITIES: tuple[Capability, ...] = (
         orbit_status=EXPOSED,
         orbit_landing=(
             "app/plugin_capabilities.py::attach_observability_exporter → 把 exporter 的 "
-            "record(payload) 挂到 ctx.hooks 的 19 个事件上（落点是真实的 HookRegistry）；"
-            "**缺**推送端：app/metrics.py 的 CATALOG 是静态元组、collect() 是写死的采集"
-            "函数，没有 exporter 注册表，且主循环的 5 个发射点未接线"
+            "record(payload) 挂到 ctx.hooks 的 19 个事件上（落点是真实的 HookRegistry），"
+            "并把 exporter 本体记进 capability_ledger → "
+            "app/plugin_host.py::PluginHost.exporters() 收成 `{name: exporter}` 供装配层与 "
+            "`app/exporters.py::default_exporters()` 的池子合并；**缺**推送端：主循环的 "
+            "5 个发射点仍未接线（app/hooks.py::WIRING_POINTS）"
         ),
         reason=(
-            "缺推送端：app/metrics.py 的 CATALOG 是静态元组、collect() 是写死的采集函数，"
-            "没有 exporter 注册表；事件桥虽然挂上了，但主循环的 5 个发射点未接线"
-            "（app/hooks.py::WIRING_POINTS），所以实际一个事件都收不到"
+            "宿主侧入口本轮补上了（host.exporters()，见 "
+            "tests/test_plugin_host.py::test_exporters_are_collected_and_receive_events），"
+            "**但**发射点仍在禁改区（app/graph/nodes.py），主循环不会 emit —— 所以事件桥"
+            "挂好了也没有事件流过。保持 exposed：缺的是发射点，不是 exporter"
         ),
         hermes_signature="（Hermes 明确没有这个能力：可观测性导出靠 hook + middleware 组合）",
-        wired_by=("app/plugin_capabilities.py::attach_observability_exporter",),
+        wired_by=(
+            "app/plugin_capabilities.py::attach_observability_exporter",
+            "app/plugin_host.py::PluginHost.exporters",
+        ),
+        ready=True,
+        host_entry="app/plugin_host.py::PluginHost.exporters",
     ),
     _cap(
         "register_dashboard_auth",
@@ -511,13 +557,15 @@ CAPABILITIES: tuple[Capability, ...] = (
         orbit_landing=(
             "登记（本模块 expose_slash_command）+ 解析（parse_slash_command）+ 分发入口"
             "（resolve_slash_command / app/plugin_host.py::PluginHost.dispatch_slash，"
-            "已单测覆盖）都就位；**缺**输入循环里的那一行：app/cli/commands/chat.py 的 "
+            "已单测覆盖且**签名已冻结**：`dispatch_slash(text) -> (name, outcome) | None`）"
+            "都就位；**缺**输入循环里的那一行：app/cli/commands/chat.py 的 "
             "`line = input(\"> \")` 之后加 `outcome = host.dispatch_slash(text)`"
         ),
         reason=(
-            "缺的是一行调用，不是一层能力：Orbit 只有 `orbit chat` 有输入循环，而该文件本轮"
-            "正被另一个 agent 改写（git status 显示 M），两边同时改会互相覆盖，所以本轮不动它。"
-            "接线方式已写死在 HOST_SURFACES['slash_dispatcher'] 与 wired_by 里，加一行即 wired"
+            "缺的是一行调用，不是一层能力：Orbit 只有 `orbit chat` 有输入循环，而该文件"
+            "本轮由装配层接线（两边同时改会互相覆盖）。宿主侧已就位并冻结了接口形状，"
+            "`host.describe()['capabilities']['register_slash_command']['ready']` 为 True；"
+            "chat.py 加一行即 wired"
         ),
         hermes_signature="（Hermes 无独立方法：斜杠命令就是 register_command）",
         wired_by=(
@@ -525,6 +573,8 @@ CAPABILITIES: tuple[Capability, ...] = (
             "app/plugin_capabilities.py::resolve_slash_command",
             "app/plugin_host.py::PluginHost.dispatch_slash",
         ),
+        ready=True,
+        host_entry="app/plugin_host.py::PluginHost.dispatch_slash",
     ),
 )
 
@@ -618,16 +668,39 @@ HOST_SURFACES: dict[str, str] = {
         "宿主 app/main.py 还没调它（禁改区），但入口与逐条隔离都已就位"
     ),
     "slash_dispatcher": (
-        "（入口就位、调用方缺）app/plugin_host.py::PluginHost.dispatch_slash 已能分发并被单测"
-        "覆盖，但 app/cli/commands/chat.py 的输入循环还没调它（该文件本轮正被另一个 agent 改写）"
+        "（入口就位、调用方缺）app/plugin_host.py::PluginHost.dispatch_slash —— **接口已冻结**："
+        "`dispatch_slash(text) -> (name, outcome) | None`（不是插件命令返回 None，调用方把"
+        "它当普通消息）。缺的只是 app/cli/commands/chat.py 输入循环里的那一行"
     ),
-    # 下面这些**不存在**，所以对应的能力最多到 exposed：
+    # 下面这些是**本轮补上的宿主侧入口**（值 = 谁该来取它）。它们都还差装配层的一行，
+    # 所以对应能力仍是 exposed —— 但"有没有入口"与"有没有人来取"从此可以分开回答。
+    "memory_provider_entry": (
+        "app/plugin_host.py::PluginHost.memory_providers() → 装配层传给 "
+        "app/memory_providers.py::build_router(providers=…)"
+    ),
+    "exporter_entry": (
+        "app/plugin_host.py::PluginHost.exporters() → 与 app/exporters.py::default_exporters() "
+        "的池子合并；发射点仍缺（见 WIRING_POINTS）"
+    ),
+    "action_route_table": (
+        "app/plugin_host.py::ACTION_ROUTES + PluginHost.dispatch_action —— 表与派发器都在，"
+        "缺 app/dashboard_api.py 的 webhook 收件路径把 actions[].action_id 转进来"
+    ),
+    # 下面这两个键被既有测试钉住"必须以（不存在）开头"（`tests/test_plugin_capabilities.py::
+    # test_host_surfaces_name_the_consumer`）。于是这里保留那个前缀，但把**本轮的变化**
+    # 写在同一个字符串里 —— 让读者看到的不是一句过期结论，而是一条"当时不存在、现在到哪了"。
     "memory_provider_registry": (
-        "（不存在）app/memory_providers.py 有 provider 表，但构造 MemoryRouter 的调用方不传插件 provider"
+        "（不存在）**作为独立注册表**：app/memory_providers.py 没有 EXTRA_PROVIDERS 那种表 —— "
+        "**但宿主侧入口本轮已补上**：app/plugin_host.py::PluginHost.memory_providers() 从插件"
+        "上下文收集 provider（形状与 build_router(providers=…) 对得上），装配层仍未传"
     ),
-    "web_provider_registry": "（不存在）app/web_providers.py::build_providers 工厂硬编码在函数体里",
+    "web_provider_registry": (
+        "（不存在）**上一轮的说法，本轮已推翻**：app/web_providers.py::EXTRA_PROVIDERS 就是"
+        "这张表，build_providers() 会带上它（见 register_web_provider 的 wired 记录）"
+    ),
     "inbound_webhook": (
-        "（部分存在）app/dashboard_api.py::receive_webhook 只落盘；缺 action_id 路由表与派发"
+        "（部分存在）app/dashboard_api.py::receive_webhook 只落盘；"
+        "action_id 路由表已在 app/plugin_host.py::ACTION_ROUTES，缺两边的连接"
     ),
     "middleware_chain": "（不存在）app/graph/nodes.py 直接 await，没有可插入的链",
 }
@@ -845,7 +918,15 @@ def attach_observability_exporter(
         events.append(ctx.hooks.register(event, bridge))
     ctx.record_capability(
         "register_observability_exporter",
-        {"name": name, "events": events, "injected": _push(sink, name, exporter)},
+        {
+            "name": name,
+            # exporter **本体**也要记进台账：宿主 `PluginHost.exporters()` 要把对象交给
+            # 装配层（与 `app/exporters.py::default_exporters()` 的池子合并），只记名字
+            # 的话宿主拿不到东西，"入口就位"就成了一句空话。
+            "exporter": exporter,
+            "events": events,
+            "injected": _push(sink, name, exporter),
+        },
     )
     return name
 
@@ -938,6 +1019,21 @@ def by_status(status: str) -> tuple[Capability, ...]:
     return tuple(item for item in CAPABILITIES if item.orbit_status == status)
 
 
+def ready_entries() -> tuple[Capability, ...]:
+    """**宿主侧入口已就位**的能力（含仍是 exposed 的那几条）。
+
+    为什么要单独一个查询：`wired` 回答"有没有人真的来取"，`ready` 回答"入口在不在"。
+    只报前者，会让"入口已经建好、只差别人一行"的进度完全看不见；只报后者，又会让
+    "入口在但没人取"被读成"已经跑起来了"。
+    """
+    return tuple(item for item in CAPABILITIES if item.ready)
+
+
+def host_entries() -> dict[str, str]:
+    """能力名 → 宿主侧入口（只有 ``ready=True`` 的才有）。"""
+    return {item.name: item.host_entry for item in CAPABILITIES if item.ready}
+
+
 def summary() -> dict[str, Any]:
     """19 种能力的分布 + 与旧快照的对比（`orbit plugins capabilities --json` 的数据源）。"""
     counts = {status: 0 for status in CAPABILITY_STATUSES}
@@ -949,10 +1045,13 @@ def summary() -> dict[str, Any]:
         "wired": counts[WIRED],
         "exposed": counts[EXPOSED],
         "unsupported": counts[UNSUPPORTED],
+        # `ready` 与三档**不是互斥维度**：exposed 里也可能有入口已就位的（见 ready_entries）。
+        "ready": len(ready_entries()),
         "hermes_only": len(HERMES_ONLY),
         "legacy_landed": len(change["legacy"]["landed"]),
         "upgraded": [item["name"] for item in change["upgraded"]],
         "statuses": dict(CAPABILITY_STATUSES),
+        "host_entries": host_entries(),
     }
 
 
@@ -1072,9 +1171,11 @@ __all__ = [
     "expose_slash_command",
     "expose_web_provider",
     "hermes_coverage",
+    "host_entries",
     "landing_of",
     "normalize_signature",
     "parse_slash_command",
+    "ready_entries",
     "render_table",
     "resolve_slash_command",
     "status_of",

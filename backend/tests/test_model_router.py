@@ -154,14 +154,24 @@ def test_base_url_uses_settings_only_for_the_current_provider():
     assert mr.route("claude-sonnet-5", gateway).base_url == "https://api.anthropic.com"
 
 
-# ── 未实现的线协议 ──────────────────────────────────────────────────────────
+# ── 线协议放行状态与路由的关系 ──────────────────────────────────────────────
+#
+# **基线变更（本文件唯一一处）**：这条原来叫 `test_unsupported_transport_is_explained_not_hidden`，
+# 钉的是"bedrock 的线协议未实现，`route()` 说 supported=False 且原因里有 boto3"。
+# MATRIX 4.2 放行 `bedrock_converse` 之后，`UNSUPPORTED_TRANSPORTS` 变成空表，这个前提没了，
+# 所以改成钉新契约：**路由说 supported 只表示线协议实现了，不等于本机配置齐了**——
+# 凭证不齐由 `providers.build_chat_model` 抛 `MissingCredential` 并点名环境变量。
 
 
-def test_unsupported_transport_is_explained_not_hidden():
+def test_released_transport_routes_as_supported():
     decision = mr.route("bedrock/anthropic.claude-v2")
-    assert decision.supported is False
-    assert "bedrock_converse" in decision.reason
-    assert "boto3" in decision.reason
+    assert decision.supported is True
+    assert decision.provider == "bedrock"
+
+
+def test_no_transport_is_left_unsupported():
+    assert pv.UNSUPPORTED_TRANSPORTS == {}
+    assert "bedrock_converse" in pv.SUPPORTED_TRANSPORTS
 
 
 # ── 清单未知的 provider 不该被"表里没有"判死 ───────────────────────────────

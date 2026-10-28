@@ -193,27 +193,60 @@ def test_record_capability_writes_documented_shape(tmp_path):
     assert "at" in data["deepseek"]
 
 
-# ── 不支持的线协议必须"明确报错并给出原因" ──────────────────────────────────
+# ── bedrock：已放行，但凭证不齐时要点名缺哪个环境变量（MATRIX 4.2）──────────
+#
+# **基线变更（本文件第 1 处）**：这条原来叫 `test_unsupported_transport_raises_with_reason`，
+# 钉的是"bedrock 抛 UnsupportedTransport 且消息里有 boto3"。翻转的理由：SigV4 签名与
+# Converse 客户端都已实现、并按 AWS 官方向量逐字段验证过，**静态凭证就够发请求**；
+# 把"没配凭证"说成"协议不支持"，会让用户永远等一个不会来的版本更新。
+# 所以现在钉的是新契约：凭证不齐 → `MissingCredential`，且消息里点名缺哪个变量。
 
 
-def test_unsupported_transport_raises_with_reason():
+def test_bedrock_without_credentials_names_the_missing_env_vars(monkeypatch):
     profile = pv.PROVIDERS["bedrock"]
-    assert profile.supported is False
-    with pytest.raises(pv.UnsupportedTransport) as excinfo:
+    assert profile.supported is True, "bedrock_converse 已放行（MATRIX 4.2）"
+    for name in pv.BEDROCK_ENV_KEYS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    with pytest.raises(pv.MissingCredential) as excinfo:
         pv.build_chat_model(profile, _settings(model="anthropic.claude-v2"))
     message = str(excinfo.value)
-    assert "bedrock_converse" in message
-    # 原因里必须出现"为什么不行"的关键词，而不是一句干巴巴的"不支持"。
-    assert "boto3" in message
+    # 三个变量必须逐个点名，否则用户只知道"缺凭证"却不知道缺哪把。
+    for name in pv.BEDROCK_ENV_KEYS:
+        assert name in message, name
+    # 仍然没做凭据链发现——这句话必须留着，否则 EC2/SSO 上的人会以为能自动取到。
+    assert "SSO" in message or "凭据链" in message
 
 
-def test_supported_transports_are_exactly_the_three():
+def test_bedrock_with_credentials_returns_a_real_client(monkeypatch):
+    """凭证齐 → **真客户端**（不是抛错、也不是 None）。"""
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    client = pv.build_chat_model(
+        pv.PROVIDERS["bedrock"], _settings(model="anthropic.claude-v2")
+    )
+    assert isinstance(client, pv.BedrockConverseClient)
+    assert client.region == "us-east-1"
+    # 端点由 region 推，**不**跟着 `model_base_url`（那个默认值是 OpenAI 的端点）。
+    assert client.endpoint().startswith("https://bedrock-runtime.us-east-1.amazonaws.com/")
+    assert client.endpoint().endswith("/model/anthropic.claude-v2/converse")
+    assert "secret" not in repr(client), "凭据不许进 repr"
+
+
+def test_supported_transports_are_exactly_the_four():
+    """**基线变更（本文件第 2 处）**：原来是"exactly the three"且断言
+    `UNSUPPORTED_TRANSPORTS == {"bedrock_converse"}`；bedrock 放行后两者都要跟着改。"""
     assert set(pv.SUPPORTED_TRANSPORTS) == {
         "chat_completions",
         "anthropic_messages",
         "gemini",
+        "bedrock_converse",
     }
-    assert set(pv.UNSUPPORTED_TRANSPORTS) == {"bedrock_converse"}
+    # 未实现的线协议现在是**空表**（不是删掉这个概念：机制留着，将来再有不支持的就往里写）。
+    assert set(pv.UNSUPPORTED_TRANSPORTS) == set()
+    # 但"bedrock 仍然没做到什么"必须还有一张清单——放行不等于全都做到了。
+    assert len(pv.BEDROCK_LIMITATIONS) >= 3
 
 
 # ── chat_completions：保持现有行为 ──────────────────────────────────────────
@@ -485,13 +518,15 @@ def test_hook_fields_are_actually_used_when_present():
 def test_every_supported_transport_names_a_real_client():
     """`SUPPORTED_TRANSPORTS` 里的每一种都要指得出实现它的客户端类名。
 
-    矩阵里写"3 种已实现"不算证据；指得出类名才算。这条用例防止有人往
+    矩阵里写"4 种已实现"不算证据；指得出类名才算。这条用例防止有人往
     `SUPPORTED_TRANSPORTS` 里加一个没有实现的字符串。
+
+    **基线变更（本文件第 3 处）**：末尾原来是 `PROVIDERS["bedrock"].supported is False`，
+    现在 bedrock 放行了，改成 True。
     """
     assert set(pv.TRANSPORT_CLIENTS) == set(pv.SUPPORTED_TRANSPORTS)
     for transport, target in pv.TRANSPORT_CLIENTS.items():
         module_name, _, attr = target.rpartition(".")
         module = __import__(module_name, fromlist=[attr])
         assert hasattr(module, attr), f"{transport} 指向的 {target} 不存在"
-    # 未实现的那一种必须给出原因（而不是静默缺失）。
-    assert pv.PROVIDERS["bedrock"].supported is False
+    assert pv.PROVIDERS["bedrock"].supported is True

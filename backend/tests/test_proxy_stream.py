@@ -624,20 +624,36 @@ async def test_bedrock_streaming_and_tools_are_explicitly_not_implemented():
         client.bind_tools([{"name": "read"}])
 
 
-def test_bedrock_transport_still_reports_unsupported_with_the_real_reason():
-    """**如实位**：签名做到了，凭据链没做、端到端没跑通，所以线协议仍标未实现。
+def test_bedrock_transport_is_now_released_and_names_the_missing_credential(monkeypatch):
+    """**基线变更（本文件唯一一处）**：这条原来钉的是"bedrock 仍报 UnsupportedTransport"。
 
-    这条用例钉的是"不许悄悄放行"：`build_chat_model` 一旦对 bedrock 放行，用户就会
-    照着去配，然后在第一轮对话里撞墙。
+    MATRIX 4.2 之后 `bedrock_converse` 已放行（签名 + 客户端 + 请求形状都有，且按 AWS
+    官方向量验证过），所以旧断言不再成立。新的契约分两半，都要钉住：
+
+    * 凭证齐 → `build_chat_model` 返回**真客户端**；
+    * 凭证不齐 → `MissingCredential`，消息里点名缺哪个环境变量（不再是"协议不存在"）。
     """
     profile = pv.PROVIDERS["bedrock"]
-    assert profile.supported is False
-    with pytest.raises(pv.UnsupportedTransport) as excinfo:
+    assert profile.supported is True
+
+    for name in pv.BEDROCK_ENV_KEYS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    with pytest.raises(pv.MissingCredential) as excinfo:
         pv.build_chat_model(profile, SimpleSettings(model="anthropic.claude-v2"))
     message = str(excinfo.value)
-    assert "sign_sigv4" in message, "原因里必须写明签名已实现"
-    assert "boto3" in message, "原因里必须写明凭据链仍依赖 boto3"
-    assert "没跑通过" in message or "一次都没跑通" in message
+    assert "AWS_ACCESS_KEY_ID" in message and "AWS_SECRET_ACCESS_KEY" in message
+    assert "AWS_REGION" in message
+    # 仍然没做凭据链发现：这句话不许丢，否则 EC2/SSO 上的人会以为能自动取到。
+    assert "SSO" in message or "凭据链" in message
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    client = pv.build_chat_model(profile, SimpleSettings(model="anthropic.claude-v2"))
+    assert isinstance(client, pv.BedrockConverseClient)
+    # 端点由 region 推；`SimpleSettings(base_url=...)` 里的 OpenAI 端点不该被塞给 Bedrock。
+    assert client.endpoint().startswith("https://bedrock-runtime.us-east-1.amazonaws.com/")
 
 
 class SimpleSettings:

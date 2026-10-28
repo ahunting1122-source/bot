@@ -41,6 +41,7 @@ from app.session_plane import (
     compaction_target,
     describe,
     maybe_compact,
+    nodes_trigger_matches,
     task_event_key,
     tokens_for_chars,
 )
@@ -305,7 +306,7 @@ def _nodes_source() -> str:
 
 
 def test_describe_matches_nodes_py_target_ratio():
-    """``nodes.py`` 是禁改区，不能 import（会拉起 langgraph），所以**解析源码**核对。
+    """``nodes.py`` 不能 import（会拉起 langgraph），所以**解析源码**核对。
 
     这条用例是"复写会漂移"的解药：``session_plane`` 里的
     ``NODES_COMPACT_TARGET_RATIO`` 一旦与那边不一致，这里当场失败。
@@ -315,16 +316,32 @@ def test_describe_matches_nodes_py_target_ratio():
     assert float(match.group(1)) == NODES_COMPACT_TARGET_RATIO == COMPACTION_TARGET_RATIO
 
 
-def test_describe_reports_the_trigger_gap():
-    """如实报差异：目标比一致，但那边**没有** 0.50 的提前判定。"""
+def test_describe_reports_the_proactive_trigger():
+    """如实报现状：目标比一致，**且** 0.50 的提前判定已经接进 `nodes.think`。
+
+    这一条以前断言 `trigger_matches is False`（那边只有被动压缩）。10.4 接完之后
+    它翻成 True——判据是 `nodes_trigger_matches()` **读源码**核出来的：源码里既有
+    `compaction.plan(` 调用点、阈值常量也与这里相等。
+    """
     policy = describe(128_000)
     assert policy["threshold"] == COMPACTION_THRESHOLD
     assert policy["target_tokens"] == compaction_target(128_000)
     assert policy["nodes_py"]["target_matches"] is True
-    assert policy["nodes_py"]["trigger_matches"] is False
-    assert "context_overflow" in policy["nodes_py"]["trigger"]
-    # 那边的压缩路径确实存在（只是被动）：源码里得有它
+    assert policy["nodes_py"]["trigger_matches"] is True
+    assert "proactive" in policy["nodes_py"]["trigger"]
+    assert "0.50" in policy["nodes_py"]["trigger"]
+    # 提前判定的调用点真的在源码里（不是只写了个常量没人用）
+    assert "compaction.plan(" in _nodes_source()
     assert "def compact_messages" in _nodes_source()
+
+
+def test_describe_admits_it_when_nodes_py_loses_the_proactive_step():
+    """核不出来就如实报 False：给一段没有调用点的源码，判据必须翻回 False。"""
+    assert nodes_trigger_matches("COMPACT_THRESHOLD_RATIO = 0.5\n") is False
+    assert nodes_trigger_matches("") is False
+    # 有调用点但阈值常量被改成 0.3：也不算接上（"调了，但按别的数判"）
+    assert nodes_trigger_matches("compaction.plan(\nCOMPACT_THRESHOLD_RATIO = 0.3\n") is False
+    assert nodes_trigger_matches("compaction.plan(\nCOMPACT_THRESHOLD_RATIO = 0.5\n") is True
 
 
 def test_tokens_for_chars_uses_the_four_chars_per_token_rule():

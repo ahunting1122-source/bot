@@ -8,6 +8,7 @@ reflect 已接进图，产出的是由轨迹推导的确定性提示，不调模
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Any
@@ -24,7 +25,7 @@ from langgraph.types import interrupt
 from pydantic import Field
 from sqlalchemy import select
 
-from app import errors
+from app import compaction, errors
 from app import errors_retry as retry
 from app.budget import TurnBudget
 from app.context import FROZEN_PREFIX_KEY, PROMPT_VERSION, frozen_prefix, prefix_of
@@ -35,7 +36,7 @@ from app.retrieval import PREFETCH_MIN_SCORE
 from app.storage import Task, ToolResult
 from app.tools import Args, Tool, as_tool_text
 from app.vault import Vault
-from app.window import Thresholds, thresholds, thresholds_for
+from app.window import Thresholds, thresholds, thresholds_for, window_of
 
 log = logging.getLogger("orbit.nodes")
 
@@ -44,15 +45,33 @@ OUTWARD_PREFIXES = ("browser_", "vault_", "notion_")
 #: 模型单步调用尝试次数：流式还没吐出正文时的失败可安全重试。
 #: 只对 `errors.RETRYABLE` 四类（限流/超时/连接/过载）生效；其余失败一次就停。
 MODEL_ATTEMPTS = 3
-#: 上下文溢出后压缩到窗口的多少。照抄 Hermes 的 `compression.target_ratio: 0.2`
-#: （research 06 §20）：只压到"刚够用"会让下一轮工具结果立刻又撑爆，
-#: 压到 20% 才有余量跑完当前这轮。
+#: 上下文压缩到窗口的多少。**数值以 `app/compaction.py` 为准**（那边 0.20），这里
+#: 保留一份是因为确定性截断路径（`compact_messages`）自己要用，而
+#: `app/session_plane.py::describe()` 会解析这一行核对两边一致（复写会漂移，
+#: 断言不会）。只压到"刚够用"会让下一轮工具结果立刻又撑爆，压到 20% 才有余量。
 COMPACT_TARGET_RATIO = 0.2
+#: 触发提前压缩的占用比。与 `app/compaction.py::COMPACT_THRESHOLD` 同值，判据本身
+#: 走 `compaction.should_compact`——这里只给 `describe()` 一个可解析的锚点。
+COMPACT_THRESHOLD_RATIO = 0.5
+#: 提前压缩折叠到哪里的两个 state 键（存在 `context_meta` 里，随 checkpoint 落盘）。
+#: 为什么不改 `messages`：它挂了 `add_messages` reducer，节点只能**追加**不能替换，
+#: 想在 state 里"删掉最老的几轮"没有合法写法。所以折叠事实记在这里：已折叠的条数
+#: 加一份摘要文本，下一轮从 `messages[folded:]` 接着用。
+COMPACT_FOLDED_KEY = "compacted_messages"
+COMPACT_SUMMARY_KEY = "compaction_summary"
+#: 摘要连续失败几次就暂时别再试了。摘要是一次模型调用，模型挂了的时候"每轮都试一次
+#: 摘要"等于把失败成本翻倍；而"永不重试"又会在模型恢复后再也不压。所以给它一个
+#: 上限：连败 `COMPACT_SUMMARY_ATTEMPTS` 次后直接走确定性截断，任务照常跑完。
+COMPACT_FAILED_KEY = "compaction_summary_failures"
+COMPACT_SUMMARY_ATTEMPTS = 2
 #: 单条消息压缩后的地板。压到几十字符等于把工具结果变成噪声，模型会开始猜。
 MIN_COMPACT_CHARS = 2_000
 #: 截断标记。**必须显式告诉模型"这里被截了"**：静默截断会让它以为输出就到这儿，
 #: 于是照着半截日志下结论。
 COMPACT_MARK = "…[上下文压缩：此处已截断]"
+#: 工具执行期检查中断的间隔（秒）。0.25 s 是"用户按下中断到这一步真的停下"的
+#: 上限代价：再小就是空转轮询，再大就会让"我点了停止，它还卡了两秒"。
+INTERRUPT_POLL_SECONDS = 0.25
 #: 线程被中断时的终态正文。说清"为什么停"比只说"已停止"有用：用户知道这不是
 #: 模型放弃，而是有人/某条路径主动叫停，可以接着再发一次。
 INTERRUPTED_ANSWER = "这条线程已被中断，任务在这里停止。可以重新发一次指令继续。"
@@ -108,11 +127,20 @@ def _chunks_and_vectors(task, name: str, result: dict, embeddings):
 class Nodes:
     """节点实现。依赖通过 AgentRunner 暴露，方便测试时替换 model 与 policies。"""
 
-    def __init__(self, runner):
+    def __init__(self, runner, *, summarizer=None):
         self.runner = runner
         # 心跳：优先用 runner 上的那个（进程级、CLI/事件流可读 `status()`）；
         # 假 runner（测试替身）没有就本地造一个——心跳不该成为"能不能跑"的前提。
         self.heartbeat = getattr(runner, "heartbeat", None) or Heartbeat()
+        # 摘要注入点（MATRIX 2.7）：`callable(messages, prior="") -> str | Awaitable[str]`。
+        # 构造参数优先，其次 `runner.summarizer`——两条路都是为了让测试把"摘要这一步"
+        # 换成假实现，**不真连模型**（压缩路径的正确性不该依赖网络）。
+        self.summarizer = summarizer if summarizer is not None else getattr(
+            runner, "summarizer", None
+        )
+        # 工具执行期轮询中断的间隔。测试把它调到毫秒级，就不必为"能不能中断"
+        # 真等 0.25 s（那会让每个中断用例慢一个数量级）。
+        self.interrupt_poll_seconds = INTERRUPT_POLL_SECONDS
 
     def beat(self, kind: str) -> None:
         """节点进入时报一次进展。**不改编排**：图结构、边、路由一律不动。"""
@@ -144,6 +172,13 @@ class Nodes:
 
         `runner` 支持 per-thread 中断时问它；测试替身没有这个能力就返回 False
         （"永不中断"是安全的默认：不会因为少一个方法就把正常任务当成被中断）。
+
+        三处用它，语义各不相同：
+
+        * `think`：断了就不再请求模型（省一次没人要的回答）；
+        * `execute` 入口：断了就整轮跳过，直接补中断结果；
+        * `run_tool` 轮询：**已经发出**的那一次调用也会被放弃——这是 2.8 从
+          "标记 + 跳过"升级成"真的打断"的那一处，边界写在 `run_tool` 的 docstring 里。
         """
         checker = getattr(self.runner, "is_interrupted", None)
         return bool(checker(thread_id)) if callable(checker) else False
@@ -414,17 +449,91 @@ class Nodes:
         head = f"{prefix}\n{extra}" if extra else prefix
         context = [SystemMessage(content=head)]
         history = [m for m in state.get("messages") or [] if m.type != "system"]
+        # ── 提前压缩（MATRIX 10.4 / 2.7）───────────────────────────────────
+        # **每轮开始先判一次**，而不是等供应商报 `context_overflow`。差这一次往返
+        # 的意义不只是省 token：溢出那一轮必然失败，用户看到的是报错，还要多等
+        # 几百毫秒到几秒的重试。判据本身是纯函数（`app/compaction.py::plan`）。
+        folded = int(meta.get(COMPACT_FOLDED_KEY) or 0)
+        summary = str(meta.get(COMPACT_SUMMARY_KEY) or "")
+        if folded > len(history):
+            # 脏 checkpoint（折叠数比历史还多）：按"没折过"重来，而不是切出空历史。
+            folded, summary = 0, ""
+        tail = history[folded:]
+        window_tokens = window_of(self.settings)
+        # `carried_tokens` 是"不在 tail 里、但确实会进上下文"的占用：系统提示与
+        # 已有摘要。它们不能参与分组——摘要是最老的一条，被当成一组就会先被丢掉。
+        carried = compaction.tokens_for(context) + (
+            compaction.estimate_tokens(summary) if summary else 0
+        )
+        decision = compaction.plan(tail, window=window_tokens, carried_tokens=carried)
+        compacted_now = False
+        if decision.needed:
+            failures = int(meta.get(COMPACT_FAILED_KEY) or 0)
+            if failures >= COMPACT_SUMMARY_ATTEMPTS:
+                # 摘要连着失败过几次：这一轮别再花一次调用去试，直接走截断。
+                await self.store.event(
+                    task.id,
+                    "context_compacted",
+                    reason="summary_skipped",
+                    failures=failures,
+                    before_tokens=decision.used_tokens,
+                    window_tokens=decision.window,
+                    target_tokens=decision.target_tokens,
+                )
+            else:
+                folded, summary, compacted_now, attempted = await self.proactive_compact(
+                    tail, decision, task, folded=folded, summary=summary
+                )
+                tail = history[folded:]
+                if attempted:
+                    new_failures = 0 if compacted_now else failures + 1
+                    if new_failures:
+                        meta_updates[COMPACT_FAILED_KEY] = new_failures
+                    elif failures:
+                        meta_updates[COMPACT_FAILED_KEY] = 0
+            if folded:
+                meta_updates[COMPACT_FOLDED_KEY] = folded
+            if summary:
+                meta_updates[COMPACT_SUMMARY_KEY] = summary
         # 配对修补（MATRIX 2.4）：任务被取消/进程被杀时，checkpoint 里可能留下
         # "有 tool_calls 却没有 tool 结果"的 assistant 消息。这种消息原样发出去就是
         # 供应商 400，而且此后**每一轮**都带着这个非法配对，整个会话等于废了。
         # 这里补一条中断占位再发（不改 state，历史保持原样）。
-        repaired = retry.repair_tool_pairs(history)
+        repaired = retry.repair_tool_pairs(tail)
         if repaired:
             log.warning("补齐 %d 条缺失的工具结果（中断占位）", len(repaired))
             await self.store.event(task.id, "tool_pairs_repaired", count=len(repaired))
-        messages = [*context, *history, *repaired]
+        digest = [HumanMessage(content=summary)] if summary else []
+        messages = [*context, *digest, *tail, *repaired]
+        if decision.needed and not compacted_now:
+            # 摘要不可用 → 退回**确定性截断**（MATRIX 2.7 的原路径）。只影响本轮
+            # 发送，不改 state：下一轮再判一次，模型恢复了就还能走摘要。
+            body = self.compact_messages([*context, *tail, *repaired], window_tokens=window_tokens)
+            messages = [body[0], *digest, *body[1:]]
+        elif decision.needed and compaction.tokens_for(messages) > decision.target_tokens:
+            # 摘要成功但最后一组自己就超预算（比如一次吐了 20 万字符的工具结果）：
+            # 只截正文，不丢组——摘要已经把更早的历史接住了。
+            messages = self.truncate_bodies(messages, decision.target_tokens)
         specs = self.policies.exposer.expose(self.registry.specs())
-        model = runner.get_model().bind_tools(specs, parallel_tool_calls=False)
+        base_model = runner.get_model()
+        try:
+            model = base_model.bind_tools(specs, parallel_tool_calls=False)
+        except NotImplementedError as exc:
+            # 有些传输不支持工具绑定（`bedrock_converse` 的早期实现、自建的
+            # anthropic / gemini 客户端都抛 NotImplementedError）。
+            #
+            # **不能让整个任务崩在这**——那等于"这个供应商完全不能用"。
+            # 但也**不能假装有工具**：清空 specs，模型会如实看到"没有工具可用"，
+            # 而不是收到一份它调不动、调了必然失败的清单。
+            # 记一条事件，这样 `orbit sessions show` 里能查到原因。
+            model = base_model
+            specs = []
+            await self.store.event(
+                state["task_id"],
+                "tool_binding_unsupported",
+                reason=str(exc)[:300],
+                provider=str(getattr(self.settings, "model_provider", "") or ""),
+            )
         response_id = uuid4().hex
         identity = {
             "conversation_id": task.conversation_id,
@@ -454,7 +563,122 @@ class Nodes:
             updates["context_meta"] = {**meta, **meta_updates}
         return updates
 
-    async def ask_model(self, model, messages, task, identity):
+    async def proactive_compact(self, tail, decision, task, *, folded, summary):
+        """提前压缩：把要丢的那几组交给模型压成一段（MATRIX 10.4）。
+
+        返回 `(folded, summary, ok, attempted)`：
+
+        * `attempted=False`：根本没有可折叠的轮次（只有当前这一组），调用方什么
+          都不用做（`ok` 也是 False）；
+        * `ok=True`：摘要已生成，`folded` 增加、`summary` 换成**合并后**的新摘要；
+        * `ok=False`（且 `attempted=True`）：摘要不可用（模型失败 / 摘要太短），
+          调用方退回确定性截断，并把"又失败了一次"记进 `context_meta`。
+          **压缩失败绝不能让任务失败**——它是优化，不是功能。
+
+        摘要必须与已有摘要**合并**而不是追加：`prior` 一并交给模型，否则每压一次
+        就丢一段更早的历史，任务越跑越失忆（这是"分段摘要"最常见的坑）。
+        """
+        task_id = task.id
+        dropped = [tail[index] for index in decision.summarized]
+        if not dropped:
+            return folded, summary, False, False
+        digest = await self.summarize(dropped, task, prior=summary)
+        if not compaction.usable_summary(digest):
+            await self.store.event(
+                task_id,
+                "context_compacted",
+                reason="summary_failed",
+                before_tokens=decision.used_tokens,
+                dropped=len(dropped),
+                window_tokens=decision.window,
+                target_tokens=decision.target_tokens,
+            )
+            log.warning(
+                "提前压缩：摘要不可用，退回确定性截断（%s token）", decision.used_tokens
+            )
+            return folded, summary, False, True
+        folded_now = folded + len(dropped)
+        text = compaction.summary_message(
+            digest,
+            folded=folded_now,
+            window=decision.window,
+            target=decision.target_tokens,
+        )
+        await self.store.event(
+            task_id,
+            "context_compacted",
+            reason="proactive",
+            before_tokens=decision.used_tokens,
+            after_tokens=decision.projected_tokens,
+            dropped=len(dropped),
+            folded=folded_now,
+            window_tokens=decision.window,
+            target_tokens=decision.target_tokens,
+        )
+        return folded_now, text, True, True
+
+    async def summarize(self, messages, task, *, prior: str = "") -> str:
+        """把这几条消息压成一段摘要。**失败返回空串，绝不抛。**
+
+        注入点：`Nodes(summarizer=...)` 或 `runner.summarizer`，签名
+        `callable(messages, prior="") -> str | Awaitable[str]`。测试用它把"摘要这一步"
+        换成假实现，不真连模型——压缩路径的正确性不该依赖网络。
+
+        生产路径走 `ask_model`（同一个模型、同一套失败分类），但
+        `allow_compact=False`：摘要请求自己再溢出时不能再触发压缩，否则就是递归。
+
+        **必须还原 `runner.partial`**：`stream_model` 会把流式正文累加进去，而
+        `partial` 是"这一轮已经吐给用户的半截回答"的判据。不还原的话，主调用一旦
+        失败就会被误判成"已流式输出"，于是本该重试的失败被直接判死。
+        """
+        injected = self.summarizer
+        if injected is not None:
+            try:
+                try:
+                    value = injected(list(messages), prior=prior)
+                except TypeError:
+                    # 只收一个位置参数的假实现（测试里最省事的写法）也要能接。
+                    value = injected(list(messages))
+                if inspect.isawaitable(value):
+                    value = await value
+                return str(value or "").strip()
+            except Exception as exc:  # 注入实现挂了同样只退化成截断
+                log.warning("注入的摘要实现失败（退回确定性截断）：%s", exc)
+                return ""
+        get_model = getattr(self.runner, "get_model", None)
+        if not callable(get_model):
+            return ""  # 测试替身没有模型：不是错误，直接走截断
+        task_id = task.id
+        identity = {
+            "conversation_id": getattr(task, "conversation_id", ""),
+            "message_id": f"compaction-{task_id}",
+            "response_id": uuid4().hex,
+            "prompt_version": PROMPT_VERSION,
+        }
+        partials = getattr(self.runner, "partial", None)
+        had_partial = isinstance(partials, dict) and task_id in partials
+        saved = partials.get(task_id, "") if isinstance(partials, dict) else ""
+        if isinstance(partials, dict):
+            partials.setdefault(task_id, "")
+        try:
+            prompt = [HumanMessage(content=compaction.summary_prompt(messages, prior=prior))]
+            answer = await self.ask_model(
+                get_model(), prompt, task, identity, allow_compact=False
+            )
+            return str(getattr(answer, "text", "") or "").strip()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # 压缩是优化：任何失败都退回截断
+            log.warning("摘要压缩失败（退回确定性截断）：%s", exc)
+            return ""
+        finally:
+            if isinstance(partials, dict):
+                if had_partial:
+                    partials[task_id] = saved
+                else:
+                    partials.pop(task_id, None)
+
+    async def ask_model(self, model, messages, task, identity, *, allow_compact: bool = True):
         """模型调用：按失败类别决定"重试 / 先压缩再重试 / 立刻停"（MATRIX 2.6 / 2.7）。
 
         **改之前**：任何异常都重试 `MODEL_ATTEMPTS` 次，最后统一说"请检查连接设置、
@@ -463,10 +687,14 @@ class Nodes:
 
         **改之后**：判据全在 `app/errors_retry.py::decide`（分类来自 `app/errors.py`），
         这里只执行：
-        * `COMPACT`：上下文溢出 → 先压缩消息再重试一次（压缩不占常规次数）；
+        * `COMPACT`：上下文溢出 → 先压缩消息再重试一次（压缩不占常规次数）。
+          压缩走 `compact_context`：**摘要优先，失败退回确定性截断**；
         * `RETRY`：只有限流/超时/连接/过载四类会走到这里；
         * `STOP`：不可重试、次数用完、或**已流出半截正文**——直接抛
           `ModelFailureError(errors.summary(...))`，文案带类别 + 建议 + 次数。
+
+        `allow_compact=False` 只给"摘要请求自己"用（见 `summarize`）：那条路径上再
+        触发压缩就是递归，所以溢出时直接按失败处理，由调用方退回截断。
 
         **保留的旧规矩**：已吐出正文时**原样抛**（不是包成 `ModelFailureError`）。
         流式回答已经推给前端了，重试会把重复内容再推一遍；而原异常带着真实类型与栈，
@@ -498,13 +726,17 @@ class Nodes:
                     # 半截正文已经在路上：重试只会让用户看到重复内容。
                     raise
                 if decision.action == retry.COMPACT:
+                    if not allow_compact:
+                        # 摘要请求自己溢出：不能再压（递归），按失败处理。
+                        break
                     compacted = True
                     before = self._context_size(working)
-                    working = self.compact_messages(working)
+                    working, path = await self.compact_context(working, task)
                     after = self._context_size(working)
                     attempts -= 1  # 压缩重试是"这一次调用的补救"，不占常规次数
                     log.warning(
-                        "上下文溢出，压缩后重试：%s → %s 字符（%s）",
+                        "上下文溢出，压缩后重试（%s）：%s → %s 字符（%s）",
+                        path,
                         before,
                         after,
                         failure.detail[:120],
@@ -516,6 +748,7 @@ class Nodes:
                         after_chars=after,
                         window_tokens=thresholds_for(self.settings).window_tokens,
                         reason=failure.kind,
+                        path=path,
                     )
                     continue
                 if decision.action != retry.RETRY:
@@ -543,8 +776,61 @@ class Nodes:
             total += len(content) if isinstance(content, str) else len(str(content))
         return total
 
+    async def compact_context(self, messages, task, *, window_tokens: int | None = None):
+        """被动路径（供应商已经报了溢出）：**摘要优先，失败退回确定性截断**。
+
+        返回 `(messages, path)`，`path` 是 `"summary"` / `"truncate"`，只用于事件与日志。
+
+        与 `proactive_compact` 的区别：那边把"折叠到第几条"记进 state（下一轮继续
+        从那儿接着用），这边是一次性补救——压缩结果只用于本次重试，state 里的历史
+        保持原样（`messages` 挂 `add_messages`，节点无法替换，只能追加）。
+        """
+        window = int(window_tokens or window_of(self.settings))
+        target = compaction.target_tokens(window)
+        items = list(messages)
+        system = [m for m in items if compaction.is_system(m)]
+        rest = [m for m in items if not compaction.is_system(m)]
+        groups = compaction.group_messages(rest)
+        # 最后一组是"当前正在做的事"，压它等于让模型忘记自己刚才在干嘛。
+        dropped_index = (
+            [index for group in groups[:-1] for index in group] if len(groups) > 1 else []
+        )
+        if dropped_index:
+            dropped = [rest[index] for index in dropped_index]
+            digest = await self.summarize(dropped, task)
+            if compaction.usable_summary(digest):
+                keep = [
+                    message
+                    for index, message in enumerate(rest)
+                    if index not in set(dropped_index)
+                ]
+                head = HumanMessage(
+                    content=compaction.summary_message(
+                        digest, folded=len(dropped), window=window, target=target
+                    )
+                )
+                compacted = [*system, head, *keep]
+                if compaction.tokens_for(compacted) > target:
+                    compacted = self.truncate_bodies(compacted, target)
+                return compacted, "summary"
+        return self.compact_messages(messages, window_tokens=window), "truncate"
+
+    def truncate_bodies(self, messages, target_tokens: int):
+        """只截正文、**不删消息、不拆配对**：给每条正文一个平均配额。
+
+        用在"摘要已经接住了更早的历史，但最后一组自己就超预算"的场合：这时候再丢组
+        就是把当前这一步也丢了，只能把正文压短。
+        """
+        system = [m for m in messages if compaction.is_system(m)]
+        rest = [m for m in messages if not compaction.is_system(m)]
+        if not rest:
+            return list(messages)
+        budget = max(MIN_COMPACT_CHARS, int(target_tokens) * compaction.CHARS_PER_TOKEN)
+        allowance = max(MIN_COMPACT_CHARS, budget // len(rest))
+        return [*system, *[self._truncate_message(m, allowance) for m in rest]]
+
     def compact_messages(self, messages, *, window_tokens: int | None = None):
-        """上下文溢出后的**本地确定性压缩**（MATRIX 2.7 的补救动作）。
+        """上下文溢出后的**本地确定性压缩**（MATRIX 2.7 的兜底动作）。
 
         ## 压什么、不压什么
 
@@ -558,16 +844,16 @@ class Nodes:
            `compression.target_ratio: 0.2`）：只压到"刚好不溢出"会让下一轮工具结果
            立刻又撑爆，来回压缩比直接报错更糟。
 
-        ## 为什么是本地截断而不是让模型重写摘要
+        ## 为什么它退居"兜底"（原来它是一线）
 
-        `app/summaries.py` 的压缩是**会话级、异步调度**的（`schedule()` 起后台任务、
-        写 `conversations.summary`），它的输入是数据库里的整段对话，不是这一步正在
-        发给模型的 `messages`；`app/context.py` 只负责装配系统提示，没有压缩接口。
-        两者都无法在 `ask_model` 这次同步调用里"立刻返回一份更短的历史"。
-        用辅助模型槽位（`aux_slots.resolve_slot("compression")`）现算一份摘要倒是可行，
-        但那是在失败重试路径里再发一次模型请求——它自己也可能溢出/超时，需要另一套
-        重试与记账，属于独立的一波工作。**所以这里用的是确定性的本地压缩**：
-        不花 token、不依赖网络、可单测，代价是丢掉正文细节而不是压成摘要。
+        原来这里是**唯一**的压缩手段：不花 token、不依赖网络、可单测，代价是丢掉正文
+        细节而不是压成摘要。现在一线是 `summarize`（走同一个模型，`app/compaction.py`
+        组装请求），本地截断只在两种情况下接手：
+
+        1. 摘要失败（模型挂了 / 超时 / 回了一句"好的"）；
+        2. 摘要请求本身也溢出（`allow_compact=False`，不能递归）。
+
+        **压缩是优化，不该让任务失败**——所以这条兜底路径必须永远可用，绝不能删。
         """
         limits: Thresholds = (
             thresholds(window_tokens) if window_tokens else thresholds_for(self.settings)
@@ -792,9 +1078,12 @@ class Nodes:
         self.beat(f"{TOOL_PREFIX}{call['name']}")
         # 传 messages 是因为「记忆写入门槛」（M2）必须读到用户原话：
         # 只认用户显式说过的「记住……」，模型自行沉淀一律拒绝。
-        result = await self.registry.execute(
-            task_id, operation_id, call["name"], call["args"], state.get("messages")
-        )
+        result, was_interrupted = await self.run_tool(task_id, operation_id, call, state)
+        if was_interrupted:
+            # 跑到一半被中断（MATRIX 2.8）：这一调用**放弃**，并且**这一轮剩下的
+            # 调用一起补成中断结果**。不能只补一条——一条 assistant 消息里的 N 个
+            # `tool_call` 必须各有一条结果，缺一个下一次请求就是 400。
+            return self.interrupted_updates(state)
         if result["status"] in {"needs_user", "uncertain"}:
             return {
                 "waiting": {
@@ -862,6 +1151,56 @@ class Nodes:
                 "host": self.current_host(),
             },
         }
+
+    async def run_tool(self, task_id, operation_id, call, state):
+        """执行一次工具调用，**能被 per-thread 中断放弃**（MATRIX 2.8）。
+
+        返回 `(result, was_interrupted)`。中断时 `result` 为 `None`，由调用方补
+        `[interrupted]` 结果（配对不能断，见 `app/errors_retry.py`）。
+
+        ## 到底能中断到什么程度（边界，如实写清）
+
+        工具调用被包成一个独立 `Task`，这里每 `interrupt_poll_seconds` 秒问一次
+        `interrupted(task_id)`，命中就 `cancel()` 它并**不再等结果**。所以：
+
+        * **还没发出的**：直接被跳过（`execute` 入口就判，根本不会调到这里）；
+        * **已经发出、还在等 I/O 的**（模型/HTTP/浏览器等待、`await` 在事件循环上）：
+          真的会被打断——`CancelledError` 注入在下一个 await 点；
+        * **已经派到线程/子进程里、正在跑的同步活**（`asyncio.to_thread` 包住的
+          CPU 活、`subprocess` 已经在执行的命令）：`cancel()` 只会**放弃等待**，
+          那个线程/子进程不会被 kill——Python 没有跨平台的安全线程中止，硬杀
+          subprocess 又要区分"谁派的、能不能杀"。这一小段是**唯一**不可中断的窗口，
+          它会自己跑完（结果被丢弃）。
+
+        不中断就得等它自然结束：一个 `run_command` 跑十分钟，用户点了停止也要等
+        十分钟——那正是这次要修的东西。
+        """
+        job = asyncio.ensure_future(
+            self.registry.execute(
+                task_id, operation_id, call["name"], call["args"], state.get("messages")
+            )
+        )
+        try:
+            while True:
+                done, _ = await asyncio.wait({job}, timeout=self.interrupt_poll_seconds)
+                if done:
+                    break
+                if self.interrupted(task_id):
+                    job.cancel()
+                    await asyncio.gather(job, return_exceptions=True)
+                    log.warning(
+                        "线程 %s 在工具 %s 执行中被中断，已放弃这一调用",
+                        task_id,
+                        call.get("name"),
+                    )
+                    return None, True
+            return job.result(), False
+        except asyncio.CancelledError:
+            # 外层（`cancel()` / 进程退出）把整个任务取消了：别把工具 Task 留在
+            # 后台孤儿跑——它还会继续写库、继续操作浏览器。
+            job.cancel()
+            await asyncio.gather(job, return_exceptions=True)
+            raise
 
     # ── digest ─────────────────────────────────────────────────────────────
     async def digest(self, state):

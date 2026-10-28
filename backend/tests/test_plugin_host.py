@@ -349,3 +349,196 @@ def test_manifest_of_the_demo_plugin_is_discovered(tmp_path):
     result = plugins.discover([root])
     assert [manifest.name for manifest in result] == ["p-demo"]
     assert json.dumps(result.manifests[0].as_dict(), ensure_ascii=False)
+
+
+# ── 7. 13.4 第二轮：4 条 exposed 能力的**宿主侧入口**（宿主真的能调到）────────
+#
+# 这一节只证明一件事：那 4 条暴露出来的能力，宿主里已经有一个**能被调到**的入口。
+# 它**不**证明"装配层已经在用它们"——那几行分别在 app/memory_providers.py 的调用方、
+# app/exporters.py 的池子合并、app/dashboard_api.py 的 webhook 收件路径与
+# app/cli/commands/chat.py 的输入循环里。所以状态仍是 exposed，只多了一个 ready。
+
+CAPABILITY_PLUGIN_CODE = '''
+"""演示插件：13.4 第二轮的四条 exposed 能力各登记一次。"""
+import json
+
+from app.plugin_capabilities import (
+    attach_observability_exporter,
+    expose_memory_provider,
+    expose_slack_action_handler,
+    expose_slash_command,
+)
+
+
+class Memory:
+    name = "plugin-mem"
+
+    def available(self):
+        return True
+
+    async def save(self, key, value):
+        return {"saved": True, "key": key, "value": value}
+
+    async def search(self, query, limit=10):
+        return []
+
+    async def delete(self, key):
+        return True
+
+    async def list_keys(self):
+        return []
+
+    def describe(self):
+        return {"name": self.name}
+
+
+class Exporter:
+    name = "plugin-exporter"
+
+    def __init__(self, path):
+        self.path = path
+
+    def record(self, payload):
+        with open(self.path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\\n")
+
+
+def register(ctx):
+    expose_memory_provider(ctx, Memory(), provider_id="plugin-mem")
+    attach_observability_exporter(ctx, Exporter(str(ctx.data_dir / "export.jsonl")))
+    expose_slack_action_handler(ctx, "btn_ok", lambda payload: {"handled": True, "got": payload})
+    expose_slash_command(ctx, "demo13", lambda rest: f"插件收到：{rest}")
+'''
+
+
+@pytest.fixture()
+def capability_host(tmp_path):
+    """一个真的加载了"四条能力各一条"插件的宿主（每个用例独立，动作路由表要清干净）。"""
+    root = tmp_path / "plugins"
+    write_plugin(root, "p-134", "name: p-134\nkind: tool\n", CAPABILITY_PLUGIN_CODE)
+    host = host_for(root)
+    host.start()
+    try:
+        yield host
+    finally:
+        from app.plugin_host import unregister_action_route
+
+        unregister_action_route("btn_ok")
+
+
+def test_slack_action_routes_reach_the_plugin_callback(capability_host):
+    """`action_id` → 回调：宿主按 action_id 查到**并真的调用**插件处理器。
+
+    这是 ``register_slack_action_handler`` 缺的那张表。判据不是"表里有键"，而是
+    "调用之后插件的 lambda 真的跑了一次、返回值回到了调用方"。
+    """
+    from app import plugin_host as host_module
+
+    host = capability_host
+    assert "btn_ok" in host.action_routes, "插件登记的动作没有搬进宿主路由表"
+    assert "btn_ok" in host_module.ACTION_ROUTES, "进程级路由表也要有（webhook 拿不到宿主实例）"
+    assert host.describe()["action_routes"] == ["btn_ok"]
+
+    outcome = host.dispatch_action("btn_ok", {"action_id": "btn_ok", "value": "yes"})
+    assert outcome == {"handled": True, "got": {"action_id": "btn_ok", "value": "yes"}}
+
+    # 未知 action_id 返回 None（而不是抛）：按钮可能来自已经卸载的插件
+    assert host.dispatch_action("btn_gone") is None
+    # 模块级入口同样能派发（gateway/webhook 那条路走的是它）
+    assert host_module.dispatch_action("btn_ok", {"x": 1}) == {"handled": True, "got": {"x": 1}}
+
+
+def test_action_route_conflict_is_refused_not_silently_overwritten():
+    """两个插件抢同一个 action_id：当场报错（静默覆盖会让"点了没反应"查不出来）。"""
+    from app.plugin_host import (
+        ACTION_ROUTES,
+        dispatch_action,
+        register_action_route,
+        unregister_action_route,
+    )
+
+    try:
+        register_action_route("btn_conflict", lambda payload: "first")
+        assert dispatch_action("btn_conflict") == "first"
+        with pytest.raises(ValueError, match="已经有处理器"):
+            register_action_route("btn_conflict", lambda payload: "second")
+        assert dispatch_action("btn_conflict") == "first", "被拒的注册不许改掉原处理器"
+        # 显式 override 才允许替换
+        register_action_route("btn_conflict", lambda payload: "third", override=True)
+        assert dispatch_action("btn_conflict") == "third"
+    finally:
+        unregister_action_route("btn_conflict")
+    assert "btn_conflict" not in ACTION_ROUTES
+
+
+def test_memory_providers_are_collected_and_router_accepts_them(capability_host):
+    """`host.memory_providers()` 收得到，且**能直接交给** `build_router(providers=…)`。
+
+    判据是"路由器真的调到了插件的 provider"：`router.save()` 的 `written` 里出现插件
+    的 provider 名 —— 不是"字典里有个键"。
+    """
+    from app import memory_providers
+
+    providers = capability_host.memory_providers()
+    assert list(providers) == ["plugin-mem"]
+    assert providers["plugin-mem"].available() is True
+
+    router = memory_providers.build_router(
+        providers=list(providers.values()), data_dir=None
+    )
+    assert router.active() is not None
+    assert router.active().name == "plugin-mem"
+    outcome = asyncio.run(router.save("note", "插件记忆"))
+    assert outcome["ok"] is True
+    assert outcome["written"] == ["plugin-mem"], outcome
+
+
+def test_exporters_are_collected_and_receive_events(capability_host, tmp_path):
+    """`host.exporters()` 收得到，且宿主 emit 一次事件**真的**流到插件的 record()。
+
+    这里刻意走真实链路：`attach_observability_exporter` 把桥挂在宿主的 HookRegistry 上，
+    `host.hook_sink.emit(...)` 触发桥 → 调 exporter.record → 写文件。文件内容就是证据。
+    """
+    from app import exporters
+
+    collected = capability_host.exporters()
+    assert list(collected) == ["plugin-exporter"]
+    # 形状与 default_exporters() 的池子一致，装配层可以直接合并
+    pool = {**exporters.default_exporters(tmp_path / "data"), **collected}
+    assert "plugin-exporter" in pool
+
+    capability_host.hook_sink.emit("pre_tool_call", {"tool": "run_command"})
+    spool = capability_host.runtime.loaded[0].context.data_dir / "export.jsonl"
+    assert spool.exists(), "事件没有流到 exporter（桥没挂上或发射没触发）"
+    assert "run_command" in spool.read_text(encoding="utf-8")
+
+
+def test_slash_dispatch_is_ready_and_still_exposed(capability_host):
+    """斜杠命令：宿主真的能分发（返回值就是 handler 的输出），状态仍 exposed。"""
+    host = capability_host
+    assert host.dispatch_slash("/demo13 你好") == ("demo13", "插件收到：你好")
+    readiness = host.describe()["capabilities"]
+    row = readiness["register_slash_command"]
+    assert row["ready"] is True
+    assert "dispatch_slash" in row["host_entry"]
+    assert "chat.py" in row["missing"], "缺的那一行必须点名文件"
+    assert caps.status_of("register_slash_command") == caps.EXPOSED
+
+
+def test_all_four_exposed_capabilities_report_a_ready_host_entry():
+    """4 条 exposed 能力的宿主侧入口都在，且每条都能说出"还缺哪一行"。"""
+    summary = caps.summary()
+    assert summary["exposed"] == 4
+    assert summary["ready"] == 4, summary
+    entries = caps.host_entries()
+    for name in (
+        "register_slack_action_handler",
+        "register_memory_provider",
+        "register_observability_exporter",
+        "register_slash_command",
+    ):
+        assert name in entries, name
+        assert entries[name].startswith("app/plugin_host.py::"), entries[name]
+        item = caps.by_name(name)
+        assert item is not None and item.ready
+        assert "缺" in item.orbit_landing, f"{name} 没写清还缺哪一层"

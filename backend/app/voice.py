@@ -1,22 +1,31 @@
-"""TTS / STT：11 家 TTS + 8 家 STT，**只有 command 通道能离线真跑**（MATRIX 4.12）。
+"""TTS / STT：11 家 TTS + 8 家 STT，**能离线真跑的有 3 条**（MATRIX 4.12）。
 
 ## 先说清楚这台机器上能做什么
 
 Hermes 内置 11 个 TTS provider 与 8 个 STT provider（调研 06 §6.3 / §6.4）。
-它们**全部**要么需要联网调云服务（edge / openai / elevenlabs / gemini / xai /
-minimax / mistral / deepinfra / groq），要么需要先下载本地权重
-（neutts / kittentts / piper / faster-whisper）。本机无网络、且本层禁止安装依赖，
-所以：
+其中云的那 8 家 TTS（edge / openai / elevenlabs / gemini / xai / minimax / mistral /
+deepinfra）与 6 家 STT **全部**需要联网，本机无网络、且本层禁止安装依赖，所以它们
+`available() = False`，每一家都带"缺哪个包 / 缺哪个环境变量 / 装什么"。
 
-- **11 个 TTS 全部 `available() = False`**；
-- **8 个 STT 里 7 个 `available() = False`**，只有 `local_command`（= `CommandStt`）
-  在用户配了 `stt_command` 时可用。
+**本机真能跑的是这 3 条**（不是 1 条 —— 上一轮的结论偏保守，见
+`app/voice_local.py` 的实测数字）：
+
+1. `CommandTts`（`command`，单列在最前面）：用户配的外部命令；
+2. `LocalTtsProvider`（`sapi`，见 `app/voice_local.py`）：Windows 自带的
+   `System.Speech.Synthesis`，**真合成出合法 RIFF/WAVE**，完全离线；
+3. `LocalSttProvider`（`sapi`）：`System.Speech.Recognition` + `DictationGrammar`
+   配 `SetInputToWaveFile`，**真能转写**，但实测质量差（置信度 0.35 级别），
+   所以照实标成 `quality="poor"` 并推荐 `stt_command`（faster-whisper）。
+
+`piper` / `kittentts` / `neutts` 三家本来就是纯本地的，这一轮把它们的
+`available()` 从**恒 False** 换成**真检测**（`shutil.which` / `find_spec`），
+见 `app/voice_local.py::BinaryTts`。
 
 **不假装**：每个不可用的 provider 都给出**具体原因**（缺哪个包 / 缺哪个环境变量 /
 本机无网络）与**安装提示**（真要有网时该 `pip install` 什么）。一句"不可用"会让
 用户去猜是不是自己配错了。
 
-## 唯一能真跑的通道：外部命令
+## 命令通道
 
 `CommandTts` / `CommandStt` 走用户配置的外部命令（`<data>/voice.json` 的
 `tts_command` / `stt_command`），用子进程 + 临时文件。这条**可离线验证**：
@@ -36,7 +45,8 @@ Hermes 的 TTS 命令通道是**另一套注册表**（`tts.providers.<name>: ty
 调研 06 §6.4 末尾那句），不占 11 个内置 provider 的名额；而 STT 的 `local_command`
 **是**内置 8 家之一（调研 §6.3 的表）。本模块照抄这条边界：
 `TTS_PROVIDERS` 是那 11 家，`COMMAND_TTS` 单独暴露；`STT_PROVIDERS` 里
-`local_command` 就是 `CommandStt`。
+`local_command` 就是 `CommandStt`。SAPI 的两家同理单列（`kind="local"`），
+因为它们是 **Orbit 自己的**本地通道，不是 Hermes 清单里的第 12/9 家。
 """
 
 from __future__ import annotations
@@ -49,6 +59,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from app.voice_local import LOCAL_SAPI_STT, LOCAL_SAPI_TTS, LOCAL_TTS_PROVIDERS
 
 #: 语音配置文件名（落在 `<data>/voice.json`）。与 `settings.json` 分开：
 #: 语音配置是"这台机器上装了什么命令"，跟模型选择不是一类东西，混在一起会让
@@ -216,7 +228,18 @@ class UnavailableTts:
         raise ProviderUnavailable(self._reason())
 
     def describe(self) -> str:
-        return f"{self.name}：不可用 —— {self._reason()}"
+        """三件事必须**同时**出现：`reason` / `requires` / `install`。
+
+        为什么把它们写成带标签的固定字段：这张清单会同时列出 19 家，而其中 8 家
+        云端永远不可用。只写"不可用 —— 需要 OPENAI_API_KEY"读起来像"配一下就能用"，
+        而真相是"配了也没用，本机无网络"。三个字段分开写，读者一眼能看出缺的是
+        **网络**还是**安装**。
+        """
+        return (
+            f"{self.name}：不可用 —— reason: 本机无网络（本层不发真实请求）；"
+            f"requires: {self.requires or '（未声明）'}；"
+            f"install: {self.hint or '（未声明）'}"
+        )
 
     def _reason(self) -> str:
         parts = ["本机无网络（本层不发真实请求）"]
@@ -241,7 +264,12 @@ class UnavailableStt:
         raise ProviderUnavailable(self._reason())
 
     def describe(self) -> str:
-        return f"{self.name}：不可用 —— {self._reason()}"
+        """同 TTS 版：`reason` / `requires` / `install` 三件套。"""
+        return (
+            f"{self.name}：不可用 —— reason: 本机无网络（本层不发真实请求）；"
+            f"requires: {self.requires or '（未声明）'}；"
+            f"install: {self.hint or '（未声明）'}"
+        )
 
     def _reason(self) -> str:
         parts = ["本机无网络（本层不发真实请求）"]
@@ -411,10 +439,16 @@ class CommandTts:
         command = self.config.tts_command.strip()
         if not command:
             return (
-                "command：不可用 —— 未配置 `tts_command`（`<data>/voice.json`）。"
-                "这是唯一能离线跑通的通道，配了就能用。"
+                "command：不可用 —— reason: 未配置 `tts_command`（`<data>/voice.json`）；"
+                "requires: 一条外部 TTS 命令；install: 写 "
+                '`{"tts_command": "piper -m zh_CN.onnx -f {audio_file}"}` 或 '
+                "`orbit model --voice-set tts_command=<命令>`。这是唯一**不需要联网**"
+                "且不依赖语音包的通道，配了就能用。"
             )
-        return f"command：可用 —— 外部命令 `{command[:80]}`（{self.config.timeout:g}s 超时）"
+        return (
+            f"command：可用 —— 外部命令 `{command[:80]}`（{self.config.timeout:g}s 超时）；"
+            "requires: 已满足；install: 已配置；reason: 走本机子进程，不需要联网。"
+        )
 
 
 class CommandStt:
@@ -462,16 +496,29 @@ class CommandStt:
         command = self.config.stt_command.strip()
         if not command:
             return (
-                "local_command：不可用 —— 未配置 `stt_command`（`<data>/voice.json`）。"
-                "配了就能离线转写（faster-whisper / whisper.cpp 的 CLI 都行）。"
+                "local_command：不可用 —— reason: 未配置 `stt_command`（`<data>/voice.json`）；"
+                "requires: 一条外部 STT 命令；install: 写 "
+                '`{"stt_command": "whisper --output-txt {audio_file}"}` 或 '
+                "`orbit model --voice-set stt_command=<命令>`。配了就能离线转写"
+                "（faster-whisper / whisper.cpp 的 CLI 都行）。"
             )
-        return f"local_command：可用 —— 外部命令 `{command[:80]}`（{self.config.timeout:g}s 超时）"
+        return (
+            f"local_command：可用 —— 外部命令 `{command[:80]}`（{self.config.timeout:g}s 超时）；"
+            "requires: 已满足；install: 已配置；reason: 走本机子进程，不需要联网。"
+        )
 
 
 # ── 登记表 ──────────────────────────────────────────────────────────────────
 
-#: 11 个 TTS provider（调研 06 §6.4 的清单，顺序照抄）。**全部不可用**，
-#: 每个都带"缺什么 + 装什么"。
+#: 三家纯本地 TTS 的实现（真检测，见 `app/voice_local.py::BinaryTts`），
+#: 按名字索引：登记表里**只写名字**，实现留在 voice_local —— 这样"这家能不能用"
+#: 只有一个事实源（`available()`），不会出现"登记表说不可用、检测说可用"的分叉。
+_LOCAL_TTS: dict[str, TtsProvider] = {
+    provider.name: provider for provider in LOCAL_TTS_PROVIDERS
+}
+
+#: 11 个 TTS provider（调研 06 §6.4 的清单，顺序照抄）。云的那 8 家不可用并带
+#: "缺什么 + 装什么"；本地那 3 家（neutts / kittentts / piper）走真检测。
 TTS_PROVIDERS: tuple[TtsProvider, ...] = (
     UnavailableTts(
         "edge",
@@ -508,21 +555,14 @@ TTS_PROVIDERS: tuple[TtsProvider, ...] = (
         requires="ELEVENLABS_API_KEY",
         hint="字符上限随 model_id 变化（eleven_v3 5000 / multilingual_v2 10000）。",
     ),
-    UnavailableTts(
-        "neutts",
-        requires="本地权重 `neutts-air-q4-gguf`（未下载）",
-        hint="字符上限 2000；纯本地，装好权重即可离线跑。",
-    ),
-    UnavailableTts(
-        "kittentts",
-        requires="本地 25MB 模型（未下载）",
-        hint="字符上限 2000；纯本地。",
-    ),
-    UnavailableTts(
-        "piper",
-        requires="piper 可执行文件 + 声音模型（未安装）",
-        hint="字符上限 5000；纯本地 VITS。",
-    ),
+    # ── 下面三家**本来就是纯本地**的：实现换成了 `app/voice_local.py::BinaryTts` ──
+    #
+    # 为什么不是 `UnavailableTts`：那个类的 `available()` 恒 `False`，于是"没装"与
+    # "装了也没人检测"在输出里长得一模一样。换成真检测之后，装上 piper 就真的可用，
+    # 不用等下一次改代码。名字与顺序**逐字不变**（对齐调研 06 §6.4 的清单）。
+    _LOCAL_TTS["neutts"],
+    _LOCAL_TTS["kittentts"],
+    _LOCAL_TTS["piper"],
     UnavailableTts(
         "deepinfra",
         requires="DEEPINFRA_API_KEY",
@@ -578,15 +618,20 @@ COMMAND_TTS: CommandTts = CommandTts()
 
 
 def tts_provider(name: str, *, data_dir: str | Path | None = None) -> TtsProvider:
-    """按名字取 TTS provider（`command` 也可取）。找不到抛 `VoiceError`。"""
+    """按名字取 TTS provider（`command` / `sapi` 也可取）。找不到抛 `VoiceError`。"""
     key = (name or "").strip().lower()
     if key in {"command", "local_command"}:
         return CommandTts(data_dir=data_dir) if data_dir is not None else COMMAND_TTS
+    # SAPI 是 Orbit 自己的本地通道（不在那 11 家里），单独认一个名字。
+    # 别名 `local_sapi` 是给"本地 / 云端"这类习惯叫法留的入口。
+    if key in {"sapi", "local_sapi"}:
+        return LOCAL_SAPI_TTS
     for provider in TTS_PROVIDERS:
         if provider.name == key:
             return provider
     raise VoiceError(
-        f"未知 TTS provider：{name}（可用：command / {' / '.join(p.name for p in TTS_PROVIDERS)}）"
+        f"未知 TTS provider：{name}"
+        f"（可用：command / sapi / {' / '.join(p.name for p in TTS_PROVIDERS)}）"
     )
 
 
@@ -595,19 +640,25 @@ def stt_provider(name: str, *, data_dir: str | Path | None = None) -> SttProvide
     key = (name or "").strip().lower()
     if key in {"local_command", "command"}:
         return CommandStt(data_dir=data_dir) if data_dir is not None else STT_PROVIDERS[1]
+    if key in {"sapi", "local_sapi"}:
+        return LOCAL_SAPI_STT
     for provider in STT_PROVIDERS:
         if provider.name == key:
             return provider
     raise VoiceError(
-        f"未知 STT provider：{name}（可用：{' / '.join(p.name for p in STT_PROVIDERS)}）"
+        f"未知 STT provider：{name}（可用：sapi / {' / '.join(p.name for p in STT_PROVIDERS)}）"
     )
 
 
 def describe_all(*, data_dir: str | Path | None = None) -> list[dict[str, object]]:
-    """19 家的可用性清单（CLI 表格 + `--json` 用）。
+    """19 家 + 本地通道的可用性清单（CLI 表格 + `--json` 用）。
 
-    顺序固定：先 11 家 TTS，再 8 家 STT；`command` 单独列在最前面并标 `kind="command"`，
-    免得用户以为"命令通道"是第 20 家 provider。
+    顺序固定：`command` 单列最前（`kind="command"`）→ 11 家 TTS（`kind="tts"`）→
+    8 家 STT（`kind="stt"`）→ 两条 SAPI 本地通道（`kind="local"` / `kind="local-stt"`）。
+
+    为什么 SAPI 单列成新的 `kind` 而不是混进 11/8：那两张表是 **Hermes 的清单**
+    （调研 06 §6.3/§6.4 的条数被测试逐字钉住），SAPI 是 Orbit 自己的本地通道。
+    混进去会让"对齐 Hermes 的账"算不清 —— 而这张清单的用途恰恰是"对齐到了哪"。
     """
     config = VoiceConfig.load(data_dir)
     tts_command = CommandTts(config, data_dir=data_dir)
@@ -643,6 +694,25 @@ def describe_all(*, data_dir: str | Path | None = None) -> list[dict[str, object
                 "describe": instance.describe(),
             }
         )
+    # 本地通道：SAPI 的两条。`available()` 内部只做一次（缓存过的）探测，
+    # 列清单不会因此变慢 —— 这是"如实报能不能用"的代价，值得付。
+    rows.append(
+        {
+            "kind": "local",
+            "name": LOCAL_SAPI_TTS.name,
+            "available": LOCAL_SAPI_TTS.available(),
+            "describe": LOCAL_SAPI_TTS.describe(),
+        }
+    )
+    rows.append(
+        {
+            "kind": "local-stt",
+            "name": LOCAL_SAPI_STT.name,
+            "available": LOCAL_SAPI_STT.available(),
+            "describe": LOCAL_SAPI_STT.describe(),
+            "quality": LOCAL_SAPI_STT.quality,
+        }
+    )
     return rows
 
 
@@ -650,6 +720,9 @@ __all__ = [
     "AUDIO_PLACEHOLDER",
     "COMMAND_TTS",
     "DEFAULT_TIMEOUT",
+    "LOCAL_SAPI_STT",
+    "LOCAL_SAPI_TTS",
+    "LOCAL_TTS_PROVIDERS",
     "STT_PROVIDERS",
     "TEXT_PLACEHOLDER",
     "TTS_PROVIDERS",

@@ -465,13 +465,21 @@ def test_irc_available_only_when_host_is_configured(monkeypatch):
 
 
 def test_stdlib_platform_specs_are_honest():
-    """两个新平台：填 adapter、写清 scope、**清空 reason**、scope 自陈"仅出站"。"""
+    """两个标准库平台：填 adapter、写清 scope、**清空 reason**。
+
+    MATRIX 12.5 之后这两家**不再是"仅出站"**：`irc` 有了 PRIVMSG 读取与 PING/PONG 保活、
+    `email` 有了 IMAP 轮询与 `STORE \\Seen`（见 `app/platforms.py` 的
+    `IrcInboundAdapter` / `EmailImapInboundAdapter`）。所以这条断言从"scope 自陈仅出站"
+    改成"scope 必须说清有没有入站、以及**没覆盖什么**" —— 后半句才是这条用例真正要守的
+    东西：别让人把 scope 读成全功能。
+    """
     for name in ("email", "irc"):
         spec = platforms.PLATFORMS[platforms.Platform(name)]
         assert spec.implemented is True
         assert spec.adapter == name
         assert spec.scope.strip()
-        assert "仅出站" in spec.scope
+        assert "入站" in spec.scope, f"{name} 的 scope 必须交代入站现状"
+        assert "无" in spec.scope, f"{name} 的 scope 必须写清**没覆盖**什么"
         assert spec.reason == ""
         assert spec.credentials
     assert set(platforms.STDLIB_PLATFORMS) == {platforms.Platform.EMAIL, platforms.Platform.IRC}

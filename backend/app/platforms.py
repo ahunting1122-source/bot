@@ -38,8 +38,10 @@
 
 from __future__ import annotations
 
+import imaplib
 import json
 import os
+import re
 import smtplib
 import socket
 import time
@@ -47,11 +49,14 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email import message_from_bytes
+from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import quote
 
 import httpx
@@ -160,9 +165,10 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         credentials=("EMAIL_SMTP_HOST", "EMAIL_ADDRESS", "EMAIL_PASSWORD"),
         implemented=True,
         adapter="email",
-        scope="仅出站文本（stdlib smtplib + email.message 构造 MIME 后 send_message；"
-        "channel 传收件人地址）；无 IMAP 收信与轮询、无 HTML 正文与附件、"
-        "无邮件线程（In-Reply-To / References）与退信处理",
+        scope="出站文本（stdlib smtplib + email.message 构造 MIME 后 send_message；"
+        "channel 传收件人地址）+ **入站轮询**（stdlib imaplib 拉 UNSEEN、只取 "
+        "text/plain 正文、ack 用 STORE +FLAGS \\Seen，见 EmailImapInboundAdapter）；"
+        "无 HTML 渲染与附件、无邮件线程串联（In-Reply-To / References 只记录）与退信处理",
     ),
     Platform.FEISHU: PlatformSpec(
         platform=Platform.FEISHU,
@@ -199,9 +205,11 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         credentials=("IRC_HOST", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL"),
         implemented=True,
         adapter="irc",
-        scope="仅出站文本（stdlib socket 裸协议：NICK / USER / JOIN + PRIVMSG，"
-        "长文本按 512 字节上限分片，channel 传 #频道 或昵称）；"
-        "无入站长连接（PING/PONG 保活与消息接收未做）、无 SASL / TLS、无 CTCP ACTION",
+        scope="出站文本（stdlib socket 裸协议：NICK / USER / JOIN + PRIVMSG，"
+        "长文本按 512 字节上限分片，channel 传 #频道 或昵称）+ **入站轮询**"
+        "（同一 socket 读 PRIVMSG、PING/PONG 保活、粘包按 \\r\\n 重组，"
+        "见 IrcInboundAdapter；ack 只是本地记账，IRC 协议没有投递确认）；"
+        "无 SASL / TLS、无 CTCP ACTION、无频道历史回放",
     ),
     Platform.LINE: PlatformSpec(
         platform=Platform.LINE,
@@ -2301,6 +2309,736 @@ def send_clarify(
     )
 
 
+# ── 入站（MATRIX 12.5）──────────────────────────────────────────────────────
+#
+# ## 22 个平台里为什么只有 2 个能做入站
+#
+# 出站只需要"能发一个请求"；入站要的是三样东西之一：
+#
+# 1. **webhook 服务端** —— 需要一个公网可达的 HTTPS 地址（本机没有公网）；
+# 2. **长连接守护** —— 需要常驻进程 + 平台私有的握手/加密（Telegram MTProto、
+#    Matrix sync、WhatsApp Business 的 webhook 注册都是这一档）；
+# 3. **平台私有 daemon / 设备登录**（``buzz`` / ``photon`` / ``simplex``）。
+#
+# 本机无网络、且本层禁止安装依赖。能**离线自证**的只剩两条：
+#
+# * ``irc``：裸 TCP 文本协议，socket 可注入 → 对着假 socket 断言 ``PRIVMSG`` 解析、
+#   ``PING``/``PONG`` 保活、多行缓冲粘包；
+# * ``email``：IMAP 是标准库（``imaplib``），客户端对象可注入 → 对着假 IMAP 断言
+#   ``search`` / ``fetch`` / MIME 解析 / ``STORE \Seen``（ack）。
+#
+# 其余 17 个如实保持"仅出站"，原因逐条写在 :data:`INBOUND_MISSING` 里 —— 写清
+# "缺哪一层"，而不是笼统的"没做"。
+#
+# ## gateway 的轮询循环该调什么
+#
+# 网关（``app/gateway.py``）**不在本轮可改范围**，所以这里只把入口准备好：
+#
+#     for report in platforms.poll_all(platforms.default_inbound_adapters()):
+#         for message in report.messages:
+#             ...交给 agent...
+#         adapter.ack([m.message_id for m in report.messages])
+#
+# :func:`poll_all` 是**不会抛**的：一个平台挂了不该让其他平台的消息一起丢。
+# 每条 :class:`PollReport` 都带 ``error``，网关据此决定"重试 / 跳过 / 报警"。
+
+#: 一条入站消息。**字段刻意与出站对称**（platform / channel / text），因为网关拿到
+#: 它之后要做的事与"用户从 CLI 打一句话"完全一样。
+@dataclass(frozen=True)
+class InboundMessage:
+    """一条收到的消息。``message_id`` 是**平台原生 id**（ack 要用它，不要自己造）。"""
+
+    platform: str
+    channel: str
+    text: str = ""
+    sender: str = ""
+    #: 平台原生消息 id。IRC 没有 id，所以由适配器造一个稳定串（``<channel>#<行号>``）。
+    message_id: str = ""
+    #: 线程 / 话题 id（邮件是 ``Message-ID``，IRC 为空）。
+    thread: str = ""
+    #: 收到时间（ISO8601，UTC）。为什么自己记：平台时间戳的时区五花八门，
+    #: 归一化一次比在每个消费点各猜一次便宜。
+    received_at: str = ""
+    #: 主题等平台特有字段（邮件用；IRC 为空）。
+    subject: str = ""
+    #: 原始头/行（排障用；**不要**直接塞进模型上下文）。
+    raw: Mapping[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "platform": self.platform,
+            "channel": self.channel,
+            "text": self.text,
+            "sender": self.sender,
+            "message_id": self.message_id,
+            "thread": self.thread,
+            "received_at": self.received_at,
+            "subject": self.subject,
+        }
+
+
+def _now_iso() -> str:
+    """当前时间（UTC，秒级 ISO8601）。"""
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+@runtime_checkable
+class InboundAdapter(Protocol):
+    """入站适配器契约。**三个方法，缺一不可**。
+
+    * ``poll()`` —— 拉一批新消息。**不许阻塞到下一次有消息为止**：网关是轮询循环，
+      阻塞式读取会让"其它平台"和"取消任务"都失去响应。取不到就返回空列表。
+    * ``ack(ids)`` —— 确认已处理（IMAP 的 ``\\Seen``；IRC 没有确认协议，见实现里的说明）。
+      返回**真的确认成功的条数**，而不是入参长度。
+    * ``describe()`` —— 一句话说清"能不能用 / 读哪些配置 / 缺什么"。
+
+    为什么用 ``Protocol`` 而不是继承 :class:`PlatformAdapter`：出站与入站是两种能力，
+    有的平台只有其一。绑成一个基类会逼着实现方为另一半写空方法，而"空方法"在
+    调用方看来与"实现了但什么都没做"无法区分。
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    def poll(self, *, limit: int = 50) -> list[InboundMessage]: ...
+
+    def ack(self, ids: Sequence[str]) -> int: ...
+
+    def describe(self) -> str: ...
+
+
+class InboundUnavailable(RuntimeError):
+    """入站不可用：没配凭证，或这个平台根本没有入站实现。
+
+    为什么不用 :class:`PlatformNotImplemented`：那个类的消息是给**出站**写的
+    （"该平台本轮未实现 + 缺哪些凭证"），而 ``irc`` / ``email`` 是已实现平台，
+    拿它来报"入站没配"会输出"已实现但越过了实现（不应发生）"——一句自相矛盾的话。
+    """
+
+
+@dataclass(frozen=True)
+class PollReport:
+    """一次轮询的账。**成功与失败都走这里**，网关只认这一个形状。"""
+
+    platform: str
+    messages: tuple[InboundMessage, ...] = ()
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "platform": self.platform,
+            "ok": self.ok,
+            "count": len(self.messages),
+            "error": self.error,
+            "messages": [message.as_dict() for message in self.messages],
+        }
+
+
+#: IRC 的 ``PRIVMSG`` 行：``:nick!user@host PRIVMSG #chan :正文``。
+#: 前缀里的 ``!`` / ``@`` 部分是可选的（服务器消息与部分 bouncer 不带）。
+IRC_PRIVMSG = re.compile(
+    r"^:(?P<nick>[^!\s]+)(?:![^\s]*)?\s+PRIVMSG\s+(?P<channel>\S+)\s+:(?P<text>.*)$"
+)
+#: ``PING :token``（有些服务器写成 ``PING token``）。
+IRC_PING = re.compile(r"^PING\s+:?(?P<token>.*)$")
+
+
+class IrcInboundAdapter:
+    """IRC 入站：**裸 socket 读 PRIVMSG + PING/PONG 保活**。
+
+    为什么这条能算真实现：IRC 是纯文本行协议，``connector`` 可注入，于是
+    "握手 → 读行 → 解析 → 回 PONG" 每一步都能对着**假 socket** 断言，一个真实
+    连接都不开。这与 :class:`IrcAdapter`（出站）用同一个注入点，两条路共用一份配置。
+
+    ## 为什么 ``ack`` 只能是"本地记账"
+    IRC 协议**没有投递确认**（没有服务端 ack、没有 ``\\Seen`` 这种标记）。所以 ``ack``
+    只能把 id 记进内存集合并返回条数 —— 这里如实写出来，而不是让调用方以为"确认过
+    就等于服务端知道了"。真正的"不重复处理"靠 ``poll`` 的游标（见 ``self._seen``）。
+
+    ## 为什么读窗口是"有限时长"而不是"读到有消息为止"
+    网关是轮询循环：``poll()`` 必须**有界返回**，否则一个安静频道会把这个平台的
+    槽位永久占住，其它平台与取消信号都进不来。
+    """
+
+    #: 与出站 :class:`IrcAdapter` 读同一组环境变量（多一个 ``IRC_POLL_SECONDS``）。
+    ENV_NAMES: tuple[str, ...] = ("IRC_HOST", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL")
+    DEFAULT_PORT = 6667
+    #: 单次 ``poll`` 的读窗口（秒）。0.2 秒足够读完内核缓冲里已到达的行，
+    #: 又短到不会拖住轮询循环。
+    DEFAULT_POLL_SECONDS = 0.2
+
+    def __init__(
+        self,
+        *,
+        host: str = "",
+        port: int | str | None = None,
+        nickname: str = "orbit",
+        channel: str = "",
+        realname: str = "Orbit Gateway",
+        timeout: float = 10.0,
+        poll_seconds: float | None = None,
+        connector: Callable[..., Any] | None = None,
+        name: str = "irc",
+    ) -> None:
+        self.name = name
+        self.host = str(host or "")
+        self.port = _as_port(port, self.DEFAULT_PORT)
+        self.nickname = str(nickname or "orbit")
+        self.channel = str(channel or "")
+        self.realname = str(realname or "Orbit Gateway")
+        self.timeout = float(timeout)
+        self.poll_seconds = float(
+            self.DEFAULT_POLL_SECONDS if poll_seconds is None else poll_seconds
+        )
+        #: 可注入的连接器（测试传假 socket；生产用 ``socket.create_connection``）。
+        self.connector = connector
+        #: 已经交出去过的消息 id（防止同一批消息在两次 poll 之间被重复消费）。
+        self._seen: set[str] = set()
+        #: 已经 ack 过的 id（IRC 没有服务端确认，这里只是本地记账）。
+        self._acked: set[str] = set()
+        #: 回过的 PONG（测试直接断言它，不必去解析 socket 写入）。
+        self.pongs: list[str] = []
+        #: 未消费完的行缓冲（TCP 不保证按行到达，粘包是常态）。
+        self._buffer = ""
+
+    # ── 配置 ──
+    def missing_env(self) -> tuple[str, ...]:
+        """``IRC_HOST`` 与昵称是硬要求；频道可以每次 ``--to`` 里给。"""
+        missing: list[str] = []
+        if not self.host:
+            missing.append("IRC_HOST")
+        if not self.nickname:
+            missing.append("IRC_NICKNAME")
+        return tuple(missing)
+
+    def available(self) -> bool:
+        return not self.missing_env()
+
+    def describe(self) -> str:
+        if not self.available():
+            return (
+                f"irc 入站：不可用 —— reason: 缺 {'、'.join(self.missing_env())}；"
+                f"requires: {'、'.join(self.ENV_NAMES)}；"
+                "install: 设置环境变量后重试（**不需要联网就能测**：注入假 socket 即可）。"
+            )
+        return (
+            f"irc 入站：可用 —— {self.host}:{self.port} 昵称 {self.nickname}"
+            f"（默认频道 {self.channel or '（未设）'}）；"
+            f"requires: 已满足；install: 已配置；"
+            f"reason: 裸 socket 读 PRIVMSG + PING/PONG 保活，单次读窗口 "
+            f"{self.poll_seconds:g}s；**ack 只是本地记账**（IRC 协议没有投递确认）。"
+        )
+
+    # ── 纯解析（可单独断言，不碰 socket） ──
+    def parse_line(self, line: str, *, channel: str = "") -> InboundMessage | None:
+        """解析一行 wire 数据。不是 ``PRIVMSG`` 就返回 ``None``（``PING`` 由调用方处理）。"""
+        text = str(line or "").strip("\r\n")
+        match = IRC_PRIVMSG.match(text)
+        if match is None:
+            return None
+        place = match.group("channel")
+        body = match.group("text")
+        # 频道私信（``PRIVMSG orbit :hi``）也当消息收：那是用户直接找机器人。
+        if place.lower() == self.nickname.lower():
+            place = self.nickname
+        return InboundMessage(
+            platform=self.name,
+            channel=place or channel or self.channel,
+            text=body,
+            sender=match.group("nick"),
+            message_id=self._next_id(place, body),
+            received_at=_now_iso(),
+            raw={"line": text},
+        )
+
+    def _next_id(self, channel: str, text: str) -> str:
+        """造一个稳定 id（IRC 没有消息 id）。
+
+        用 ``频道 + 行内序号``：同一批里的两条相同内容不会被合并，而重复投递
+        （bouncer 重放）会拿到不同 id —— 这是"去重靠游标、不靠内容哈希"的取舍，
+        内容哈希会把用户真的连说两遍同一句话吞掉一条。
+        """
+        self._counter = getattr(self, "_counter", 0) + 1
+        return f"{channel}#{self._counter}"
+
+    def handle_ping(self, line: str) -> str:
+        """若这行是 ``PING``，返回应当回写的 ``PONG`` 行（带 CRLF）；否则空串。"""
+        match = IRC_PING.match(str(line or "").strip("\r\n"))
+        if match is None:
+            return ""
+        token = match.group("token")
+        pong = f"PONG :{token}\r\n"
+        self.pongs.append(token)
+        return pong
+
+    # ── 轮询 ──
+    def poll(self, *, limit: int = 50) -> list[InboundMessage]:
+        """握手 → 有界读窗口 → 解析。**连不上就抛**（由 :func:`poll_all` 折成 error）。"""
+        missing = self.missing_env()
+        if missing:
+            raise InboundUnavailable(
+                f"未配置 irc 入站：设置环境变量 {'、'.join(missing)} 后重试"
+                f"（该适配器读：{'、'.join(self.ENV_NAMES)}）"
+            )
+        connection = self._connect()
+        try:
+            self._handshake(connection)
+            return self._drain(connection, limit=limit)
+        finally:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - close 失败不该掩盖 poll 的结果
+                pass
+
+    def ack(self, ids: Sequence[str]) -> int:
+        """把 id 记进本地集合（IRC 没有服务端确认，见类 docstring）。"""
+        count = 0
+        for raw in ids:
+            key = str(raw or "").strip()
+            if not key:
+                continue
+            self._acked.add(key)
+            count += 1
+        return count
+
+    def acked(self) -> tuple[str, ...]:
+        """已 ack 的 id（测试与排障用）。"""
+        return tuple(sorted(self._acked))
+
+    # ── 内部 ──
+    def _connect(self) -> Any:
+        """开一条 TCP 连接。**唯一碰网络的一步**（所以它是唯一的注入点）。"""
+        connector = self.connector or socket.create_connection
+        return connector((self.host, self.port), self.timeout)
+
+    def _handshake(self, connection: Any) -> None:
+        """注册 + 进频道。行序是协议的一部分，与出站 :class:`IrcAdapter` 一致。"""
+        lines = [
+            f"NICK {self.nickname}",
+            f"USER {self.nickname} 0 * :{self.realname}",
+        ]
+        if self.channel:
+            lines.append(f"JOIN {self.channel}")
+        for line in lines:
+            connection.sendall((line + "\r\n").encode("utf-8"))
+
+    def _drain(self, connection: Any, *, limit: int) -> list[InboundMessage]:
+        """在有限时长内把已到达的行读完，顺手回 PONG。
+
+        为什么按 ``recv`` 循环而不是 ``makefile().readline()``：``readline`` 会一直等到
+        有换行才返回，安静频道上它就是一次**无界阻塞**。这里用 ``settimeout`` +
+        ``recv``，超时即视为"这一轮没有新消息"。
+        """
+        try:
+            connection.settimeout(self.poll_seconds)
+        except Exception:  # noqa: BLE001 - 假 socket 可能没有 settimeout
+            pass
+        messages: list[InboundMessage] = []
+        deadline = time.monotonic() + self.poll_seconds
+        while len(messages) < limit and time.monotonic() <= deadline:
+            chunk = self._recv(connection)
+            if not chunk:
+                break
+            self._buffer += chunk
+            while "\n" in self._buffer:
+                line, _, self._buffer = self._buffer.partition("\n")
+                if not line.strip():
+                    continue
+                pong = self.handle_ping(line)
+                if pong:
+                    try:
+                        connection.sendall(pong.encode("utf-8"))
+                    except Exception:  # noqa: BLE001 - 回不了 PONG 不该丢已收到的消息
+                        pass
+                    continue
+                message = self.parse_line(line)
+                if message is None or message.message_id in self._seen:
+                    continue
+                self._seen.add(message.message_id)
+                messages.append(message)
+                if len(messages) >= limit:
+                    break
+        return messages
+
+    def _recv(self, connection: Any) -> str:
+        """读一块。超时 / 无数据都返回空串（**这不是错误**，是"这一轮没有新消息"）。"""
+        try:
+            data = connection.recv(4096)
+        except TimeoutError:
+            # Python 3.10 起 `socket.timeout` 就是 `TimeoutError` 的别名，所以这里只写
+            # 后者（ruff 的 UP041 也会拦前者）。超时不是错误：它只表示"这一轮没有新消息"。
+            return ""
+        except OSError:
+            return ""
+        if not data:
+            return ""
+        return data.decode("utf-8", errors="replace")
+
+
+class EmailImapInboundAdapter:
+    """邮件入站：``imaplib`` 拉未读 → 解析 MIME → ``STORE \\Seen`` 当 ack。
+
+    为什么这条能真做：IMAP 客户端是标准库，且**客户端对象可注入**
+    （``imap_factory``），于是 ``login`` / ``select`` / ``search`` / ``fetch`` /
+    ``store`` 五步都能对着假 IMAP 断言，离线、不开 socket。
+
+    覆盖范围：只读 ``text/plain`` 正文（``text/html`` 只取纯文本兜底），不下载附件、
+    不处理邮件线程（``In-Reply-To``/``References`` 只记录不串联）。
+    """
+
+    #: 收信读的变量。与出站的 ``EMAIL_*`` 前两项共用（同一个邮箱账号）。
+    ENV_NAMES: tuple[str, ...] = ("EMAIL_IMAP_HOST", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+    DEFAULT_PORT = 993
+
+    def __init__(
+        self,
+        *,
+        host: str = "",
+        port: int | str | None = None,
+        username: str = "",
+        password: str = "",
+        folder: str = "INBOX",
+        timeout: float = 10.0,
+        imap_factory: Callable[..., Any] | None = None,
+        name: str = "email",
+    ) -> None:
+        self.name = name
+        self.host = str(host or "")
+        self.port = _as_port(port, self.DEFAULT_PORT)
+        self.username = str(username or "")
+        self.password = str(password or "")
+        self.folder = str(folder or "INBOX")
+        self.timeout = float(timeout)
+        #: 可注入的 IMAP 构造器（测试传假对象；生产用 ``imaplib.IMAP4_SSL``）。
+        self.imap_factory = imap_factory
+
+    # ── 配置 ──
+    def missing_env(self) -> tuple[str, ...]:
+        values = {
+            "EMAIL_IMAP_HOST": self.host,
+            "EMAIL_ADDRESS": self.username,
+            "EMAIL_PASSWORD": self.password,
+        }
+        return tuple(name for name in self.ENV_NAMES if not values[name])
+
+    def available(self) -> bool:
+        return not self.missing_env()
+
+    def describe(self) -> str:
+        if not self.available():
+            return (
+                f"email 入站：不可用 —— reason: 缺 {'、'.join(self.missing_env())}；"
+                f"requires: {'、'.join(self.ENV_NAMES)}；"
+                "install: 设置环境变量后重试（**不需要联网就能测**：注入假 IMAP 即可）。"
+            )
+        return (
+            f"email 入站：可用 —— IMAP {self.host}:{self.port} 文件夹 {self.folder}；"
+            "requires: 已满足；install: 已配置；"
+            "reason: 只拉 UNSEEN、只取 text/plain 正文，ack 用 STORE +FLAGS \\Seen；"
+            "不下载附件、不串联邮件线程。"
+        )
+
+    # ── 轮询 ──
+    def poll(self, *, limit: int = 50) -> list[InboundMessage]:
+        """拉一批未读邮件。**读不到就抛**（由 :func:`poll_all` 折成 error）。"""
+        missing = self.missing_env()
+        if missing:
+            raise InboundUnavailable(
+                f"未配置 email 入站：设置环境变量 {'、'.join(missing)} 后重试"
+                f"（该适配器读：{'、'.join(self.ENV_NAMES)}）"
+            )
+        client = self._connect()
+        try:
+            client.login(self.username, self.password)
+            client.select(self.folder)
+            _status, data = client.search(None, "UNSEEN")
+            uids = self._uids(data)
+            messages: list[InboundMessage] = []
+            for uid in uids[: max(0, int(limit))]:
+                message = self._fetch_one(client, uid)
+                if message is not None:
+                    messages.append(message)
+            return messages
+        finally:
+            self._close(client)
+
+    def ack(self, ids: Sequence[str]) -> int:
+        """把 id 对应的邮件标记为已读（``STORE +FLAGS \\Seen``），返回**真标成功的条数**。
+
+        为什么要自己开连接：``ack`` 可能在 ``poll`` 之后的另一轮里被调用（网关先把
+        消息交给 agent，再确认），复用上一次的连接会踩"连接已超时"。
+        """
+        keys = [str(raw or "").strip() for raw in ids if str(raw or "").strip()]
+        if not keys:
+            return 0
+        missing = self.missing_env()
+        if missing:
+            raise InboundUnavailable(
+                f"未配置 email 入站：设置环境变量 {'、'.join(missing)} 后重试"
+                f"（该适配器读：{'、'.join(self.ENV_NAMES)}）"
+            )
+        client = self._connect()
+        count = 0
+        try:
+            client.login(self.username, self.password)
+            client.select(self.folder)
+            for uid in keys:
+                status, _data = client.store(uid, "+FLAGS", "\\Seen")
+                if str(status).upper() == "OK":
+                    count += 1
+            return count
+        finally:
+            self._close(client)
+
+    # ── 内部 ──
+    def _connect(self) -> Any:
+        """连 IMAP。**唯一碰网络的一步**。"""
+        factory = self.imap_factory or imaplib.IMAP4_SSL
+        try:
+            return factory(self.host, self.port, timeout=self.timeout)
+        except TypeError:
+            # 假对象/老接口可能不接受 timeout 关键字：退一步仍然连，而不是报错。
+            return factory(self.host, self.port)
+
+    def _close(self, client: Any) -> None:
+        for action in ("close", "logout"):
+            method = getattr(client, action, None)
+            if not callable(method):
+                continue
+            try:
+                method()
+            except Exception:  # noqa: BLE001 - 关闭失败不该掩盖 poll/ack 的结果
+                pass
+
+    @staticmethod
+    def _uids(data: Any) -> list[str]:
+        """``search`` 的返回形状五花八门（``[b"1 2"]`` / ``[None]`` / 字符串），统一成 id 列表。"""
+        if not data:
+            return []
+        first = data[0]
+        if first is None:
+            return []
+        if isinstance(first, bytes):
+            text = first.decode("utf-8", errors="replace")
+        else:
+            text = str(first)
+        return [piece for piece in text.split() if piece]
+
+    def _fetch_one(self, client: Any, uid: str) -> InboundMessage | None:
+        """取一封并解析。**单封坏掉不影响整批**（返回 ``None`` 而不是抛）。"""
+        status, payload = client.fetch(uid, "(RFC822)")
+        if str(status).upper() != "OK":
+            return None
+        raw = self._first_bytes(payload)
+        if not raw:
+            return None
+        parsed = message_from_bytes(raw)
+        body = self._body_of(parsed)
+        subject = _decode_header(str(parsed.get("Subject") or ""))
+        sender = str(parsed.get("From") or "")
+        thread = str(parsed.get("Message-ID") or "")
+        return InboundMessage(
+            platform=self.name,
+            channel=self.folder,
+            text=body,
+            sender=sender,
+            # id 用 IMAP 的 UID：ack 时 ``STORE <uid>`` 要的就是它。
+            message_id=str(uid),
+            thread=thread,
+            received_at=_now_iso(),
+            subject=subject,
+            raw={"date": str(parsed.get("Date") or ""), "uid": str(uid)},
+        )
+
+    @staticmethod
+    def _first_bytes(payload: Any) -> bytes:
+        """从 ``fetch`` 的返回里挖出**邮件正文那段 bytes**。
+
+        真服务器的返回形状是 ``[(b"1 (RFC822 {1234}", <邮件字节>), b")"]`` ——
+        元数据那段也是 bytes，只是以 ``"<序号> ("`` 开头。一开始我按"第一个 bytes"
+        取，拿到的就是 ``b"1 (RFC822 {100}"``，于是正文永远是那段元数据（而且不报错，
+        只是"邮件内容变成了乱码串"）。所以这里显式跳过元数据与结尾的 ``b")"``。
+        """
+        candidates: list[bytes] = []
+        for item in payload or []:
+            if isinstance(item, bytes):
+                candidates.append(item)
+            elif isinstance(item, tuple):
+                candidates.extend(piece for piece in item if isinstance(piece, bytes))
+        for piece in candidates:
+            text = piece[:40]
+            if piece.startswith(b")") or re.match(rb"^\d+ \(", text):
+                continue
+            if piece.strip():
+                return piece
+        return b""
+
+    @staticmethod
+    def _body_of(parsed: Any) -> str:
+        """取正文：优先 ``text/plain``，没有就退回 ``text/html`` 的原文（不渲染）。"""
+        if not parsed.is_multipart():
+            return _payload_text(parsed)
+        fallback = ""
+        for part in parsed.walk():
+            kind = str(part.get_content_type() or "")
+            if kind == "text/plain":
+                text = _payload_text(part)
+                if text.strip():
+                    return text
+            elif kind == "text/html" and not fallback:
+                fallback = _payload_text(part)
+        return fallback
+
+
+def _payload_text(part: Any) -> str:
+    """按声明的 charset 解码一段 MIME part（坏编码退回 UTF-8 + replace）。"""
+    try:
+        payload = part.get_payload(decode=True)
+    except Exception:  # noqa: BLE001 - 畸形 part 不该让整封邮件读不出来
+        return ""
+    if payload is None:
+        raw = part.get_payload()
+        return raw if isinstance(raw, str) else ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return payload.decode("utf-8", errors="replace")
+
+
+def _decode_header(value: str) -> str:
+    """把 ``=?utf-8?B?...?=`` 这类 MIME 编码头解成可读文本（解不开就原样返回）。"""
+    if not value:
+        return ""
+    try:
+        return str(make_header(decode_header(value)))
+    except Exception:  # noqa: BLE001 - 畸形头不该让整封邮件读不出来
+        return value
+
+
+#: 有入站实现的两个平台。
+INBOUND_IMPLEMENTED: tuple[Platform, ...] = (Platform.IRC, Platform.EMAIL)
+
+#: 仍然**只有出站**的 17 个平台 → 缺哪一层。**写清具体缺什么**，因为"没做"与
+#: "做不到"的后续动作完全不同：前者排期，后者只能换架构（公网 / 常驻守护）。
+INBOUND_MISSING: dict[Platform, str] = {
+    Platform.NTFY: "ntfy 的入站是「订阅 topic 的 SSE 长连接」，要常驻连接 + 公网；本机都没有。",
+    Platform.RAFT: "raft 的入站靠 webhook 回调，需要公网可达的 HTTPS 地址。",
+    Platform.A2A: "a2a 是点对点 HTTP，入站要对方主动来请求 —— 需要公网地址或内网穿透。",
+    Platform.SLACK: "Slack 入站走 Events API webhook（要公网 HTTPS + 签名校验）。",
+    Platform.DISCORD: "Discord 入站走 Gateway WebSocket（要常驻连接 + bot token）。",
+    Platform.TELEGRAM: "Telegram 入站走 getUpdates 长轮询或 webhook；前者要常驻进程，"
+    "后者要公网 HTTPS。",
+    Platform.FEISHU: "飞书入站走事件订阅（要公网 HTTPS + Encrypt Key 校验）。",
+    Platform.DINGTALK: "钉钉入站走机器人回调（要公网 HTTPS + 加解密）。",
+    Platform.WECOM: "企业微信入站走回调 URL（要公网 HTTPS + 消息加解密）。",
+    Platform.GOOGLE_CHAT: "Google Chat 入站走 HTTP 端点（要公网 + JWT 校验）。",
+    Platform.TEAMS: "Teams 入站走 Bot Framework（要注册 Azure Bot + 公网端点）。",
+    Platform.MATTERMOST: "Mattermost 入站走 WebSocket（要常驻连接 + token）。",
+    Platform.LINE: "LINE 入站走 webhook（要公网 HTTPS + 签名校验）。",
+    Platform.WHATSAPP: "WhatsApp Cloud 入站走 webhook（要公网 HTTPS + verify token）。",
+    Platform.SMS: "Twilio 入站走 webhook（要公网 HTTPS + 签名校验）。",
+    Platform.HOMEASSISTANT: "Home Assistant 入站走 WebSocket 事件流（要实例地址 + 长连接）。",
+    Platform.MATRIX: "Matrix 入站走 /sync 长轮询（要 homeserver 可达 + access token）。",
+    # 这 3 个连出站都没有（见 `PLATFORMS` 的 `implemented=False`），入站自然也没有：
+    # 它们缺的是**平台私有 daemon / 设备登录**，不是"少写一个轮询函数"。
+    Platform.BUZZ: "buzz 要私有 daemon 与设备私钥，出站都未实现（见 PLATFORMS 的 reason）。",
+    Platform.PHOTON: "photon 要私有 daemon 与设备私钥，出站都未实现。",
+    Platform.SIMPLEX: "simplex 要 simplex-chat CLI + 本地 daemon，出站都未实现。",
+}
+
+
+def inbound_adapters(
+    *,
+    env: Mapping[str, str] | None = None,
+    irc_connector: Callable[..., Any] | None = None,
+    imap_factory: Callable[..., Any] | None = None,
+) -> list[InboundAdapter]:
+    """按环境变量造出**已配置**的入站适配器（没配的不造，不占轮询槽位）。
+
+    ``env`` 可注入是为了测试：不读进程环境也能构造"配好了的"适配器，于是
+    "读配置 → 造适配器 → 轮询"这条链能被完整验证。
+    """
+    source: Mapping[str, str] = os.environ if env is None else env
+    adapters: list[InboundAdapter] = []
+
+    def value(key: str) -> str:
+        return str(source.get(key, "") or "").strip()
+
+    irc = IrcInboundAdapter(
+        host=value("IRC_HOST"),
+        port=value("IRC_PORT") or None,
+        nickname=value("IRC_NICKNAME") or "orbit",
+        channel=value("IRC_CHANNEL"),
+        connector=irc_connector,
+    )
+    if irc.available():
+        adapters.append(irc)
+
+    email_in = EmailImapInboundAdapter(
+        host=value("EMAIL_IMAP_HOST"),
+        port=value("EMAIL_IMAP_PORT") or None,
+        username=value("EMAIL_ADDRESS"),
+        password=value("EMAIL_PASSWORD"),
+        folder=value("EMAIL_IMAP_FOLDER") or "INBOX",
+        imap_factory=imap_factory,
+    )
+    if email_in.available():
+        adapters.append(email_in)
+    return adapters
+
+
+def poll_all(adapters: Sequence[InboundAdapter], *, limit: int = 50) -> list[PollReport]:
+    """**网关轮询循环的入口**：把每个适配器都拉一遍，**一个都不许把循环带崩**。
+
+    为什么异常在这里折成 ``error`` 而不是往上抛：轮询循环里一个平台的连接失败
+    （超时、掉线、token 过期）不该让其它平台的消息一起丢掉，也不该让"取消任务"
+    失去响应点。每条 report 都带 ``error``，调用方据此决定重试还是报警。
+    """
+    reports: list[PollReport] = []
+    for adapter in adapters:
+        name = str(getattr(adapter, "name", "") or type(adapter).__name__)
+        try:
+            messages = adapter.poll(limit=limit)
+        except Exception as exc:  # noqa: BLE001 - 见 docstring：故意兜全部
+            reports.append(
+                PollReport(platform=name, error=f"{type(exc).__name__}: {str(exc)[:400]}")
+            )
+            continue
+        reports.append(PollReport(platform=name, messages=tuple(messages)))
+    return reports
+
+
+def inbound_report() -> dict[str, Any]:
+    """入站能力的**完整账**：谁有、谁没有、没有的缺哪一层。
+
+    给 ``orbit platforms inbound`` 与测试共用。为什么不是返回 markdown：调用方既要在
+    CLI 里排版，也要在测试里断言具体平台，结构化数据两边都能用。
+    """
+    only_outbound = [
+        platform.value
+        for platform in ALL_PLATFORMS
+        if platform not in INBOUND_IMPLEMENTED
+    ]
+    return {
+        "implemented": [platform.value for platform in INBOUND_IMPLEMENTED],
+        "only_outbound": only_outbound,
+        "reasons": {
+            platform.value: reason for platform, reason in INBOUND_MISSING.items()
+        },
+        "entry": "platforms.poll_all(platforms.inbound_adapters())",
+        "note": (
+            "入站需要 webhook 服务端 / 长连接守护 / 平台私有 daemon 之一，本机无公网。"
+            "已实现的两条（irc / email）都能注入假连接离线验证；"
+            "gateway 的轮询循环应调 InboundAdapter.poll() 并用 ack() 确认。"
+        ),
+    }
+
+
 #: 22 个平台里已实现的 19 个（给 ``gateway status`` 直接引用，避免各处再算一遍）。
 __all__ = [
     "ALL_PLATFORMS",
@@ -2314,9 +3052,16 @@ __all__ = [
     "ClarifyDelivery",
     "ConsoleAdapter",
     "EmailAdapter",
+    "EmailImapInboundAdapter",
     "FileAdapter",
     "IMPLEMENTED_PLATFORMS",
+    "INBOUND_IMPLEMENTED",
+    "INBOUND_MISSING",
+    "InboundAdapter",
+    "InboundMessage",
+    "InboundUnavailable",
     "IrcAdapter",
+    "IrcInboundAdapter",
     "MAX_CLARIFY_BUTTONS",
     "NotSupported",
     "PLATFORMS",
@@ -2324,6 +3069,7 @@ __all__ = [
     "PlatformAdapter",
     "PlatformNotImplemented",
     "PlatformSpec",
+    "PollReport",
     "REST_ADAPTER_FACTORIES",
     "REST_PLATFORMS",
     "RenderedChoices",
@@ -2333,8 +3079,8 @@ __all__ = [
     "SendResult",
     "SendTarget",
     "StandaloneSender",
-    "UxCapability",
     "UX_LABELS",
+    "UxCapability",
     "UnimplementedAdapter",
     "WEBHOOK_PLATFORMS",
     "WebhookAdapter",
@@ -2343,6 +3089,8 @@ __all__ = [
     "default_adapters",
     "email_adapter",
     "homeassistant_adapter",
+    "inbound_adapters",
+    "inbound_report",
     "irc_adapter",
     "line_adapter",
     "mattermost_adapter",
@@ -2350,6 +3098,7 @@ __all__ = [
     "ntfy_adapter",
     "parse_callback_id",
     "parse_target",
+    "poll_all",
     "raft_adapter",
     "render_choices",
     "resolve_adapter",

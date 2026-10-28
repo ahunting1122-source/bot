@@ -55,20 +55,21 @@ Hermes 的做法是 26 张业务表同库：``sessions``(56 列) + ``messages``(
    ``graph/nodes.py`` 里每一处 ``await self.store.event(...)`` 都会自动进平面，
    **那两个文件一个字都不用改**。
 
-但 ``attach()`` 的**调用点**（``app/main.py`` / ``app/agent.py``）同样是禁改区。
+但 ``attach()`` 的**调用点**（``a`app/main.py``` / ``app/agent.py``）同样是禁改区。
 所以 10.1 的判据「CLI / TUI / gateway / cron 四处的会话与事件能在一处查到」：
 
 - 读侧：✅（``plane timeline`` 合并三来源）；
 - 数据层面：✅（backfill 之后历史全在）；
-- **新事件自动流入：🟡 还差 ``app/main.py`` 里的一行** ``PlaneSink(plane, store).attach()``。
+- **新事件自动流入：🟡 还差 ``a`app/main.py``` 里的一行** ``PlaneSink(plane, store).attach()``。
 
 ### 压缩阈值（10.4）为什么放在这里
 
-阈值与目标比是**策略**，不是图结构；而真正的截短动作在 ``app/graph/nodes.py`` 的
-``compact_messages``（禁改区）。所以本模块只提供纯函数
+阈值与目标比是**策略**，不是图结构。本模块提供纯函数
 （:func:`compaction_needed` / :func:`compaction_target` / :func:`maybe_compact`）与
-:func:`describe`（把与 ``nodes.py`` 的口径差异摊开），主循环在每轮开始调一次
-``maybe_compact`` 就补上了 0.50 的提前判定。
+:func:`describe`（把与 ``nodes.py`` 的对应关系摊开）。真正生效的那一处是
+``app/graph/nodes.py`` 的 ``think``：每轮开始先调 ``app/compaction.py::plan``，
+占用 ≥ 0.50 就先压再请求（摘要优先，失败退回确定性截断）；
+``describe()["nodes_py"]["trigger_matches"]`` 是**读那份源码核出来的**，不是硬写的。
 
 ### 挂到统一 session 名下的约定：:func:`plane_session_key`
 
@@ -96,6 +97,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 from collections.abc import Callable, Mapping
@@ -197,10 +199,17 @@ COMPACTION_PREFIXES = (COMPACTION_PREFIX, SUMMARY_PREFIX)
 #: 输入，两边都**不做**换算——这里留一个常量只为给 CLI 的估算用。
 CHARS_PER_TOKEN = 4
 #: ``app/graph/nodes.py`` 里压缩目标的硬编码值（``COMPACT_TARGET_RATIO = 0.2``）。
-#: 禁改区不能 import（``app.graph.nodes`` 会把 langgraph 整条链拉起来，而本模块要能被
-#: 纯文件命令使用），所以复写一份；``tests/test_plane_write_side.py`` 直接解析那份源码
+#: 那边是循环层，本模块要能被**纯文件命令**使用（``app.graph.nodes`` 会把 langgraph
+#: 整条链拉起来），所以复写一份；``tests/test_plane_write_side.py`` 直接解析那份源码
 #: 断言两处相等——复写会漂移，断言不会。
 NODES_COMPACT_TARGET_RATIO = 0.2
+#: ``app/graph/nodes.py`` 里触发压缩的占用比（``COMPACT_THRESHOLD_RATIO = 0.5``）。
+#: 判定本身走 ``app/compaction.py::should_compact``（纯函数、无 langgraph 依赖），
+#: 这个常量只是 ``describe()`` 用来核对"两边说的是同一个数"的锚点。
+NODES_COMPACT_THRESHOLD_RATIO = 0.5
+#: ``nodes.py`` 里"提前判定"那一步的**特征串**。``describe()`` 拿它去源码里找：
+#: 找到才算真的接上了，找不到就如实报 False——比硬写一个 True 诚实得多。
+NODES_PROACTIVE_MARK = "compaction.plan("
 
 
 class SessionPlaneError(RuntimeError):
@@ -349,8 +358,9 @@ def maybe_compact(used_tokens: Any, window: Any) -> CompactionPlan:
         if plan.needed:
             messages = nodes.compact_messages(messages)   # 目标是 plan.target_tokens
 
-    ``nodes.compact_messages`` 目前**只在 ``context_overflow`` 之后被调用**
-    （见 :func:`describe`），所以这一行接线是 10.4 唯一还缺的东西——接线点在禁改区里。
+    ``nodes.compact_messages`` 是**兜底**路径（摘要失败 / 摘要请求自己溢出时才用），
+    一线是 ``app/compaction.py::plan`` + ``nodes.summarize`` 的摘要式压缩；
+    提前判定的接线点在 ``nodes.think``（每轮开始），:func:`describe` 会读源码核实。
     """
     try:
         used = max(0, int(used_tokens))
@@ -383,8 +393,46 @@ def maybe_compact(used_tokens: Any, window: Any) -> CompactionPlan:
     )
 
 
+def nodes_policy_source() -> str:
+    """``app/graph/nodes.py`` 的源码文本；读不到返回空串。
+
+    为什么读源码而不是 import：``app.graph.nodes`` 会拉起 langgraph / langchain，
+    而本模块要能被**纯文件命令**（``orbit plane ...``）使用。读不到不算错误——
+    打包/裁剪过的环境里没有源码，这时 ``describe()`` 如实报"核不了"。
+    """
+    try:
+        return (Path(__file__).resolve().parent / "graph" / "nodes.py").read_text(
+            encoding="utf-8"
+        )
+    except OSError:
+        return ""
+
+
+def nodes_trigger_matches(source: str | None = None) -> bool:
+    """``nodes.py`` 是否真的做了**提前判定**（0.50，每轮开始）。
+
+    判据两条，缺一不可：
+
+    1. 源码里出现 ``compaction.plan(``——提前判定那一步的调用点；
+    2. 那边的阈值常量与这里 :data:`COMPACTION_THRESHOLD` 相等。
+
+    只查常量不查调用点，等于"两边写着同一个数、但没人用"；只查调用点不查常量，
+    则可能是"调了，但按 0.30 判"。两条都过才算接上。
+    """
+    text = nodes_policy_source() if source is None else source
+    if not text or NODES_PROACTIVE_MARK not in text:
+        return False
+    match = re.search(r"^COMPACT_THRESHOLD_RATIO\s*=\s*([0-9.]+)", text, re.MULTILINE)
+    if match is None:
+        return False
+    try:
+        return float(match.group(1)) == COMPACTION_THRESHOLD
+    except ValueError:
+        return False
+
+
 def describe(window: Any = None) -> dict[str, Any]:
-    """把本模块的压缩口径摊开，并**如实报出与 ``nodes.py`` 的差异**。
+    """把本模块的压缩口径摊开，并**如实报出与 ``nodes.py`` 的对应关系**。
 
     两个用途：
 
@@ -392,16 +440,17 @@ def describe(window: Any = None) -> dict[str, Any]:
     2. 出问题时不用读代码——"阈值是多少、目标是多少、主循环到底有没有提前判"都在
        这一份数据里。
 
-    差异（本轮实测，``app/graph/nodes.py``）：
+    与 ``app/graph/nodes.py`` 的关系（本轮实测）：
 
     - **目标比一致**：那边 ``COMPACT_TARGET_RATIO = 0.2``，与这里
       :data:`COMPACTION_TARGET_RATIO` 相同（有测试钉住）；
-    - **触发时机不一致**：那边**没有 0.50 的提前判定**，只有模型返回
-      ``context_overflow`` 之后才压（``errors_retry.decide`` 的 ``COMPACT`` 分支）。
-      也就是说"到一半就压"这件事，Orbit 目前**没有生效**——本函数把它写出来，
-      而不是假装已经接上。
+    - **触发时机已一致**：``nodes.think`` 每轮开始先调 ``compaction.plan(...)``，
+      占用 ≥ 0.50 就先压再请求，不再等供应商报 ``context_overflow``。
+      ``trigger_matches`` 是**读源码核出来的**（见 :func:`nodes_trigger_matches`），
+      不是硬写的 True——哪天真被改回去，这里会自己变回 False。
     """
     plan = maybe_compact(0, window) if window is not None else None
+    matches = nodes_trigger_matches()
     return {
         "threshold": COMPACTION_THRESHOLD,
         "target_ratio": COMPACTION_TARGET_RATIO,
@@ -412,12 +461,15 @@ def describe(window: Any = None) -> dict[str, Any]:
         "nodes_py": {
             "target_ratio": NODES_COMPACT_TARGET_RATIO,
             "target_matches": NODES_COMPACT_TARGET_RATIO == COMPACTION_TARGET_RATIO,
-            "trigger": "reactive（只在 context_overflow 之后压）",
-            "trigger_matches": False,
+            "threshold_ratio": NODES_COMPACT_THRESHOLD_RATIO,
+            "trigger": "proactive（每轮开始按 0.50 判定，先压再请求）",
+            "trigger_matches": matches,
             "note": (
-                "app/graph/nodes.py 的 compact_messages 用同一组目标比（0.2），但触发是"
-                "被动的：先等模型返回 context_overflow，再压缩重试。主循环在每轮开始时"
-                "调 maybe_compact(...) 才补上 0.50 的提前判定——那两行在禁改区里。"
+                "app/graph/nodes.py 的 think 每轮开始先调 compaction.plan(...)：占用 ≥ 0.50 "
+                "就先压缩再请求，省掉一次必然失败的往返。压缩本身**摘要优先**"
+                "（走同一个模型，产物前缀 [CONTEXT COMPACTION / [CONTEXT SUMMARY]:），"
+                "摘要失败或摘要请求自己溢出时退回确定性截断；供应商仍然报 "
+                "context_overflow 时（被动路径）也走同一套压缩。"
             ),
         },
     }
@@ -1164,7 +1216,7 @@ class PlaneSink:
     - :func:`backfill_from_store`：把历史 ``task_events`` 一次性补进平面（幂等）；
     - :meth:`attach`：把 ``store.event`` 换成"写完会话库顺手写平面"的包装。**这一步
       只需要一行调用**（``PlaneSink(plane, store).attach()``），而那一行必须写在
-      ``app/main.py`` / ``app/agent.py`` 里——禁改区。所以 10.1 的判据
+      ``a`app/main.py``` / ``app/agent.py`` 里——禁改区。所以 10.1 的判据
       「CLI / TUI / gateway / cron 四处的会话与事件能在一处查到」在数据层面已经成立，
       但"新事件自动流入"仍差那一行，**只能标 🟡**。
 
@@ -1258,8 +1310,8 @@ class PlaneSink:
 
         **这是 10.1 唯一还差的接线**：``app/agent.py`` / ``app/graph/nodes.py`` 里
         每一处 ``await self.store.event(...)`` 都会因此自动进平面，而那两个文件一个字
-        都不用改。但**调用这一行的地方**（``app/main.py`` 或 ``app/agent.py``）是禁改区，
-        **已接上**：pp/main.py 的 lifespan 在建好 store 之后调 PlaneSink(...).attach()。（早先这句写的是"不能声称已经接上"——那是接线之前的实情，现在过期了。）
+        都不用改。但**调用这一行的地方**（``a`app/main.py``` 或 ``app/agent.py``）是禁改区，
+        **已接上**：`app/main.py` 的 lifespan 在建好 store 之后调 PlaneSink(...).attach()。（早先这句写的是"不能声称已经接上"——那是接线之前的实情，现在过期了。）
 
         包装里的平面写入失败**被吞掉并计数**（:attr:`errors`）：主循环不能因为
         "记账失败"而让一条正在跑的对话崩掉，但也不能假装没发生——所以计数可查。
@@ -1436,6 +1488,8 @@ __all__ = [
     "KIND_UNARCHIVED",
     "MAX_LINEAGE_DEPTH",
     "NODES_COMPACT_TARGET_RATIO",
+    "NODES_COMPACT_THRESHOLD_RATIO",
+    "NODES_PROACTIVE_MARK",
     "PLANE_DIRNAME",
     "PLANE_FILENAME",
     "PLANE_KEYS_FILENAME",
@@ -1462,6 +1516,8 @@ __all__ = [
     "compaction_used_ratio",
     "describe",
     "maybe_compact",
+    "nodes_policy_source",
+    "nodes_trigger_matches",
     "now_iso",
     "plane_session_key",
     "task_event_key",

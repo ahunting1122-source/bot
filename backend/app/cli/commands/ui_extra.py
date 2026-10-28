@@ -216,7 +216,7 @@ TUI_BOUNDARY = (
 )
 
 #: 支持的全部按键（`orbit tui --help` 与帮助块共用一份）。
-TUI_KEYS = "q 退出 · Tab 切栏 · j/k 上下移动 · ? 帮助"
+TUI_KEYS = "q 退出 · Tab 切栏 · j/k 上下移动 · r 刷新 · / 过滤 · ? 帮助"
 
 
 def _dimension(args, name: str, default: int) -> int:
@@ -245,8 +245,26 @@ def run_tui(context: Context, args) -> int:
             f"拿到 {width}x{height}（三栏边框会算成负宽度）",
             code=2,
         )
-    app = tui_module.TuiApp(width=width, height=height)
+    # 接真实数据（MATRIX 1.16）：没有 loader 的话三栏里是占位行。
+    # `StoreFeed.refresh()` 是 async 而 `TuiApp.loader` 要同步——用 `context.run()`
+    # 当桥：TUI 按键循环期间没有别的 loop 在跑，所以这样做是安全的。
+    #
+    # **数据库可能还不存在**（全新数据目录、或只跑 `orbit tui` 没跑过 `chat`）：
+    # `context.store` 会经 `require_db()` 抛错。TUI 不该因此打不开——它是只读界面，
+    # 给一个空快照 + 一句原因，比直接失败有用得多。
+    def _load() -> tui_module.TuiData:
+        try:
+            return context.run(tui_module.StoreFeed(context.store).refresh())
+        except Exception as exc:  # noqa: BLE001 —— 只读界面，读不到就不显示
+            if not getattr(args, "quiet", False):
+                context.warn(f"暂时读不到会话数据（{type(exc).__name__}: {exc}），三栏留空。")
+            return tui_module.TuiData()
+
+    app = tui_module.TuiApp(width=width, height=height, loader=_load)
     if getattr(args, "snapshot", False):
+        # 先拉一次数据再画。少了这一句，`--snapshot` 画的是 `TuiData()` 的空壳——
+        # 三栏全是「占位」，看起来像 loader 没接上，其实是没触发刷新。
+        app.refresh()
         frame = app.frame()
         context.out(frame)
         context.out(f"（--snapshot：只渲染一帧，不进按键循环。按键：{TUI_KEYS}）")

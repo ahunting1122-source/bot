@@ -55,48 +55,56 @@ SUPPORTED_TRANSPORTS: tuple[str, ...] = (
     "chat_completions",
     "anthropic_messages",
     "gemini",
+    "bedrock_converse",
 )
 
-#: 线协议 → 真正实现它的客户端。**这是"已实现"的物证**：矩阵里写"3 种已实现"
+#: 线协议 → 真正实现它的客户端。**这是"已实现"的物证**：矩阵里写"4 种已实现"
 #: 不算证据，指得出类名才算。测试据此断言 `SUPPORTED_TRANSPORTS` 与实现一一对应，
 #: 防止有人往 `SUPPORTED_TRANSPORTS` 里加一个没有实现的字符串。
 TRANSPORT_CLIENTS: dict[str, str] = {
     "chat_completions": "langchain_openai.ChatOpenAI",
     "anthropic_messages": "app.providers.AnthropicMessagesClient",
     "gemini": "app.providers.GeminiClient",
+    "bedrock_converse": "app.providers.BedrockConverseClient",
 }
 
 #: 未实现的线协议 → 原因。**必须写清"为什么不行"**，否则用户只会看到一句
 #: "不支持"，然后去猜是不是配置错了。
 #:
-#: `bedrock_converse` 这一轮**重新评估过**（MATRIX 4.2）。结论分两半，都要说清：
+#: `bedrock_converse` 曾经在这里（MATRIX 4.2 的上一轮结论）。这一轮**把它移出去了**，
+#: 理由分三半，都要说清：
 #:
-#: **已做到（本文件里可查、可离线验证）**：SigV4 签名本身是纯标准库能实现的
-#: （HMAC-SHA256 + canonical request），见 :func:`sign_sigv4`——它用 AWS 官方文档与
-#: 官方测试套件的向量逐字段验证过（canonical request / string to sign / signature
-#: 三段都对得上）。基于它，:class:`BedrockConverseClient` 能构造**已签名的**
-#: Converse 请求并用 httpx 发出，`bedrock_available()` 检查
-#: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`。
+#: **为什么可以放行**：SigV4 签名是纯标准库能实现的（HMAC-SHA256 + canonical
+#: request），见 :func:`sign_sigv4`——它用 AWS 官方文档与官方测试套件的向量逐字段
+#: 验证过（canonical request / string to sign / signature 三段都对得上）。基于它，
+#: :class:`BedrockConverseClient` 能构造**已签名的** Converse 请求并用 httpx 发出，
+#: `bedrock_available()` 检查静态凭证，`bedrock_client()` 造客户端。也就是说
+#: **静态凭证（env 里的三把值）已经够跑**，缺的只是凭据链发现，那不是"能不能发请求"
+#: 的前提条件，只是"方不方便配"。把"不方便"当成"不支持"是错的定位。
 #:
-#: **仍做不到（如实说）**：**凭据链发现**——shared config、SSO、IMDS/ECS 角色、
-#: AssumeRole。那是 boto3 的 `botocore.session` 在做的事，本机没装 boto3 也不能装；
-#: 只认环境变量意味着"在 EC2/ECS/SSO 登录的机器上要手工导三把值"。
+#: **放行之后的真实状态**：凭证齐 → `build_chat_model` 返回真客户端（`ainvoke` 可用）；
+#: 凭证不齐 → 抛 :class:`MissingCredential` 并**点名缺哪个环境变量**（不再是
+#: `UnsupportedTransport` 那种"整条协议不存在"的说法）。
 #:
-#: **所以为什么还挂在 UNSUPPORTED 里**：`build_chat_model` 一旦放行这条 transport，
-#: 就等于对全部调用点宣布"Bedrock 可用"——而本机没有 AWS 账号，端到端（真发一次
-#: Converse、把 toolConfig 走通）**一次都没验证过**。这条线协议本轮只到"签名正确 +
-#: 请求形状正确 + 客户端可被 MockTransport 驱动"，没到"跑通过"。把没跑通的东西标成
-#: supported，比留一句"未实现"更贵：用户会照它去配 Bedrock，然后在第一轮对话里撞墙。
-UNSUPPORTED_TRANSPORTS: dict[str, str] = {
-    "bedrock_converse": (
-        "AWS Bedrock Converse 的 SigV4 签名已用纯标准库实现（providers.sign_sigv4，"
-        "按 AWS 官方向量逐字段验证），BedrockConverseClient 也能构造已签名请求并用 httpx "
-        "发出；但凭据链发现（shared config / SSO / IMDS / AssumeRole）依赖 boto3，"
-        "本机未装且禁止安装，只认 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION "
-        "三个环境变量。**且没有 AWS 账号，端到端一次都没跑通过**，所以这条 transport 仍"
-        "明确报未实现，而不是标成 supported 让用户照着去配。"
-    ),
-}
+#: **仍然没做到的（不因为放行就消失）**：见 :data:`BEDROCK_LIMITATIONS`。
+UNSUPPORTED_TRANSPORTS: dict[str, str] = {}
+
+#: `bedrock_converse` 放行之后**仍然没做**的三件事。单独一张表而不是散在注释里：
+#: 用户看到"支持 Bedrock"之后，最需要的恰恰是这张"但你别指望这些"的清单。
+BEDROCK_LIMITATIONS: tuple[str, ...] = (
+    "凭据链发现：shared config / SSO / IMDS/ECS 角色 / AssumeRole 都不读（那是 boto3 的 "
+    "`botocore.session` 在做的事，本机没装也不能装）。只认环境变量 "
+    "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION（或 AWS_DEFAULT_REGION），"
+    "所以在 EC2/SSO 登录的机器上要手工导这三把值。",
+    "`converse-stream`：响应是 `vnd.amazon.eventstream` 二进制帧（不是 SSE），未实现解码，"
+    "`astream` 明确抛 NotImplementedError。",
+    "`toolConfig`：Converse 的工具形状与 OpenAI 的 `function` 不同，转换未做，"
+    "`bind_tools` 明确抛 NotImplementedError（与 anthropic_messages / gemini 两个自建"
+    "客户端同一条取舍：不做假实现，免得工具调用静默失效）。",
+    "**端到端一次都没跑通过**：本机没有 AWS 账号、没有网络。已验证的是「签名与 AWS 官方"
+    "向量逐字节一致 + 请求形状正确 + 客户端可被 httpx.MockTransport 驱动」，"
+    "没验证的是「真的连上 Bedrock 并拿回补全」。",
+)
 
 # ── 异常 ────────────────────────────────────────────────────────────────────
 
@@ -382,9 +390,11 @@ def _ollama_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
 def _bedrock_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Bedrock Converse：推理参数在 ``additionalModelRequestFields``，不是顶层。
 
-    ``bedrock_converse`` 这条线协议本轮**未实现**（要 SigV4 与 boto3）。钩子仍然填，
-    理由：形状是已知的、纯本地的，写下来比留空好——将来接 boto3 时不用重新查协议；
-    而"未实现"这件事由 :data:`UNSUPPORTED_TRANSPORTS` 如实报出，不靠留空来表达。
+    ``bedrock_converse`` 这条线协议现在**已放行**（MATRIX 4.2），但放行的是"能发
+    Converse 请求"——这个钩子改写的是 **OpenAI 兼容面**的请求体，而 Bedrock 走的是
+    `BedrockConverseClient` 自己拼的 Converse 体，两者不是同一份 dict。钩子仍然填，
+    理由与之前一样：形状是已知的、纯本地的，写下来比留空好（将来给 Converse 面接
+    reasoning 参数时不用重新查协议）。
     """
     effort = payload.pop("reasoning_effort", None)
     if effort is not None:
@@ -502,7 +512,11 @@ PROVIDER_HOOKS: dict[str, ProviderHooks] = {
             "只能走 boto3 的 list_foundation_models（无 REST /v1/models，本机也没装 boto3）",
         ),
         build_extra_body=_bedrock_body,
-        body_reason="Converse 面把推理参数放在 `additionalModelRequestFields`（线协议本轮未实现）。",
+        body_reason=(
+            "Converse 面把推理参数放在 `additionalModelRequestFields`；"
+            "本钩子改写的是 OpenAI 兼容面的请求体，Converse 请求由 "
+            "`BedrockConverseClient` 自己拼（两套形状不通用）。"
+        ),
     ),
     "ollama": ProviderHooks(
         fetch_models=_fetch_needs_network(
@@ -841,7 +855,13 @@ PROVIDERS: dict[str, ProviderProfile] = {
         default_model="",
         models={},
         models_known=False,
-        notes="模型枚举只能走 SDK（调研 §3.1 #12）；本机无 boto3，故 transport 明确不支持。",
+        notes=(
+            "模型枚举只能走 SDK（调研 §3.1 #12），本机无 boto3，故 `fetch_models` 如实抛。"
+            "线协议 bedrock_converse **已放行**（MATRIX 4.2）：SigV4 签名 + Converse 客户端"
+            "都已实现、按 AWS 官方向量验证；凭证齐时返回真客户端，不齐时抛 "
+            "MissingCredential 并点名缺哪个环境变量。仍未做：凭据链发现、"
+            "converse-stream、toolConfig（见 BEDROCK_LIMITATIONS）。"
+        ),
     ),
     # A 类。§3.1 #17 的 custom 与 #35 ollama-cloud 不同：这里指**本地** Ollama。
     "ollama": ProviderProfile(
@@ -1171,6 +1191,8 @@ def build_chat_model(
 
     if profile.transport == "chat_completions":
         return _build_openai_chat(profile, target, base_url, key, extra)
+    if profile.transport == "bedrock_converse":
+        return _build_bedrock(profile, settings, target, transport=transport)
     if profile.transport == "anthropic_messages":
         if not key:
             raise MissingCredential(
@@ -1204,6 +1226,50 @@ def build_chat_model(
 #: `OpenAIError: Missing credentials`，而 Ollama / vLLM 这类本地端点本来就不要 key。
 #: 这个占位串不是秘密、不会被当真凭据使用，只为通过 SDK 的存在性校验。
 _NO_KEY_PLACEHOLDER = "local-no-key"
+
+
+def _bedrock_endpoint(profile: ProviderProfile, settings: ModelSettings) -> str:
+    """Bedrock 的端点：**默认留空**（由 region 推），只在用户显式指向 bedrock 时采用配置。
+
+    为什么不能直接用 :func:`_resolve_base_url`：`Settings.model_base_url` 的默认值是
+    `https://api.openai.com/v1`，那是给 OpenAI 兼容面准备的。把它原样塞给 Bedrock，
+    会得到一个"签名算得对、地址完全错"的请求——而用户看到的只是一句连接失败。
+    判据是 host 里出现 `bedrock`：真配了 Bedrock 端点（含 VPC 端点 / 私有链接，
+    它们也带 `bedrock` 字样）时才采用。
+    """
+    explicit = (getattr(settings, "model_base_url", "") or "").strip()
+    return explicit if "bedrock" in explicit.lower() else ""
+
+
+def _build_bedrock(
+    profile: ProviderProfile,
+    settings: ModelSettings,
+    model: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> BedrockConverseClient:
+    """Bedrock Converse 客户端（MATRIX 4.2 放行后的分派点）。
+
+    凭证齐（`bedrock_available()` 为 True）→ **返回真客户端**，`ainvoke` 可用；
+    凭证不齐 → :class:`MissingCredential`，消息里**点名缺哪个环境变量**。
+
+    为什么不在这里再抛一次 `UnsupportedTransport`：那条线协议**是**实现的（签名 +
+    客户端 + 请求形状都有），缺的只是配置。把"没配凭证"说成"协议不支持"会让用户
+    永远等一个不会来的版本更新。
+    """
+    try:
+        return bedrock_client(
+            model=model,
+            base_url=_bedrock_endpoint(profile, settings),
+            transport=transport,
+        )
+    except MissingCredential as exc:
+        raise MissingCredential(
+            f"{profile.id}：{exc}"
+            f"只认静态凭证 {' / '.join(BEDROCK_ENV_KEYS)}。"
+            "另注：`astream`（converse-stream）与 `bind_tools`（toolConfig）仍未实现，"
+            "见 `providers.BEDROCK_LIMITATIONS`。"
+        ) from exc
 
 
 def _build_openai_chat(
@@ -2066,6 +2132,7 @@ class GeminiClient:
 __all__ = [
     "AMZ_DATE_FORMAT",
     "BEDROCK_ENV_KEYS",
+    "BEDROCK_LIMITATIONS",
     "CAPABILITY_FIELDS",
     "FACTORY_CAPABILITY",
     "PROVIDERS",

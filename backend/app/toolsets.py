@@ -79,7 +79,7 @@ TOOLSETS: dict[str, str] = {
     "delegation": "委派与子 agent（域内无模型工具：委派是图节点行为，不是可调用工具）",
     "media": "媒体生成：图片 / 视频（域内无工具：要联网调付费 provider）",
     "vision": "视觉与视频理解（域内无工具：多模态由模型自带，不需要工具桥）",
-    "tts": "语音合成（域内无工具：走 app/voice.py 与平台通道，不经模型工具）",
+    "tts": "语音合成（text_to_speech：本机走 Windows SAPI 或命令通道；19 家云端见 app/voice.py）",
     "kanban": "看板（域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端）",
     "cron": "定时任务（cron_job：建 / 列 / 停 / 删；真正执行由 `orbit cron` 守护进程负责）",
     "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
@@ -161,6 +161,14 @@ TOOL_TOOLSET: dict[str, str] = {
     # 定时任务（MATRIX 5.14）。执行仍归 `orbit cron` 的守护进程；模型侧这条只做
     # 建 / 列 / 停 / 删——**它不该也不能自己把任务跑起来**（那是调度器的职责）。
     "cron_job": "cron",
+    # MATRIX 5.14 第二轮：本机能真跑的工具（实现见 `app/tool_extra_impl.py` 的
+    # `GROWTH_TOOLS`）。没有现成前缀能落到正确 toolset，所以必须逐条登记——
+    # `toolset_of()` 只认这张表与前缀表，不登记就是 UNCLASSIFIED。
+    "tool_call": "core",
+    "context_usage": "core",
+    "compact": "core",
+    "setup_mcp": "mcp",
+    "text_to_speech": "tts",
 }
 
 #: 前缀 → toolset。这是"新增工具自动归类"的兜底：按仓库既有命名习惯（``local_`` /

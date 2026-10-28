@@ -66,6 +66,7 @@ from app.cli.commands import (
     peer_extra,  # noqa: E402,F401
     session_extra,  # noqa: E402,F401
     session_extra2,  # noqa: E402,F401
+    session_extra3,  # noqa: E402,F401
     skill_extra2,  # noqa: E402,F401
 )
 
@@ -114,6 +115,7 @@ __all__ = [
     "security_extra",
     "session_extra",
     "session_extra2",
+    "session_extra3",
     "session_plane",
     "sessions",
     "setup",

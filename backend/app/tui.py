@@ -1,4 +1,4 @@
-"""终端 UI（MATRIX 1.16）：三栏布局 + 最小按键循环，**只用标准库**。
+"""终端 UI（MATRIX 1.16）：三栏布局 + 最小按键循环 + **真实数据的只读刷新**。
 
 ## 诚实边界（动这里之前先读）
 
@@ -9,11 +9,17 @@
 
 - **看得见**：清屏、光标定位、画框、横竖线（ANSI 转义）；``NO_COLOR`` 或流不是 TTY
   时**整体降级成纯文本**（不输出任何转义序列）。
-- **走得动**：``q`` 退出、``Tab`` 切栏、``j`` / ``k`` 上下移动、``?`` 帮助。
-  支持的按键全部列在 :data:`HELP_LINES` 里，``orbit tui --help`` 也抄了一份。
-- **不渲染真实内容**：三栏只算布局矩形，格子里是**占位行**。它不连数据库、不订阅
-  事件流、不做流式刷新。要看真实会话用 ``orbit sessions`` / ``orbit dashboard``
-  （浏览器面板），要看回放用 ``orbit dashboard replay``。
+- **走得动**：``q`` 退出、``Tab`` 切栏、``j`` / ``k`` 上下移动、``r`` 立刻重读数据、
+  ``/`` 过滤、``?`` 帮助。支持的按键全部列在 :data:`HELP_LINES` 里。
+- **有真实数据（只读）**：:func:`load_from_store` 从 ``store`` 读会话列表 / 任务状态 /
+  最近事件，三栏格子里画的就是它们。**只 SELECT，从不写库**——看界面不该改数据。
+- **有刷新**：:meth:`TuiApp.refresh` 按注入的 ``clock`` 决定要不要重读，读数据的动作
+  由注入的 ``loader`` 完成。测试用假 clock + 假 loader 驱动，**不 sleep、不碰真库**。
+
+**没做的**（照 Hermes 差得还远）：没有鼠标、没有富文本/颜色主题、没有多行编辑与
+历史补全、没有真 PTY 与窗口缩放事件、没有横向滚动。``r`` 之前的"自动刷新"也只在
+**按键之间**发生（没有 ``select``/PTY 就读不到"空闲"事件）——真 TTY 上用 ``msvcrt``
+轮询兜住这一点，非 Windows 平台退化成"按键时才刷新"。这些都不假装做了。
 
 ## 为什么画框用 ASCII ``+ - |`` 而不是 ``┌─┐``
 
@@ -23,17 +29,19 @@ Unicode 制表符（U+2500 区）在东亚宽度里是 **Ambiguous**：CJK 终�
 
 ## 为什么布局与渲染分开
 
-``panes()`` 只算矩形，``render()`` 只把矩形画成字符画，两者都不碰终端。
+``panes()`` 只算矩形，``render()`` 只把矩形与行文本画成字符画，两者都不碰终端。
 于是测试可以断言"每行宽度正好是 width、行数正好是 height"，不需要伪终端；
-``TuiApp`` 再把 stdin/stdout 做成可注入参数，测试用 ``io.StringIO`` 喂按键序列即可，
-**一个真终端都不用开**。
+``TuiApp`` 再把 stdin/stdout/clock/loader 全做成可注入参数，测试用 ``io.StringIO``
+喂按键、用假 clock 喂时间，**一个真终端、一次真 sleep 都不用**。
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,18 +73,28 @@ HELP_LINES: tuple[str, ...] = (
     "  q      退出",
     "  Tab    切换焦点栏（会话 → 对话 → 状态）",
     "  j / k  在当前栏内向下 / 向上移动",
+    "  r      立刻重读数据并重画",
+    "  /      过滤：输入关键词，回车确认，Esc 取消",
     "  ?      显示 / 隐藏这份帮助",
 )
 
-#: 每栏的占位行数。**是占位**：没有真实数据源，只为了让 ``j`` / ``k`` 有东西可走。
+#: 每栏的**占位**行数：没有 loader（或 loader 还没读出东西）时用它，
+#: 只为了让 ``j`` / ``k`` 有东西可走。有真实数据时行数来自数据本身。
 DEFAULT_COUNTS: dict[str, int] = {"sessions": 6, "conversation": 8, "status": 5}
 
-#: 每栏内部的第一行提示。写清楚"这里不是真实内容"，免得看图的人误会。
+#: 每栏内部的第一行提示（**只在没有数据时**出现）。写清楚"这里为什么是空的"，
+#: 免得看图的人以为"库里真的没有会话"。
 PANE_HINTS: dict[str, str] = {
-    "sessions": "（占位：真实会话来自 orbit sessions）",
-    "conversation": "（只画布局，不渲染真实对话）",
-    "status": "（占位：真实轨迹看 orbit dashboard replay）",
+    "sessions": "（无数据：接上 store 后这里是会话列表）",
+    "conversation": "（无数据：这里是最近事件）",
+    "status": "（无数据：这里是任务状态）",
 }
+
+#: 一次快照各栏最多取多少行。**有上限是有意的**：TUI 是"看全"视图，不是"读全文"
+#: 视图（读全文有 ``orbit session-search read``）；而且每帧重画，行数直接等于渲染成本。
+SESSIONS_LIMIT = 20
+TASKS_LIMIT = 20
+EVENTS_LIMIT = 30
 
 
 # ── 宽度 ────────────────────────────────────────────────────────────────────
@@ -222,6 +240,169 @@ class Screen:
         return payload
 
 
+# ── 数据（只读快照）─────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TuiData:
+    """一帧要显示的真实数据快照。**只读**：TUI 从不写库。
+
+    三个字段就是三栏：``sessions`` → 左栏、``events`` → 中栏、``tasks`` → 右栏。
+    存 ``dict`` 而不是 ORM 行：快照要能跨事件循环传递（loader 可能在别的循环里
+    读出来），ORM 对象绑着 session/loop，传过去就是隐患。
+    """
+
+    sessions: tuple[dict[str, Any], ...] = ()
+    tasks: tuple[dict[str, Any], ...] = ()
+    events: tuple[dict[str, Any], ...] = ()
+    #: 这份快照是什么时候读出来的（epoch 秒，由调用方的 clock 给）。
+    loaded_at: float = 0.0
+
+    def is_empty(self) -> bool:
+        return not (self.sessions or self.tasks or self.events)
+
+
+def _short(value: Any, limit: int) -> str:
+    """压成一行短文本：换行折成空格、超长截断。"""
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _clock_time(value: Any) -> str:
+    """ISO 时间串 → ``HH:MM:SS``。
+
+    为什么只留时分秒：一行里已经有"事件类型"这个更重要的字段，而 ISO 全串
+    （``2026-01-01T00:00:00+00:00``，25 字符）在 20 列的栏里会把类型挤出去。
+    拿不到标准格式就原样截短——**猜不出时间就显示原文**，不编一个时间出来。
+    """
+    text = str(value or "")
+    if len(text) >= 19 and text[10] == "T":
+        return text[11:19]
+    return _short(text, 8)
+
+
+def pane_rows(data: TuiData) -> dict[str, tuple[str, ...]]:
+    """把快照摊成三栏的行文本。**纯函数**，测试直接断言它。
+
+    行文本刻意做得短：每栏最窄只有 10 列，长句会被 ``fit()`` 裁掉一半，
+    不如一开始就把"这条是什么"放在最前面（时间/状态在前，正文在后）。
+    """
+    return {
+        "sessions": tuple(
+            f"{_short(item.get('title'), 24)} · {_short(item.get('updated_at'), 16)}"
+            for item in data.sessions
+        ),
+        "conversation": tuple(
+            f"{_clock_time(item.get('created_at'))} {_short(item.get('event_type'), 18)}"
+            for item in data.events
+        ),
+        "status": tuple(
+            f"{_short(item.get('status'), 12)} {_short(item.get('goal'), 20)}"
+            for item in data.tasks
+        ),
+    }
+
+
+async def load_from_store(
+    store: Any,
+    *,
+    sessions: int = SESSIONS_LIMIT,
+    tasks: int = TASKS_LIMIT,
+    events: int = EVENTS_LIMIT,
+) -> TuiData:
+    """从 ``store`` 读一份只读快照：会话列表 / 任务状态 / 最近事件。
+
+    **只 SELECT，不写库**（也没有 ``store.save`` / ``transition`` 的调用）：看界面
+    不该改数据，更不该因为"打开了一个界面"而改动 ``updated_at``。
+
+    三个查询各自 ``limit``：TUI 是"看全"视图，全表拉进内存再画前 20 行是纯浪费，
+    而且库大了之后每帧重画会卡。
+
+    延迟 import（``sqlalchemy`` / ``app.storage``）：布局与渲染必须能在**没有任何
+    依赖**的情况下被 import（``NO_COLOR`` 快照、单测、文档生成都用得到），只有真读
+    库的那一步才把 ORM 拉起来。
+    """
+    from sqlalchemy import select
+
+    from app.storage import Conversation, Task, TaskEvent
+
+    conversations = await store.rows(
+        select(Conversation).order_by(Conversation.updated_at.desc()).limit(max(1, sessions))
+    )
+    task_rows = await store.rows(
+        select(Task).order_by(Task.updated_at.desc()).limit(max(1, tasks))
+    )
+    event_rows = await store.rows(
+        select(TaskEvent).order_by(TaskEvent.id.desc()).limit(max(1, events))
+    )
+    return TuiData(
+        sessions=tuple(
+            {
+                "id": row.id,
+                "title": row.title,
+                "updated_at": row.updated_at,
+                "summary_status": getattr(row, "summary_status", ""),
+            }
+            for row in conversations
+        ),
+        tasks=tuple(
+            {
+                "id": row.id,
+                "status": row.status,
+                "goal": row.goal,
+                "updated_at": row.updated_at,
+            }
+            for row in task_rows
+        ),
+        events=tuple(
+            {
+                "task_id": row.task_id,
+                "event_type": row.event_type,
+                "created_at": row.created_at,
+            }
+            for row in event_rows
+        ),
+        loaded_at=time.time(),
+    )
+
+
+class StoreFeed:
+    """把**异步** store 读成**同步**快照，喂给同步按键循环。
+
+    为什么需要这一层：``Store`` 是 async（aiosqlite），而按键循环是同步的（没有
+    asyncio 也能跑，这是"能看能走"的前提）。所以拆成两半——有事件循环的那一侧
+    ``await refresh()`` 更新快照，UI 那一侧只读缓存（:meth:`__call__` 就是 loader）。
+
+    用法：
+
+        feed = StoreFeed(store)
+        await feed.refresh()          # 在事件循环里
+        app = TuiApp(loader=feed, refresh_interval=2.0)
+
+    读失败不抛：把原因记在 ``last_error`` 并保留上一份快照——界面上一帧的旧数据
+    比一片空白有用（用户至少知道刚才是什么样），而且 TUI 不该因为一次读库失败就崩。
+    """
+
+    def __init__(self, store: Any) -> None:
+        self.store = store
+        self.data = TuiData()
+        self.last_error = ""
+        self.refreshes = 0
+
+    async def refresh(self) -> TuiData:
+        """重读一次快照。失败时保留旧数据并记下原因。"""
+        try:
+            self.data = await load_from_store(self.store)
+            self.last_error = ""
+            self.refreshes += 1
+        except Exception as exc:  # noqa: BLE001 —— 读库失败不该让界面崩
+            self.last_error = f"{type(exc).__name__}: {exc}"
+        return self.data
+
+    def __call__(self) -> TuiData:
+        return self.data
+
+
 # ── 布局 ────────────────────────────────────────────────────────────────────
 
 
@@ -259,8 +440,10 @@ class Layout:
     help_rect: Rect | None = None
     #: 每栏的光标行号（0 起算）。
     cursors: dict[str, int] = field(default_factory=dict)
-    #: 每栏的占位行数。
+    #: 每栏的行数（有真实数据时来自数据，否则是占位行数）。
     counts: dict[str, int] = field(default_factory=dict)
+    #: 当前过滤词（空串 = 不过滤）。渲染时显示在底部状态栏。
+    filter: str = ""
 
     def rect(self, key: str) -> Rect:
         return self.panes[key]
@@ -275,6 +458,7 @@ class Layout:
             "help": self.help_rect.as_dict() if self.help_rect else None,
             "cursors": dict(self.cursors),
             "counts": dict(self.counts),
+            "filter": self.filter,
         }
 
 
@@ -286,6 +470,7 @@ def panes(
     help_visible: bool = False,
     cursors: dict[str, int] | None = None,
     counts: dict[str, int] | None = None,
+    filter: str = "",
 ) -> Layout:
     """算三栏布局：左会话、中对话、右状态；底部一行状态栏，帮助块压在它上面。
 
@@ -302,7 +487,7 @@ def panes(
 
     help_height = len(HELP_LINES) if help_visible else 0
     # 底部一行状态栏（按键提示），帮助块在它上面。
-    body_height = height - 1 - help_height
+    body_height = max(0, height - 1 - help_height)
 
     left = max(LEFT_MIN, width // 5)
     right = max(RIGHT_MIN, width // 4)
@@ -334,6 +519,7 @@ def panes(
         help_rect=help_rect,
         cursors={key: max(0, (cursors or {}).get(key, 0)) for key in PANE_KEYS},
         counts={key: max(1, (counts or {}).get(key, DEFAULT_COUNTS[key])) for key in PANE_KEYS},
+        filter=str(filter or ""),
     )
 
 
@@ -369,26 +555,47 @@ class _Canvas:
         return "\n".join("".join(row) for row in self._rows)
 
 
-def _pane_body(key: str, rect: Rect, layout: Layout) -> list[str]:
-    """某栏的内部行（不含边框）。第一行是提示，后面是带光标的占位行。"""
+def _pane_body(
+    key: str,
+    rect: Rect,
+    layout: Layout,
+    rows: dict[str, tuple[str, ...]] | None = None,
+) -> list[str]:
+    """某栏的内部行（不含边框）。
+
+    有真实数据就画数据行（第一行就是数据，不占一行提示），没有数据才退回
+    "一行提示 + 若干占位行"——占位行的唯一作用是把 ``j`` / ``k`` 的移动演示出来。
+    """
     interior_height = rect.height - 2
     interior_width = rect.width - 2
     if interior_height <= 0 or interior_width <= 0:
         return []
-    lines = [fit(PANE_HINTS[key], interior_width)]
-    cursor = min(layout.cursors.get(key, 0), max(0, layout.counts.get(key, 1) - 1))
-    for index in range(layout.counts.get(key, 1)):
+    data = tuple((rows or {}).get(key) or ())
+    lines = [] if data else [fit(PANE_HINTS[key], interior_width)]
+    count = len(data) if data else layout.counts.get(key, 1)
+    cursor = min(layout.cursors.get(key, 0), max(0, count - 1))
+    for index in range(count):
         marker = ">" if index == cursor else " "
-        lines.append(fit(f"{marker} · 占位 {index + 1}", interior_width))
+        text = data[index] if index < len(data) else f"· 占位 {index + 1}"
+        lines.append(fit(f"{marker} {text}", interior_width))
     return lines[:interior_height]
 
 
-def render(layout: Layout, width: int, height: int) -> str:
+def render(
+    layout: Layout,
+    width: int,
+    height: int,
+    *,
+    rows: dict[str, tuple[str, ...]] | None = None,
+) -> str:
     """把布局画成字符画：``height`` 行，每行显示宽度正好 ``width``。
 
     纯文本，**不含任何转义序列**——颜色/定位由 :class:`Screen` 在真正写终端时加。
     ``width`` / ``height`` 是画布尺寸；要和布局一致就用 ``panes(width, height)``
     算出来的那对值（尺寸变了请重新算布局，不要只改这里）。
+
+    ``rows`` 是"每栏要画的行文本"。不传就画占位行——**测试与 ``--snapshot`` 都靠
+    这个默认值**：只算布局、不碰数据，也能断言"每行宽度正好是 width"。
     """
     canvas = _Canvas(width, height)
     for key in PANE_KEYS:
@@ -397,14 +604,15 @@ def render(layout: Layout, width: int, height: int) -> str:
         if key == layout.active:
             title = "*" + title  # 焦点栏在标题上打星，不靠颜色（无色终端也要看得出）
         canvas.box(rect, title)
-        for offset, line in enumerate(_pane_body(key, rect, layout)):
+        for offset, line in enumerate(_pane_body(key, rect, layout, rows)):
             canvas.put(rect.x + 1, rect.y + 1 + offset, line)
     if layout.help_visible and layout.help_rect is not None:
         for offset, line in enumerate(HELP_LINES):
             canvas.put(1, layout.help_rect.y + offset, fit(line, width - 2))
     footer = (
         f" orbit tui · {width}x{height} · 焦点：{PANE_TITLES[layout.active]}"
-        " · q 退出 · Tab 切栏 · j/k 移动 · ? 帮助"
+        + (f" · 过滤：{layout.filter}" if layout.filter else "")
+        + " · q 退出 · Tab 切栏 · j/k 移动 · r 刷新 · / 过滤 · ? 帮助"
     )
     canvas.put(0, height - 1, fit(footer, width))
     return canvas.render()
@@ -423,14 +631,39 @@ class TuiState:
     running: bool = True
     #: 让循环停下来的那个键（``q`` 或 Ctrl-C），便于测试断言"是被 q 退出的"。
     quit_key: str = ""
+    #: 当前过滤词（空串 = 不过滤）。
+    filter: str = ""
+    #: 是否正在输入过滤词（``/`` 进入，回车确认，Esc 取消）。
+    filtering: bool = False
+
+
+def _kbhit() -> Any:
+    """Windows 上的"有没有按键"探针；其它平台返回 None。
+
+    为什么用它：按键循环是同步的，``sys.stdin.read(1)`` 会一直阻塞，"空闲时按
+    ``refresh_interval`` 重读数据"就永远轮不到。``msvcrt`` 是标准库、零依赖，
+    刚好能做这件事。非 Windows 没有等价的跨平台标准库方案，于是如实退化成
+    "只在按键时才刷新"（写在模块 docstring 的边界里）。
+    """
+    try:
+        import msvcrt  # noqa: PLC0415 —— 平台相关，只有 Windows 有
+    except ImportError:
+        return None
+    return msvcrt
 
 
 class TuiApp:
-    """最小 TUI：算布局、画一帧、读按键、重画。
+    """最小 TUI：算布局、画一帧、读按键、按 clock 重读数据、重画。
 
-    ``stdin`` / ``stdout`` 都可注入——测试用 ``io.StringIO`` 喂按键序列，
-    一个真终端都不用开。都不注入时退化成"读真实 stdin"；真实 stdin 不是 TTY
-    （管道、CI、测试）时只渲染一帧就返回，**不会阻塞等人按键**。
+    ``stdin`` / ``stdout`` / ``clock`` / ``loader`` 都可注入：
+
+    * 测试用 ``io.StringIO`` 喂按键序列、用假 clock 喂时间、用假 loader 喂数据，
+      **一个真终端、一次真 sleep 都不用**；
+    * 都不注入时退化成"读真实 stdin"；真实 stdin 不是 TTY（管道、CI、测试）时
+      只渲染一帧就返回，**不会阻塞等人按键**。
+
+    ``loader`` 是 ``callable() -> TuiData``（同步）。真实 store 是 async，用
+    :class:`StoreFeed` 把两者接起来（见它的 docstring）。
     """
 
     def __init__(
@@ -441,6 +674,9 @@ class TuiApp:
         width: int = 80,
         height: int = 24,
         counts: dict[str, int] | None = None,
+        loader: Callable[[], TuiData] | None = None,
+        clock: Callable[[], float] | None = None,
+        refresh_interval: float = 0.0,
     ) -> None:
         self.stdin = stdin
         self.stdout = stdout
@@ -450,6 +686,70 @@ class TuiApp:
         self.state = TuiState()
         #: 已经画出去的帧。测试与 `--snapshot` 都读它。
         self.frames: list[str] = []
+        self.loader = loader
+        # 时间源可注入：测试给假 clock 就能精确断言"到点才刷、没到点不刷"，
+        # 不必真等一秒（真等会让整包测试慢一个数量级，还会偶发）。
+        self.clock = clock or time.monotonic
+        self.refresh_interval = max(0.0, float(refresh_interval))
+        self.data = TuiData()
+        self.rows: dict[str, tuple[str, ...]] = {key: () for key in PANE_KEYS}
+        self.refreshes = 0
+        self.last_error = ""
+        self.last_refresh = self.clock()
+
+    # ── 数据 / 刷新 ────────────────────────────────────────────────────────
+    def visible(self, key: str) -> tuple[str, ...]:
+        """某栏**过滤后**的行文本。过滤是大小写不敏感的子串匹配。"""
+        rows = tuple(self.rows.get(key) or ())
+        needle = self.state.filter.strip().lower()
+        if not needle:
+            return rows
+        return tuple(row for row in rows if needle in row.lower())
+
+    def limit_for(self, key: str) -> int:
+        """某栏光标能走到的最大行号。有数据时按**过滤后**的行数算。"""
+        rows = self.visible(key)
+        if rows:
+            return max(0, len(rows) - 1)
+        if self.rows.get(key):
+            return 0  # 有数据但被过滤空了：没有可停的行
+        return max(0, self.counts.get(key, 1) - 1)
+
+    def refresh(self, interval: float | None = None, *, force: bool = False) -> bool:
+        """按注入的 clock 决定要不要重读数据。**不 sleep**，返回"这次真重读了吗"。
+
+        * ``force=True``（``r`` 键）：立刻重读，不管间隔；
+        * 否则 ``now - last_refresh < interval`` 就跳过——**这是流式刷新的节流**：
+          每帧都读库会把 CPU 与 SQLite 一起按住，而屏幕上根本看不出差别。
+
+        没有 loader 时返回 False（保持"只有占位行"的老行为，也保证既有测试不变）。
+        """
+        gap = self.refresh_interval if interval is None else max(0.0, float(interval))
+        now = self.clock()
+        if not force and (now - self.last_refresh) < gap:
+            return False
+        if self.loader is None:
+            return False
+        self.last_refresh = now
+        try:
+            data = self.loader()
+        except Exception as exc:  # noqa: BLE001 —— 读数据失败不该让界面崩
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return False
+        self.data = data if isinstance(data, TuiData) else TuiData()
+        self.rows = pane_rows(self.data)
+        # 行数跟着数据走：`j` / `k` 的上限与 `_pane_body` 的循环次数都读 counts。
+        self.counts = {
+            key: max(1, len(self.rows[key]) or self.counts.get(key, DEFAULT_COUNTS[key]))
+            for key in PANE_KEYS
+        }
+        for key in PANE_KEYS:  # 数据变短了，光标不能停在不存在的那一行
+            self.state.cursors[key] = min(
+                self.state.cursors.get(key, 0), max(0, len(self.visible(key)) - 1)
+            )
+        self.last_error = ""
+        self.refreshes += 1
+        return True
 
     # ── 布局 / 渲染 ────────────────────────────────────────────────────────
     def layout(self) -> Layout:
@@ -460,19 +760,25 @@ class TuiApp:
             help_visible=self.state.help_visible,
             cursors=self.state.cursors,
             counts=self.counts,
+            filter=self.state.filter,
         )
 
     def frame(self) -> str:
         """当前状态对应的一帧字符画（不写终端）。"""
-        return render(self.layout(), self.width, self.height)
+        rows = {key: self.visible(key) for key in PANE_KEYS}
+        return render(self.layout(), self.width, self.height, rows=rows)
 
     # ── 按键 ────────────────────────────────────────────────────────────────
     def handle_key(self, key: str) -> bool:
         """处理一个按键，返回**是否需要重画**。
 
+        过滤态优先：正在输入过滤词时，``q`` 是字母 q 而不是退出键。
         ``q`` / Ctrl-C 退出；``Tab`` 切栏；``j`` / ``k`` 在当前栏内移动（到底/到顶就停，
-        不环绕——环绕会让人分不清"到头了"和"跳回去了"）；``?`` 开关帮助。
+        不环绕——环绕会让人分不清"到头了"和"跳回去了"）；``r`` 立刻重读数据；
+        ``/`` 进入过滤；``?`` 开关帮助。
         """
+        if self.state.filtering:
+            return self._filter_key(key)
         if key in {"q", "Q", "\x03"}:
             self.state.running = False
             self.state.quit_key = key
@@ -487,22 +793,65 @@ class TuiApp:
         if key == "k":
             self._move(-1)
             return True
+        if key == "r":
+            # 手动刷新：忽略间隔。读失败也照样重画（状态栏/数据不变，但不假装按过）。
+            self.refresh(0, force=True)
+            return True
+        if key == "/":
+            self.state.filtering = True
+            return True
         if key == "?":
             self.state.help_visible = not self.state.help_visible
             return True
         return False
 
+    def _filter_key(self, key: str) -> bool:
+        """过滤输入态：回车确认、Esc 取消、退格删字、其余可见字符追加。"""
+        if key in {"\r", "\n"}:
+            self.state.filtering = False
+            return True
+        if key == "\x1b":
+            # Esc 取消：把过滤词清空，而不是"留着刚才打了一半的词"。
+            self.state.filtering = False
+            self.state.filter = ""
+            return True
+        if key in {"\x7f", "\b"}:
+            self.state.filter = self.state.filter[:-1]
+            return True
+        if key and key.isprintable():
+            self.state.filter += key
+            return True
+        return False
+
     def _move(self, step: int) -> None:
         key = self.state.active
-        limit = max(0, self.counts.get(key, 1) - 1)
+        limit = self.limit_for(key)
         current = self.state.cursors.get(key, 0)
         self.state.cursors[key] = min(limit, max(0, current + step))
 
     # ── 主循环 ──────────────────────────────────────────────────────────────
+    def _next_key(self, timeout: float) -> str | None:
+        """读一个按键。
+
+        返回 ``None`` = 这一轮没有按键（可以去做周期刷新）；``""`` = EOF（该退出）。
+
+        注入了 ``stdin`` 就等于"测试/脚本喂按键"，必须当交互处理并**阻塞读**——
+        否则 ``StringIO`` 的 ``isatty()`` 是 False，会被误判成非交互而一帧就退出。
+        """
+        if self.stdin is not None:
+            return self.stdin.read(1)
+        keyboard = _kbhit()
+        if keyboard is not None and timeout > 0 and not keyboard.kbhit():
+            # 真终端 + 有周期刷新：小睡一下再看，把 CPU 让出去（界面空闲时不该满载）。
+            time.sleep(min(0.05, timeout))
+            return None
+        return sys.stdin.read(1)
+
     def run(self) -> int:
         """跑按键循环。返回进程退出码（正常退出 0）。"""
         out = self.stdout if self.stdout is not None else sys.stdout
         screen = Screen(out)
+        self.refresh(0, force=True)  # 首帧就用真实数据（有 loader 时）
         self._emit(out, screen)
         # 注入了 stdin 就等于"测试/脚本喂按键"，必须当交互处理；
         # 否则 StringIO 的 isatty() 是 False，会被误判成非交互而一帧就退出。
@@ -513,12 +862,19 @@ class TuiApp:
                 "（stdin 不是终端：只渲染一帧，不进按键循环。交互请直接在终端里跑 `orbit tui`）",
             )
             return 0
-        source = self.stdin if self.stdin is not None else sys.stdin
         while self.state.running:
-            key = source.read(1)
+            key = self._next_key(self.refresh_interval)
+            if key is None:
+                # 空闲轮：到点就重读数据并重画（这就是"流式刷新"在同步循环里的形态）。
+                if self.refresh(self.refresh_interval):
+                    self._emit(out, screen)
+                continue
             if not key:  # EOF：管道读完了，等价于退出
                 break
-            if self.handle_key(key):
+            changed = self.handle_key(key)
+            if self.refresh(self.refresh_interval):
+                changed = True
+            if changed:
                 self._emit(out, screen)
         return 0
 

@@ -236,7 +236,9 @@ class AgentRunner:
         # 心跳（MATRIX 2.3）：进程级一个，`Nodes` 各节点进入时 beat 一次，
         # CLI/事件流读 `status()` 就知道"卡在哪一步、多久没动静"。
         self.heartbeat = Heartbeat()
-        #: 被要求中断的线程（任务 id）。**软中断**语义，见 `cancel_thread`。
+        #: 被要求中断的线程（任务 id）。语义见 `cancel_thread`：不在跑的工具直接跳过，
+        #: **在跑的那一次也会被 `Nodes.run_tool` 轮询到并放弃**（唯一断不掉的是已经
+        #: 派到线程/子进程里的同步活）。
         self.interrupted_threads: set[str] = set()
         #: 后台复审任务（MATRIX 2.5）。留在集合里只为一件事：`close()` 时要取消，
         #: 否则进程退出时它还在等一次模型调用，会把退出拖住。
@@ -372,16 +374,21 @@ class AgentRunner:
         `RunnableConfig.configurable.thread_id` 就是任务 id）。每个任务一个
         asyncio job、一份 checkpoint、一套状态，标记/跳过这一条完全不影响别的任务。
 
-        **降级（必须说清）**：**同一个任务内部**的步骤是一条串行图
-        （prepare → think → gate → execute → …），没有能单独杀掉的子线程。
-        所以任务内的"中断"只能做成"**标记 + 后续步骤跳过**"：
-        * `Nodes.execute` 不再真的执行工具，但仍为每个待执行调用补一条
-          `[interrupted]` 结果（配对不能断，见 `app/errors_retry.py`）；
-        * `Nodes.think` 不再请求模型，图直接走 finalize 交出半截结果。
+        **任务内（本轮升级过，如实说清能断到哪一步）**：同一个任务内部的步骤是一条
+        串行图（prepare → think → gate → execute → …），没有能单独杀掉的子线程。
+        但"正在跑的那一步"现在**真的能被放弃**，靠的是 `Nodes.run_tool` 把工具调用
+        包成独立 `Task` 并每 `INTERRUPT_POLL_SECONDS` 轮询这个标记：
 
-        **正在执行的那一步不会被强行终止**——它要么还没开始（被跳过），要么已经
-        在跑（跑完，结果被丢弃）。要立刻硬停整条任务请用 `cancel()`：那会真的
-        抛出 `CancelledError`（代价是拿不到优雅的收尾正文）。
+        * 还没开始的下一个工具：直接跳过（`Nodes.execute` 入口就判）；
+        * **已经发出、正在等 I/O 的那一次**：`cancel()` 它，`CancelledError` 注在
+          下一个 await 点——HTTP/浏览器/模型等待都会被立刻打断；
+        * 每个待执行调用仍然各得一条 `[interrupted]` 结果（配对不能断，见
+          `app/errors_retry.py`），`Nodes.think` 之后不再请求模型。
+
+        **唯一断不掉的一小段**：工具已经把活派到线程/子进程里、正在跑同步代码
+        （`asyncio.to_thread` 的 CPU 活、已经在执行的 `subprocess`）。`cancel()`
+        只能**放弃等待**，那个线程/子进程会自己跑完、结果丢弃——Python 没有跨平台
+        的安全线程中止，硬杀 subprocess 又要区分"谁派的、能不能杀"，属于另一件事。
 
         返回 True 表示这条线程确实在这台 runner 上（在跑或排队中）；False 表示
         不认识它——但**标记仍然生效**，将来它真跑起来会直接跳过执行。

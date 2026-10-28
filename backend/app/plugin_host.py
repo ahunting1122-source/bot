@@ -42,9 +42,17 @@
   :data:`MAIN_WIRING_CODE`。
 - 钩子的**发射点**仍不在主循环里（见 ``app/hooks.py::WIRING_POINTS``）：接线保证"注册的
   钩子进了宿主的注册表、能被 emit 到"，不保证"主循环会 emit 那个事件"。
-- ``dispatch_slash`` 是斜杠命令的最后一段（真的调 handler），但它同样还没有调用方：
-  ``app/cli/commands/chat.py`` 本轮正被另一个 agent 改写，所以那里的一行没有加进来
-  （``register_slash_command`` 因此仍报 ``exposed``）。
+- ``dispatch_slash`` 是斜杠命令的最后一段（真的调 handler）。**接口已冻结**：
+  `dispatch_slash(text) -> (name, outcome) | None`（不是插件命令返回 ``None``，调用方
+  把它当普通消息）。它仍没有调用方——``app/cli/commands/chat.py`` 由装配层接线——
+  所以 ``register_slash_command`` 保持 ``exposed``，但 ``ready=True``。
+- MATRIX 13.4 的第二轮把 ``exposed`` 那 4 条的**宿主侧入口**都建起来了（见
+  :meth:`PluginHost.memory_providers` / :meth:`PluginHost.exporters` /
+  ``ACTION_ROUTES`` + :meth:`PluginHost.dispatch_action` / :meth:`PluginHost.dispatch_slash`）。
+  **这不等于 wired**：``wired`` 的判据是"有人真的来取"，而取它的那几行分别在
+  ``app/memory_providers.py`` 的调用方、``app/exporters.py`` 的池子合并、
+  ``app/dashboard_api.py`` 的 webhook 收件路径与 ``app/cli/commands/chat.py`` 的输入循环里
+  ——都不在本模块。所以状态仍是 ``exposed``，只是多了一个可断言的 ``ready``。
 """
 
 from __future__ import annotations
@@ -82,6 +90,60 @@ HOOKS_WIRING_CODE = (
     "app.hooks.emit('pre_tool_call', {'tool': name, 'args': args})  # app/graph/nodes.py 工具派发前后"
 )
 
+# ── 动作路由表（MATRIX 13.4 的 slack_action_handler）─────────────────────────
+#
+# `register_slack_action_handler` 一直卡在 exposed，缺的是「action_id → 回调」这张表：
+# 插件登记的回调躺在 `PluginContext.capability_ledger` 里，而**没有任何结构能按
+# action_id 查到它**。这张表就是那个结构。
+#
+# 为什么放在模块级而不是每个宿主实例一份：按钮回调进来时（`app/dashboard_api.py` 的
+# webhook 收件路径）手上只有 action_id，未必拿得到宿主实例；而"哪个插件处理 btn_ok"
+# 是**进程级**的事实，不该取决于调用方手里有没有那个对象。宿主实例仍可覆盖落点
+# （`PluginHost.register_action_route`），测试与多实例场景用得上。
+
+#: action_id → 回调。键是 Slack Block Kit 的 `actions[].action_id`（原样，不改大小写：
+#: Slack 的 action_id 区分大小写，归一化会让"注册的"和"点进来的"对不上）。
+ACTION_ROUTES: dict[str, Any] = {}
+
+
+def register_action_route(action_id: str, callback: Any, *, override: bool = False) -> str:
+    """登记一条 ``action_id → 回调``。返回归一化后的键。
+
+    **同名默认拒绝**（抛 ``ValueError``）：两个插件抢同一个按钮，静默覆盖会让"点了
+    没反应"变成一个查不出来的问题 —— 而报错能立刻指出是谁抢了谁。
+    """
+    key = str(action_id or "").strip()
+    if not key:
+        raise ValueError("register_action_route 需要非空的 action_id")
+    if not callable(callback):
+        raise ValueError(f"register_action_route({key}) 需要可调用对象")
+    existing = ACTION_ROUTES.get(key)
+    if existing is not None and not override:
+        raise ValueError(
+            f"action_id {key!r} 已经有处理器（{getattr(existing, '__qualname__', existing)}）；"
+            "要替换请显式传 override=True"
+        )
+    ACTION_ROUTES[key] = callback
+    return key
+
+
+def unregister_action_route(action_id: str) -> bool:
+    """删一条路由（卸载插件/测试清理用）。返回是否真的删掉了。"""
+    return ACTION_ROUTES.pop(str(action_id or "").strip(), None) is not None
+
+
+def dispatch_action(action_id: str, payload: Any = None) -> Any:
+    """按 action_id 查到回调并**真的调用**它。查不到返回 ``None``。
+
+    查不到为什么返回 ``None`` 而不是抛：按钮点击可能来自已经卸载的插件（消息还在
+    聊天记录里，插件没了），这时"什么都不做"是正确行为；抛异常会让整条 webhook 请求
+    变成 500，Slack 会不停重投同一个点击。
+    """
+    callback = ACTION_ROUTES.get(str(action_id or "").strip())
+    if callback is None:
+        return None
+    return callback(payload)
+
 
 @dataclass
 class HostWiring:
@@ -95,6 +157,8 @@ class HostWiring:
     pushed: list[str] = field(default_factory=list)
     #: 每个事件上（宿主的）hook 数量。
     hooks: dict[str, int] = field(default_factory=dict)
+    #: 补进 ``ACTION_ROUTES`` 的 action_id（slack_action_handler 的落点）。
+    actions: list[str] = field(default_factory=list)
     #: 补推过程中被隔离掉的异常（一个坏插件不影响其它）。
     errors: list[str] = field(default_factory=list)
 
@@ -104,6 +168,7 @@ class HostWiring:
             "tools": list(self.tools),
             "pushed": list(self.pushed),
             "hooks": dict(self.hooks),
+            "actions": list(self.actions),
             "errors": list(self.errors),
         }
 
@@ -162,6 +227,9 @@ class PluginHost:
         self._wired_tools: set[tuple[str, str]] = set()
         self._wired_hooks: set[tuple[str, int]] = set()
         self._wiring = HostWiring()
+        #: 本宿主收到的 ``action_id → 回调``（从插件上下文搬来；模块级 ``ACTION_ROUTES``
+        #: 是同一份事实的进程级视图，供拿不到宿主实例的调用方查）。
+        self.action_routes: dict[str, Any] = {}
 
     # ── 装配 ────────────────────────────────────────────────────────────────
     @classmethod
@@ -267,7 +335,35 @@ class PluginHost:
                 if name not in wiring.tools:
                     wiring.tools.append(name)
             self._reconcile_hooks(context, wiring)
+            self._reconcile_actions(context, wiring)
         return wiring
+
+    def _reconcile_actions(self, context: Any, wiring: HostWiring) -> None:
+        """把插件登记的 slack 动作处理器搬进 ``ACTION_ROUTES``。
+
+        这是 ``register_slack_action_handler`` 从"只能登记"变成"能被查到并派发"的那一步：
+        登记的落点是 ``capability_ledger``（一个按能力分组的列表），**没有任何结构能按
+        action_id 查它**；搬进 ``ACTION_ROUTES`` 之后，按钮回调只需 action_id 就能找到
+        处理器（见 :func:`dispatch_action`）。
+        """
+        for item in context.capability_ledger.get("register_slack_action_handler", []):
+            if not isinstance(item, dict):
+                continue
+            action_id = str(item.get("action_id") or "").strip()
+            callback = item.get("callback")
+            if not action_id or not callable(callback):
+                continue
+            self.action_routes[action_id] = callback
+            if ACTION_ROUTES.get(action_id) is None:
+                try:
+                    register_action_route(action_id, callback)
+                except ValueError as exc:  # 已被别人占住：记下来，不覆盖
+                    wiring.errors.append(
+                        f"{context.name} 的动作 {action_id} 未进 ACTION_ROUTES：{exc}"
+                    )
+                    continue
+            if action_id not in wiring.actions:
+                wiring.actions.append(action_id)
 
     def _reconcile_hooks(self, context: Any, wiring: HostWiring) -> None:
         """把上下文里的 hook 搬到宿主的注册表上。
@@ -359,6 +455,80 @@ class PluginHost:
         """宿主注册表上每个事件挂了多少 hook（``{}`` = 一个都没有）。"""
         return {event: len(self.hook_sink.hooks(event)) for event in self.hook_sink.events()}
 
+    # ── 13.4 的三个宿主侧入口（供装配层取，本模块不接线）───────────────────
+    def memory_providers(self) -> dict[str, Any]:
+        """插件登记的长期记忆 provider：``{provider_id: provider}``。
+
+        形状刻意与 ``app/memory_providers.py::build_router(providers=…)`` 对得上，
+        装配层只需一行：
+
+            router = build_router(providers=[*host.memory_providers().values(),
+                                             *default_providers(store=..., data_dir=...)])
+
+        **为什么不在这里调 build_router**：路由器的优先级、fanout、data_dir 都是装配层
+        的决定；宿主替它决定，等于把"插件能不能被选中"写死在插件层里。
+        """
+        found: dict[str, Any] = {}
+        for item in self.runtime.loaded:
+            context = item.context
+            if context is None:
+                continue
+            for record in context.capability_ledger.get("register_memory_provider", []):
+                if not isinstance(record, dict):
+                    continue
+                provider = record.get("provider")
+                key = str(record.get("id") or getattr(provider, "name", "") or "").strip()
+                if key and provider is not None:
+                    found[key] = provider
+        return found
+
+    def exporters(self) -> dict[str, Any]:
+        """插件挂上的可观测性 exporter：``{name: exporter}``。
+
+        与 ``app/exporters.py::default_exporters()`` 的池子同形状，装配层合并即可：
+
+            pool = {**default_exporters(data_dir), **host.exporters()}
+
+        **边界**：exporter 的 ``record()`` 已经挂在宿主的 HookRegistry 上（19 个事件），
+        但主循环的发射点未接线（``app/hooks.py::WIRING_POINTS``），所以此刻还没有事件流过。
+        这个入口解决的是"取不到 exporter"，不解决"没有事件"。
+        """
+        found: dict[str, Any] = {}
+        for item in self.runtime.loaded:
+            context = item.context
+            if context is None:
+                continue
+            for record in context.capability_ledger.get(
+                "register_observability_exporter", []
+            ):
+                if not isinstance(record, dict):
+                    continue
+                exporter = record.get("exporter")
+                key = str(record.get("name") or getattr(exporter, "name", "") or "").strip()
+                if key and exporter is not None:
+                    found[key] = exporter
+        return found
+
+    def register_action_route(self, action_id: str, callback: Any, *, override: bool = False) -> str:
+        """把一条 ``action_id → 回调`` 同时记进本宿主与模块级表（供 webhook 直接查）。"""
+        key = register_action_route(action_id, callback, override=override)
+        self.action_routes[key] = callback
+        return key
+
+    def dispatch_action(self, action_id: str, payload: Any = None) -> Any:
+        """按 ``action_id`` 查到处理器并**真的调用**；查不到返回 ``None``。
+
+        查的顺序：本宿主收到的（``self.action_routes``）→ 模块级 ``ACTION_ROUTES``。
+        先查本宿主是因为它只包含"这次真的加载了的插件"：进程级表里可能还留着上一次
+        加载的处理器，先命中它会把按钮派给一个已经不在的插件。
+        """
+        key = str(action_id or "").strip()
+        callback = self.action_routes.get(key) or ACTION_ROUTES.get(key)
+        if callback is None:
+            return None
+        return callback(payload)
+
+
     def describe(self) -> dict[str, Any]:
         """宿主快照：**host_ready 与 wired_into_main 是两件事**。
 
@@ -366,6 +536,10 @@ class PluginHost:
         - ``wired_into_main=False``：**没有任何生产启动路径调用它**。判据是"有没有人真的
           调过 :meth:`attach_to_app`"，不是自我评价。
         - ``missing_code``：缺的那一行代码（原样可粘），``missing_at``：粘在哪。
+        - ``capabilities``（MATRIX 13.4）：4 条 ``exposed`` 能力的**宿主侧就位情况**。
+          每条给出 ``ready`` / ``host_entry`` / ``missing``：``ready=True`` 表示入口已经
+          建好、单测证明能被调到；``missing`` 是装配层还差的那一行。**不把 ready 说成
+          wired**：入口在 ≠ 有人来取。
         """
         runtime_view = self.runtime.describe()
         return {
@@ -383,6 +557,10 @@ class PluginHost:
             ),
             "hooks": self.hooks(),
             "pages": [str(item.get("plugin", "")) for item in self.runtime.pages()],
+            "memory_providers": sorted(self.memory_providers()),
+            "exporters": sorted(self.exporters()),
+            "action_routes": sorted(self.action_routes),
+            "capabilities": self.capability_readiness(),
             "pending_lazy": runtime_view["pending_lazy"],
             "errors": runtime_view["errors"],
             "wired": self._wiring.as_dict(),
@@ -394,11 +572,29 @@ class PluginHost:
                 f"app/graph/nodes.py（工具派发前后）：{HOOKS_WIRING_CODE}",
             ],
             "reason": (
-                "宿主门面已就绪（PluginHost.start() 能完成 warmup + 工具/hook 接线，且已被 "
-                "tests/test_plugin_host.py 完整演练过），但 app/main.py 是禁改区，没有调用点；"
-                "接线只需粘上 missing_code 那一行"
+                "宿主门面已就绪（PluginHost.start() 能完成 warmup + 工具/hook/动作路由接线，"
+                "且已被 tests/test_plugin_host.py 完整演练过），但 app/main.py 是禁改区，"
+                "没有调用点；接线只需粘上 missing_code 那一行"
             ),
         }
+
+    def capability_readiness(self) -> dict[str, dict[str, Any]]:
+        """``exposed`` 那几条能力的就位情况：``ready`` / ``host_entry`` / ``missing``。
+
+        只列 ``exposed`` 与"已就位但还没人取"的：``wired`` 的不需要这张表（它们已经有
+        消费者），``unsupported`` 的连入口都没有（缺的是整层，写在 landing 里）。
+        """
+        rows: dict[str, dict[str, Any]] = {}
+        for item in plugin_capabilities.CAPABILITIES:
+            if item.orbit_status != plugin_capabilities.EXPOSED:
+                continue
+            rows[item.name] = {
+                "ready": item.ready,
+                "host_entry": item.host_entry,
+                "missing": item.orbit_landing,
+                "reason": item.reason,
+            }
+        return rows
 
 
 def _sink_label(sink: Any) -> str:
@@ -443,10 +639,14 @@ async def _await(awaitable: Any) -> Any:
 
 
 __all__ = [
+    "ACTION_ROUTES",
     "AGENT_WIRING_CODE",
     "HOOKS_WIRING_CODE",
     "MAIN_WIRING_ANCHOR",
     "MAIN_WIRING_CODE",
     "HostWiring",
     "PluginHost",
+    "dispatch_action",
+    "register_action_route",
+    "unregister_action_route",
 ]

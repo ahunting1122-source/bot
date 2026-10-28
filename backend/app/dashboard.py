@@ -380,7 +380,9 @@ PAGES: tuple[DashboardPage, ...] = (
 def main_routes(path: Path | None = None) -> dict[str, str]:
     """读 ``app/main.py``，返回 ``{path: method}`` 形式的**真实**路由表。
 
-    只解析 ``@app.<method>("<path>")`` 装饰器——这是 Orbit 里唯一的声明形状。
+    同时解析 ``@app.<method>("<path>")``（``main.py``）与 ``@router.<method>("<path>")``
+    （``dashboard_api.py``）两种声明形状。**只认前者会让挂在 APIRouter 上的路由对这个
+    核对器完全隐形**——路由已经在跑、页面却报 missing，本项目就是这样踩过一次的。
     文件不存在时返回空字典（而不是抛）：那样"路由核对"会把全部 ``/api/...``
     判成对不上，比静默放行安全。
     """
