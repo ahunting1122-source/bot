@@ -471,21 +471,72 @@ def run_timeline(context: Context, args) -> int:
 
 
 def run_tail(context: Context, args) -> int:
-    """``plane tail <会话ID> [-n N]``：该会话**最近** N 条（合并时间线的尾部）。"""
-    session_id = _session_id(getattr(args, "session_id", ""))
-    if not session_id:
-        raise CliError("用法：orbit plane tail <会话ID> [-n 20]")
+    """``plane tail <会话ID> [-n N] [--event-log]``：最近 N 条。
+
+    默认读 `task_events` 表（合并时间线）。``--event-log`` 改成读**事件日志**
+    （`<data_dir>/events/*.jsonl`，MATRIX 10.14）——那份**追加式、带 `seq`**，
+    能按序号回放，而表给不了这个（表只有时间戳，同一毫秒内的先后只能靠运气）。
+
+    **一个必须说清的差别**：事件日志的**流名是 `task_id` 而不是会话 id**
+    （`Store.event()` 是按任务写的）。所以 `--event-log` 时位置参数按**任务 id**
+    解释；查不到会如实报错并列出已知流，**不会静默退回空结果**
+    （否则用户会以为「这个会话没有事件」，而实际是查错了名字）。
+    """
+    target = _session_id(getattr(args, "session_id", ""))
+    if not target:
+        raise CliError("用法：orbit plane tail <会话ID|任务ID> [-n 20] [--event-log]")
     count = _int(getattr(args, "n", None), 20)
     if count <= 0:
         count = 20
-    entries = _timeline(context, session_id, count)
-    context.out(f"会话 {session_id} 最近 {len(entries)} 条")
+
+    if getattr(args, "event_log", False):
+        return _tail_event_log(context, target, count)
+
+    entries = _timeline(context, target, count)
+    context.out(f"会话 {target} 最近 {len(entries)} 条")
     context.out()
     for item in entries:
         context.out(f"{item.ts} · {item.source}/{item.kind}｜{truncate(_flat(item.text), 70)}")
     context.emit(
-        {"ok": True, "id": session_id, "count": len(entries), "entries": [item.as_dict() for item in entries]}
+        {"ok": True, "id": target, "count": len(entries), "entries": [item.as_dict() for item in entries]}
     )
+    return 0
+
+
+def _tail_event_log(context: Context, stream: str, count: int) -> int:
+    """读事件日志的尾部（MATRIX 10.14 的**读路径**）。
+
+    **为什么这条读路径必须存在**：事件日志上一轮接上了写（`Store.event()` 每次都追加），
+    但**没有任何生产代码读它**——「只写不读是半个功能，比没有更糟」：
+    用户以为有了审计轨，实际没人能查。
+    """
+    from app.event_log import EventLog
+
+    log = EventLog(Path(context.data_dir) / "events")
+    try:
+        records = log.tail(stream, count)
+    except Exception as exc:  # noqa: BLE001 —— 坏索引/坏文件要说清楚，不吞
+        raise CliError(f"读事件日志失败（{stream}）：{type(exc).__name__}: {exc}") from exc
+    if not records:
+        known: list[str] = []
+        try:
+            known = sorted(log.streams())[:5]
+        except Exception:  # noqa: BLE001
+            known = []
+        hint = f"（已知流：{'、'.join(known)}）" if known else "（日志里还没有任何流）"
+        raise CliError(f"事件日志里没有流 {stream}。**流名是 task_id，不是会话 id**。{hint}")
+
+    context.out(f"流 {stream} 最近 {len(records)} 条（事件日志）")
+    context.out()
+    for record in records:
+        payload = record.get("payload") or {}
+        kind = payload.get("kind") or "?"
+        rest = {key: value for key, value in payload.items() if key != "kind"}
+        context.out(
+            f"#{record.get('seq')} · {record.get('ts')} · {kind}"
+            + (f"｜{truncate(json.dumps(rest, ensure_ascii=False), 60)}" if rest else "")
+        )
+    context.emit({"ok": True, "stream": stream, "count": len(records), "records": records})
     return 0
 
 
@@ -786,6 +837,13 @@ REGISTRY.add(
                 options=[
                     _session_option(),
                     Option(("-n", "--lines"), "显示多少条（默认 20）", metavar="N", dest="n"),
+                    # 读事件日志而不是表（MATRIX 10.14）：带 seq、可按序号回放。
+                    Option(
+                        ("--event-log",),
+                        "改读事件日志（追加式、带 seq）；**此时位置参数按 task_id 解释**",
+                        action="store_true",
+                        dest="event_log",
+                    ),
                     _json_option(),
                 ],
             ),

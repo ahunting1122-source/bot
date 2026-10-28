@@ -148,3 +148,89 @@ async def test_the_failure_buffer_has_a_reader(store):
     assert broken["ok"] is False, "审计轨在坏，但 describe 说它健康"
     assert broken["count"] >= 1
     assert "磁盘满了" in broken["last"]
+
+
+# ── 读路径（10.14 从「只写不读」变成「读写都有」）────────────────────────────
+
+
+def _run_cli(data_dir, *argv: str) -> tuple[int, str, str]:
+    """跑一次 CLI，返回 (退出码, stdout, stderr)。"""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    from app.cli.main import main as cli_main
+
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli_main(["--data-dir", str(data_dir), *argv])
+    except SystemExit as exc:  # argparse 的 --help 等
+        code = int(exc.code or 0)
+    return code, out.getvalue(), err.getvalue()
+
+
+async def test_plane_tail_reads_the_event_log(tmp_path):
+    """**读路径真的存在**：`orbit plane tail --event-log <task_id>` 能读出事件。
+
+    这条是 10.14 从「只写不读」变成「读写都有」的分界。
+    """
+    from app.config import Settings
+    from app.main import migrate
+    from app.storage import Store
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+    try:
+        await store.event("task-abc", "task_started", model="deepseek")
+        await store.event("task-abc", "budget_stopped", reason="max_turns")
+    finally:
+        await store.engine.dispose()
+
+    code, out, err = _run_cli(
+        settings.data_dir, "plane", "tail", "task-abc", "-n", "5", "--event-log"
+    )
+    assert code == 0, f"读事件日志失败：{err}"
+    assert "task_started" in out, f"没读到第一条事件：{out}"
+    assert "budget_stopped" in out
+    # **带 seq** 才是这份日志独有的价值（表只有时间戳）
+    assert "#1" in out and "#2" in out, f"没显示出 seq：{out}"
+
+
+async def test_an_unknown_stream_says_it_is_a_task_id(tmp_path):
+    """查不到流时必须**说清是名字用错了**，不能静默返回空。
+
+    事件日志的流名是 `task_id` 而 `plane tail` 的位置参数是**会话 id**——
+    不解释的话用户会以为「这个会话没有事件」，而实际是查错了名字。
+    """
+    from app.config import Settings
+    from app.main import migrate
+
+    settings = Settings(data_dir=tmp_path / "data2", workspace=tmp_path / "files2")
+    settings.prepare()
+    migrate(settings)
+
+    code, _out, err = _run_cli(
+        settings.data_dir, "plane", "tail", "not-a-task", "--event-log"
+    )
+    assert code != 0, "查不到流却返回成功——用户会以为这个会话没有事件"
+    assert "task_id" in err, f"没解释「流名是 task_id」：{err}"
+
+
+def test_doctor_reports_the_event_log_health(tmp_path):
+    """**`EVENT_LOG_FAILURES` 的生产读点**：`orbit doctor` 必须报它。
+
+    上一轮加了 `event_log_health()` 但**没有任何用户能触达的地方调它**——
+    那还是「只写不读」的另一种形态。这条钉住它出现在 `doctor` 的输出里。
+    """
+    from app.config import Settings
+
+    settings = Settings(data_dir=tmp_path / "data3", workspace=tmp_path / "files3")
+    settings.prepare()
+
+    code, out, _err = _run_cli(settings.data_dir, "doctor")
+    # doctor 可能因为别的检查项返回非 0；这里只关心事件日志那一行出现
+    assert "事件日志" in out, f"`orbit doctor` 没报事件日志：{out[:400]}"
+    assert "缓冲上限" in out, "没报缓冲区上限——「100 条」会被读成「只失败了 100 次」"
+    assert code in (0, 1)

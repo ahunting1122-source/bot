@@ -330,7 +330,35 @@ def _run_checks(context: Context) -> list[tuple[str, str, str]]:
         _check_playwright(),
         _check_keyring(context),
         _check_disk(context),
+        _check_event_log(context),
     ]
+
+
+def _check_event_log(context: Context) -> tuple[str, str, str]:
+    """事件日志（MATRIX 10.14）：**这是 `EVENT_LOG_FAILURES` 的生产读点**。
+
+    为什么必须出现在 `doctor` 里：审计轨写失败是**静默**的——主存储照常工作、
+    任务照常推进，只有「事后想查却查不到」时才会发现。
+    **加一个读点却不接到任何用户能触达的地方，等于没加**
+    （那正是「只写不读」的另一种形态）。
+
+    判据：没有失败 → OK；有失败 → WARN 并给出**最后一次失败原因**
+    （用户据此判断是磁盘满了还是权限问题）；缓冲区上限一并报出，
+    免得「100 条」被读成「只失败了 100 次」。
+    """
+    try:
+        from app.storage import event_log_health
+
+        info = event_log_health()
+    except Exception as exc:  # noqa: BLE001 —— 自检项不该因为自己炸了让整张表失败
+        return ("事件日志", WARN, f"读不到健康状况：{type(exc).__name__}: {exc}")
+    if info["ok"]:
+        return ("事件日志", OK, f"无写入失败（缓冲上限 {info['capacity']} 条）")
+    return (
+        "事件日志",
+        WARN,
+        f"最近 {info['count']} 次写入失败（缓冲上限 {info['capacity']}）：{info['last']}",
+    )
 
 
 def _live_probe_model(context: Context) -> tuple[str, str, str]:
