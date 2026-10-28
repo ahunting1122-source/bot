@@ -18,17 +18,33 @@
    任何路径都不打印明文，`PooledCredential` 里也没有明文字段。
 3. **可离线单测**：模型工厂（`ModelFactory`）与密钥后端（`SecretStore`）都是注入的，
    测试用 fake 就够，不需要网络也不需要真的钥匙串。
+
+## 两套判据，一处定义
+
+- `is_failover_error()`：**链级**白名单（429/529/503/连接失败）。`FallbackChain`
+  与 CLI 的 `fallback list` 文案用它——"其它错误一律原样抛"。
+- `classify()`：**运行时**三级决策（换 key / 换 provider / 放弃）。`ModelPlan` 用它，
+  因为 `agent.get_model()` 在构造客户端时就能撞 401，那时正确的动作是"同一家换一把
+  钥匙"，而不是"整家放弃"——这是 `FallbackChain` 表达不了的一层（它只看整站）。
+
+`ModelPlan` 是 `agent.get_model()` 真正接线用的那一层：按 provider 顺序 × 该家 key
+顺序展开候选，构造成功即返回，失败按 `classify()` 推进；`FallbackChain` 保持原样，
+继续做"消息级重放"（一次 `ainvoke` 换一站重发）。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
+
+log = logging.getLogger("orbit.fallback")
 
 # ── 什么错误值得切换 ────────────────────────────────────────────────────────
 
@@ -150,17 +166,23 @@ def targets_to_config(targets: Sequence[FallbackTarget]) -> list[dict[str, str]]
 
 @dataclass(frozen=True)
 class Attempt:
-    """一次尝试的记录。`status` 三态：ok / failover（可切换）/ fatal（直接抛）。"""
+    """一次尝试的记录。`status` 三态：ok / failover（可切换）/ fatal（直接抛）。
+
+    `decision` 是运行时的三级判词（key / provider / abort，见 `classify`）。链级
+    `FallbackChain` 留空——它不做 key 级判断，硬填一个词会让日志说谎。
+    """
 
     target: FallbackTarget
     status: str
     error: str = ""
+    decision: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
             "target": self.target.label(),
             "status": self.status,
             "error": self.error,
+            "decision": self.decision,
         }
 
 
@@ -593,24 +615,373 @@ class CredentialPool:
         return len(entries)
 
 
+# ── 运行时的三级决策：换 key / 换 provider / 放弃 ──────────────────────────
+#
+# 判据表（**这张表就是全部**，改之前先读每行的"理由"）：
+#
+# | 状态码            | 含义                     | 决策     | 理由 |
+# | ----------------- | ------------------------ | -------- | ---- |
+# | 401 / 403         | 凭据无效 / 无权限        | 换 key   | 同一家挂多把钥匙时，另一把常常是有效的（多账号/多额度）。直接换 provider 会丢掉"这家本来能用"的可能，而且把"key 配错了"伪装成"这家挂了"。 |
+# | 429 / 529         | 限流 / 过载              | 换 key   | 配额与并发**按 key 计**（这正是凭证池存在的理由）。整家放弃太早。 |
+# | 402               | 余额不足                 | 换 key   | 与 429 同构：某把钥匙的额度用完了，另一把可能还有。 |
+# | 400 / 404 / 405 / 409 / 413 / 422 | 请求被拒 / 模型不存在 | 换 provider | 参数与模型兼容性是**这家特有**的（例如某家不收 `tools`、不认 `reasoning_effort`）。同一家换 key 会一模一样地再错一次；换家换模型才有意义。 |
+# | 500 / 502 / 503 / 504 | 服务端故障            | 换 provider | 是这家整体挂了，换 key 治不好。 |
+# | 连接失败 / 超时   | 端点不可达               | 换 provider | 端点级问题，与钥匙无关。 |
+# | 其它（含编程错误）| 未知                     | 放弃     | 未知错误重试只会把真 bug 拖成"全都失败"，最后连原始异常类型都看不到。 |
+#
+# 与 `is_failover_error` 的关系：后者是链级白名单（429/529/503/连接失败），
+# `classify()` 返回 `ABORT` 的集合是它返回 False 的集合的**真子集**——401/400 在链级
+# 语义里"不该重试"（`fallback list` 的文案就是这么写的），在运行时却分别是"换 key"
+# 与"换 provider"。两份判据不合并，是因为合并只能取更宽的那份，链级语义会当场失真。
+
+#: 决策：同一 provider 换一把 key。
+KEY = "key"
+#: 决策：换下一家 provider。
+PROVIDER = "provider"
+#: 决策：立刻抛，不再尝试。
+ABORT = "abort"
+
+#: 该**换 key** 的状态码（见上表）。
+KEY_STATUS: frozenset[int] = frozenset({401, 402, 403, 429, 529})
+
+#: 该**换 provider** 的状态码（见上表）。
+PROVIDER_STATUS: frozenset[int] = frozenset({400, 404, 405, 409, 413, 422, 500, 502, 503, 504})
+
+
+def classify(exc: BaseException) -> str:
+    """把一次失败翻译成 `KEY` / `PROVIDER` / `ABORT`（判据表见上方注释）。"""
+    code = status_code_of(exc)
+    if code is not None:
+        if code in KEY_STATUS:
+            return KEY
+        if code in PROVIDER_STATUS:
+            return PROVIDER
+        return ABORT
+    # 没有状态码：只有"连不上"这类传输层失败值得换家；ValueError 之类必须原样抛。
+    return PROVIDER if is_failover_error(exc) else ABORT
+
+
+def describe_error(exc: BaseException) -> str:
+    """异常 → 一行可读的排障文本（带状态码，不含明文密钥）。
+
+    `str(exc)` 常常只有 "rate limited"，没有码就分不清 429 限流和 503 挂了。
+    """
+    code = status_code_of(exc)
+    head = type(exc).__name__ + (f"[{code}]" if code is not None else "")
+    return f"{head}: {exc}"
+
+
+# ── 候选展开：provider 顺序 × 该家 key 顺序 ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class KeySlot:
+    """一把可尝试的钥匙。
+
+    `secret` 是 `repr=False`：它会被打进 `Attempt`、异常消息、pytest 断言输出。
+    `pool_index` 非 None 表示这把钥匙来自凭证池，失败要回写耗尽状态（`PoolKeyRing`）。
+    """
+
+    label: str
+    secret: str = field(repr=False, default="")
+    pool_index: int | None = None
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """一次可尝试的落点：哪家 / 哪个模型 / 哪把钥匙。"""
+
+    target: FallbackTarget
+    key: KeySlot
+
+    def label(self) -> str:
+        return f"{self.target.label()}#{self.key.label}"
+
+
+#: 造一个可 `await model.ainvoke(...)` 的客户端。`Candidate` 里带着钥匙，所以
+#: 工厂不需要再去读配置——这是"换 key 也能换客户端"的关键。
+CandidateBuilder = Callable[[Candidate], Any]
+
+
+class KeyRing(Protocol):
+    """钥匙来源。生产实现是 `PoolKeyRing`（凭证池），测试给假实现。
+
+    只有三个动作，是因为运行时要的就这三件：拿下一把、报失败、报成功。
+    """
+
+    def next(self, provider: str) -> KeySlot | None: ...
+
+    def report(self, provider: str, slot: KeySlot, error: str) -> None: ...
+
+    def ok(self, provider: str, slot: KeySlot) -> None: ...
+
+
+class PoolKeyRing:
+    """把 `CredentialPool` 包成 `KeyRing`。
+
+    ## 顺序：池里的钥匙在前，配置里的主钥匙在后
+
+    池是"这个 provider 的多把钥匙"（`orbit auth add`），主钥匙是 `orbit login` /
+    `ORBIT_MODEL_API_KEY` 写的那一把。池优先，是因为**池的存在本身就说明用户要轮转**；
+    主钥匙作为最后一站，是为了不出现"配了池就把主钥匙悄悄作废"的行为变更。
+
+    ## 池空 ≠ 报错
+
+    没有任何池化凭证时 `next()` 返回主钥匙而不是抛 `CredentialPoolExhausted`：
+    绝大多数用户只有一把钥匙（就是主钥匙），池对他们是透明的。
+    """
+
+    def __init__(
+        self,
+        pool: CredentialPool,
+        *,
+        primary: Callable[[str], KeySlot | None] | None = None,
+    ) -> None:
+        self.pool = pool
+        self._primary = primary
+        #: 已经交出过主钥匙的 provider。每轮规划只给一次，否则 401 会无限重试同一把。
+        self._primary_served: set[str] = set()
+
+    def next(self, provider: str) -> KeySlot | None:
+        try:
+            lease = self.pool.acquire(provider)
+        except CredentialPoolExhausted:
+            lease = None
+        if lease is not None:
+            return KeySlot(
+                label=f"pool#{lease.credential.index}",
+                secret=lease.secret,
+                pool_index=lease.credential.index,
+            )
+        if self._primary is None or provider in self._primary_served:
+            return None
+        self._primary_served.add(provider)
+        return self._primary(provider)
+
+    def report(self, provider: str, slot: KeySlot, error: str) -> None:
+        if slot.pool_index is None:
+            return
+        self.pool.report_failure(provider, slot.pool_index, status="exhausted", message=error)
+
+    def ok(self, provider: str, slot: KeySlot) -> None:
+        if slot.pool_index is None:
+            return
+        self.pool.report_success(provider, slot.pool_index)
+
+
+class ModelPlan:
+    """一次"挑出一个能用的模型"的过程：按链顺序 × 该家 key 顺序展开候选。
+
+    ## 为什么不是直接用 `FallbackChain`
+
+    `FallbackChain.ainvoke()` 是**消息级**重放：它拿到的是"一次调用"。但
+    `agent.get_model()` 要的是"一个客户端对象"，而且 401/429 只有**真调一次**才知道。
+    所以这里做两件事：
+
+    1. 构造阶段就按判据推进（配错 key、模型不存在、线协议不支持，构造时就炸）；
+    2. 把 `advance()` 暴露出去，让 `agent.RoutedModel` 在**调用时**撞到 401/429
+       也能继续推进——两处共用同一份 `classify()`，不会出现"构造换 key、调用换家"的错位。
+
+    ## 不许静默
+
+    每次推进都 `log.warning` 一条（含 from/to 与原因），并把 `Attempt` 追加进
+    `self.attempts`——耗尽时 `FallbackExhausted` 会把整条链的原因一起抛给用户。
+    """
+
+    def __init__(
+        self,
+        targets: Sequence[FallbackTarget],
+        factory: CandidateBuilder,
+        *,
+        keys: KeyRing | None = None,
+        on_event: Callable[[Attempt], None] | None = None,
+    ) -> None:
+        if not targets:
+            raise ValueError("回退链为空：至少需要一个主模型目标")
+        self.targets = list(targets)
+        self.factory = factory
+        self.keys = keys
+        self.attempts: list[Attempt] = []
+        self._on_event = on_event
+        self._index = 0
+        #: 当前这一家已经试过几把钥匙（用于日志与"还有没有得换"的判断）。
+        self._key_tries = 0
+        #: 最近一次交出去的钥匙。失败回写耗尽状态时要用它——`advance()` 拿不到
+        #: 当时那个 `Candidate`（调用方只把异常传回来）。
+        self._last_slot: KeySlot | None = None
+
+    # -- 观测 -------------------------------------------------------------
+    def _record(self, target: FallbackTarget, status: str, error: str, decision: str) -> None:
+        attempt = Attempt(target=target, status=status, error=error, decision=decision)
+        self.attempts.append(attempt)
+        if self._on_event is not None:
+            self._on_event(attempt)
+
+    def _slot(self, target: FallbackTarget) -> KeySlot | None:
+        """该家下一把钥匙。没有 `KeyRing` 时给一个空钥匙（工厂自己去读配置）。"""
+        if self.keys is None:
+            return KeySlot(label="primary") if self._key_tries == 0 else None
+        return self.keys.next(target.provider)
+
+    # -- 主流程 -----------------------------------------------------------
+    def open(self) -> tuple[Any, Candidate]:
+        """造出第一个可用客户端；整条链都不可用则抛 `FallbackExhausted`。"""
+        while True:
+            outcome = self._try_current()
+            if outcome is not None:
+                return outcome
+            if self._index >= len(self.targets):
+                raise FallbackExhausted(self.attempts)
+
+    def advance(self, exc: BaseException, decision: str | None = None) -> tuple[Any, Candidate] | None:
+        """调用时失败后推进。返回下一个可用 `(客户端, 候选)`，或 None（= 耗尽）。
+
+        `ABORT` 不在这里处理——调用方要原样抛，保留原始异常类型与栈。
+        """
+        decision = decision or classify(exc)
+        current = self.targets[min(self._index, len(self.targets) - 1)]
+        detail = describe_error(exc)
+        self._record(current, "failover" if decision != ABORT else "fatal", detail, decision)
+        self._mark(current, decision, detail)
+        if decision == ABORT:
+            return None
+        return self._next_after(decision, detail)
+
+    def _mark(self, target: FallbackTarget, decision: str, detail: str) -> None:
+        """把失败回写到钥匙池（耗尽标记）。主钥匙无状态可写，跳过。"""
+        if self.keys is None:
+            return
+        slot = self._last_slot
+        if slot is not None:
+            self.keys.report(target.provider, slot, detail)
+
+    def _next_label(self) -> str:
+        """下一站的标签（链尾时明说"没有接班者"，而不是留个空字符串）。"""
+        following = self._index + 1
+        if following >= len(self.targets):
+            return "（链尾，没有接班者）"
+        return self.targets[following].label()
+
+    def _try_current(self) -> tuple[Any, Candidate] | None:
+        """在当前 provider 上试钥匙；换不上就推进到下一家，返回 None 让 `open` 循环。"""
+        while self._index < len(self.targets):
+            target = self.targets[self._index]
+            slot = self._slot(target)
+            if slot is None:
+                # 这一家已经没有可换的钥匙了（池空且主钥匙已用过）→ 换家。
+                log.warning(
+                    "模型回退：%s 已无可换的 key，换下一家", target.label()
+                )
+                self._index += 1
+                self._key_tries = 0
+                continue
+            self._key_tries += 1
+            self._last_slot = slot
+            candidate = Candidate(target=target, key=slot)
+            try:
+                client = self.factory(candidate)
+            except Exception as exc:  # noqa: BLE001 —— 判据决定要不要继续，不能只捕特定类型
+                decision = classify(exc)
+                detail = describe_error(exc)
+                self._record(target, "failover" if decision != ABORT else "fatal", detail, decision)
+                self._mark(target, decision, detail)
+                if decision == ABORT:
+                    raise
+                if decision == KEY:
+                    log.warning(
+                        "模型回退：%s 的 key %s 不可用（%s），换该家的下一把 key",
+                        target.label(),
+                        slot.label,
+                        detail,
+                    )
+                    continue
+                log.warning(
+                    "模型回退：%s → %s（原因：%s）", target.label(), self._next_label(), detail
+                )
+                self._index += 1
+                self._key_tries = 0
+                continue
+            self._record(target, "ok", "", "")
+            if self.keys is not None:
+                self.keys.ok(target.provider, slot)
+            return client, candidate
+        return None
+
+    def _next_after(self, decision: str, detail: str) -> tuple[Any, Candidate] | None:
+        """调用时失败后的推进：先在同家换 key，再换家。"""
+        target = self.targets[min(self._index, len(self.targets) - 1)]
+        if decision == KEY:
+            log.warning(
+                "模型回退：%s 调用失败（%s），先换该家的下一把 key", target.label(), detail
+            )
+        else:
+            log.warning(
+                "模型回退：%s → %s（原因：%s）", target.label(), self._next_label(), detail
+            )
+            self._index += 1
+            self._key_tries = 0
+        outcome = self._try_current()
+        if outcome is None:
+            log.warning("模型回退：回退链已耗尽（共 %s 次尝试）", len(self.attempts))
+        return outcome
+
+
+# ── 从 settings.json 读回退链 ───────────────────────────────────────────────
+
+#: 运行时设置文件名（`<data_dir>/settings.json`），与 CLI 的 `Context.settings_path` 一致。
+SETTINGS_FILE = "settings.json"
+#: 回退链在 settings.json 里的键名。与 `model.py` 的 `CHAIN_KEY` 必须是同一个字符串，
+#: 否则"`orbit fallback add` 存了、运行时读不到"——两个真相源的第一天就会分叉。
+CHAIN_KEY = "fallback_chain"
+
+
+def load_chain(data_dir: str | Path) -> list[FallbackTarget]:
+    """从 `<data_dir>/settings.json` 读回退链。
+
+    坏文件 / 坏条目一律当"没有回退链"（`targets_from_config` 会丢弃坏目）：
+    配置文件坏了只该退回"只有主模型"，不该让整轮对话起不来。
+    """
+    path = Path(data_dir) / SETTINGS_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return targets_from_config(data.get(CHAIN_KEY))
+
+
 __all__ = [
+    "ABORT",
+    "CHAIN_KEY",
     "FAILOVER_STATUS",
+    "KEY",
     "KEY_PREFIX",
+    "KEY_STATUS",
     "META_PREFIX",
+    "PROVIDER",
+    "PROVIDER_STATUS",
     "Attempt",
+    "Candidate",
     "CredentialLease",
     "CredentialPool",
     "CredentialPoolExhausted",
     "FallbackChain",
     "FallbackExhausted",
     "FallbackTarget",
+    "KeyRing",
+    "KeySlot",
     "KeyringStore",
     "MemoryStore",
     "ModelFactory",
+    "ModelPlan",
     "PooledCredential",
+    "PoolKeyRing",
     "SecretStore",
+    "classify",
     "fingerprint",
     "is_failover_error",
+    "load_chain",
     "status_code_of",
     "target_from_mapping",
     "targets_from_config",

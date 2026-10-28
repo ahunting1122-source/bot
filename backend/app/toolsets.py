@@ -23,10 +23,13 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import logging
 import os
+import time
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +49,8 @@ UNCLASSIFIED = "unclassified"
 #: toolset → 一行中文说明。``orbit tools list`` 直接展示它，所以每条都要说清
 #: "这组工具能让模型干什么"，而不是重复 toolset 名字。
 TOOLSETS: dict[str, str] = {
-    "core": "对话骨架：向用户提问（ask_user），任何时候都该在",
-    "files": "本地文件读写与检索（local_*）",
+    "core": "对话骨架：提问（ask_user）、选择题（clarify）、任务清单（todo）、工具检索",
+    "files": "本地文件读写与检索（local_*、apply_patch）",
     "shell": "在本机执行系统命令（run_command）",
     "browser": "浏览器观察与操作（browser_*）",
     "vault": "凭据填充与登录（vault_login）",
@@ -70,12 +73,18 @@ TOOL_TOOLSET: dict[str, str] = {
     # 元工具：检索可用工具。归 core 而不是新建 toolset——它不该被"禁用 web"这类
     # 操作连带关掉，否则用户关掉一个域就再也找不到别的域有什么工具了。
     "tool_search": "core",
+    # 元工具：任务清单（MATRIX 5.12）与结构化澄清（5.13）。同样归 core：它们属于
+    # "对话骨架"，关掉任何一个，模型就只能靠记忆干活 / 靠散文提问。
+    "todo": "core",
+    "clarify": "core",
     # files
     "local_list_files": "files",
     "local_search_text": "files",
     "local_read_document": "files",
     "local_write_report": "files",
     "local_write_file": "files",
+    # 结构化补丁编辑（MATRIX 5.16）：改文件的另一种方式，所以归 files。
+    "apply_patch": "files",
     # shell
     "run_command": "shell",
     # browser
@@ -289,6 +298,222 @@ def _matching_entry(entries: Sequence[str], name: str, toolset: str) -> str:
     return ""
 
 
+# ── 可用性探针（Hermes 的 `check_fn`，MATRIX 5.3）────────────────────────────
+#
+# 三层过滤的第二层：**工具在不在** 与 **工具能不能用** 是两件事。`github_*` 没配
+# token 时仍然"在"，但调它必然报错；`browser_*` 没装 chromium 时同理。把这类工具
+# 照常暴露给模型，只会换来一串"我试了但失败了"的回合。
+#
+# 但"探针失败就摘工具"是个陷阱：一次超时（负载下的 `playwright` 启动、网络抖一下）
+# 就会把整个 toolset 从正在干活的 agent 上摘掉，子 agent 随即报"工具不存在"。
+# Hermes 为此加了 **30s TTL + 60s 抖动宽限**（registry.py:514-519），这里照抄同一
+# 组数字，理由一致。
+
+#: 探针结果的有效期。期内重复询问直接返回缓存，不再真的探测。
+PROBE_TTL_SECONDS = 30.0
+#: 抖动宽限：距上次"探测成功"不到这么久时，本次失败按抖动处理——**不摘工具**，
+#: 也不缓存这次失败（下次重新探）。
+PROBE_GRACE_SECONDS = 60.0
+
+#: 工具 → 它需要什么。键可以是**精确工具名**，也可以是以 ``_`` 结尾的**前缀**。
+#:
+#: 只登记"不满足就必然调不通"的需求。刻意**不**登记 `local_*` / `memory_*` 这类
+#: 无外部依赖的工具：给它们编需求只会制造误摘的机会。
+TOOL_REQUIREMENTS: dict[str, str] = {
+    "browser_": "playwright",  # 浏览器全族要 playwright + chromium 在
+    "notion_": "playwright",  # notion_* 走浏览器会话，同一份依赖
+    "github_": "github_token",  # GitHub API 没 token 会被限流/拒绝
+    "web_": "search_provider",  # 搜索要至少一个可用 provider
+    "run_command": "shell",  # 要有可执行的 shell
+}
+
+
+def requirement_of(name: str) -> str:
+    """工具名 → 需求 id（空串 = 没有声明的需求 = 无条件可用）。"""
+    exact = TOOL_REQUIREMENTS.get(name)
+    if exact:
+        return exact
+    for key, requirement in TOOL_REQUIREMENTS.items():
+        if key.endswith("_") and name.startswith(key):
+            return requirement
+    return ""
+
+
+def _check_playwright(settings: Any = None) -> tuple[bool, str]:
+    """playwright 能不能用：包在 + chromium 在。
+
+    **为什么不去真的启动一次**：``sync_playwright().start()`` 会 spawn 一个 node 驱动
+    进程，几百毫秒起步、在负载下还可能挂住。探针落在每轮请求的暴露面计算路径上，
+    这个代价付不起（Hermes 的 ``subprocess.run(["docker","version"])`` 教训就是这个）。
+    真正"启动失败"的信号更准、更便宜——第一次调用工具时的报错。所以这里的判据是
+    "依赖齐不齐"，不是"能不能跑起来"。
+    """
+    if importlib.util.find_spec("playwright") is None:
+        return False, "playwright 未安装"
+    candidates: list[Path] = []
+    override = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if override:
+        candidates.append(Path(override))
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        candidates.append(Path(local) / "ms-playwright")
+    candidates.append(Path.home() / ".cache" / "ms-playwright")
+    for base in candidates:
+        try:
+            if not base.is_dir():
+                continue
+            if any(item.name.startswith("chromium") for item in base.iterdir()):
+                return True, ""
+        except OSError:
+            continue
+    return False, "playwright 已安装但找不到 chromium（先执行 playwright install chromium）"
+
+
+def _check_github_token(settings: Any = None) -> tuple[bool, str]:
+    """GitHub 工具要 token：没有它就必然 403 / 限流。"""
+    raw = getattr(settings, "github_token", None) if settings is not None else None
+    getter = getattr(raw, "get_secret_value", None)
+    token = str(getter() or "") if callable(getter) else str(raw or "")
+    token = token.strip() or os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        return False, "未配置 github_token（设置里填，或设环境变量 GITHUB_TOKEN）"
+    return True, ""
+
+
+def _check_search_provider(settings: Any = None) -> tuple[bool, str]:
+    """web_* 要至少一个可用 provider。
+
+    `settings` 为 None 时**按可用处理**（fail-open）：没有配置对象就无从判断，
+    这时摘工具等于凭空少一个功能。
+    """
+    if settings is None:
+        return True, ""
+    try:
+        from app.web_providers import available_providers
+
+        providers = available_providers(settings)
+    except Exception as exc:  # noqa: BLE001 - 探针本身不该把命令面打崩
+        return True, f"provider 探测失败（按可用处理）：{exc}"
+    if any(item.get("available") for item in providers):
+        return True, ""
+    return False, "没有可用的搜索 provider（配置 searxng_url / brave_search_api_key 等）"
+
+
+def _check_shell(settings: Any = None) -> tuple[bool, str]:
+    """run_command 要有一个能执行的 shell。"""
+    if os.name == "nt":
+        return True, ""  # cmd.exe 是系统组件，不存在的话整个平台都不成立
+    return (True, "") if Path("/bin/sh").exists() else (False, "找不到 /bin/sh")
+
+
+#: 需求 id → 检查函数。返回 ``(可用?, 不可用原因)``。
+REQUIREMENT_CHECKS = {
+    "playwright": _check_playwright,
+    "github_token": _check_github_token,
+    "search_provider": _check_search_provider,
+    "shell": _check_shell,
+}
+
+
+@dataclass
+class ProbeState:
+    """一次探针的结论。"""
+
+    available: bool
+    reason: str
+    checked_at: float
+    #: 上次**判定可用**的时刻。``None`` = 从未成功过（区别于"成功时刻恰好是 0"，
+    #: 所以这里不用 0 当哨兵值——假时钟测试会踩到）。
+    last_good_at: float | None = None
+
+
+#: 探针缓存（进程内）。键是工具名：同一个 requirement 被多个工具共享时各记一份，
+#: 这样"某个工具名被摘掉"不会牵连同组的其它工具（Hermes 的 key 是 ``(fn, scope)``）。
+_PROBE_CACHE: dict[str, ProbeState] = {}
+
+
+def probe(
+    name: str,
+    settings: Any = None,
+    *,
+    now: float | None = None,
+    trigger: bool = True,
+) -> tuple[bool, str]:
+    """问一句"这个工具现在可用吗"。返回 ``(可用?, 不可用原因)``。
+
+    ``trigger=False`` 是**只读缓存**：过期或没探测过一律按"可用"返回，绝不触发真实
+    探测。暴露面计算（:func:`resolve`）必须走这条路——它每轮都会跑，而探针会读盘、
+    读密钥、glob 浏览器目录。
+
+    ``trigger=True`` 的语义照 Hermes：
+
+    1. 缓存新鲜（< :data:`PROBE_TTL_SECONDS`）→ 直接返回，**不重复探测**；
+    2. 探测成功 → 记缓存，并更新 `last_good_at`；
+    3. 探测失败但距上次成功 < :data:`PROBE_GRACE_SECONDS` → 判为抖动，返回可用且
+       **不缓存失败**（下次重新探）；
+    4. 否则缓存失败并返回不可用。
+    """
+    requirement = requirement_of(name)
+    if not requirement:
+        return True, ""
+    check = REQUIREMENT_CHECKS.get(requirement)
+    if check is None:  # 声明了需求却没有检查器：按可用处理，别让笔误变成摘工具
+        return True, ""
+    stamp = time.monotonic() if now is None else now
+    state = _PROBE_CACHE.get(name)
+    if state is not None and stamp - state.checked_at < PROBE_TTL_SECONDS:
+        return state.available, state.reason
+    if not trigger:
+        return True, ""
+    try:
+        ok, reason = check(settings)
+    except Exception as exc:  # noqa: BLE001 - 探针炸了算失败，但不该把调用方打崩
+        ok, reason = False, f"探针异常：{type(exc).__name__}: {exc}"
+    if ok:
+        _PROBE_CACHE[name] = ProbeState(True, "", stamp, stamp)
+        return True, ""
+    last_good = state.last_good_at if state is not None else None
+    if last_good is not None and stamp - last_good < PROBE_GRACE_SECONDS:
+        log.info("工具 %s 的探针失败（%s），但距上次成功不足宽限期，按抖动处理", name, reason)
+        return True, ""
+    _PROBE_CACHE[name] = ProbeState(False, reason, stamp, last_good)
+    # 用 info 而不是 warning：CLI（`orbit tools probe`）会把不可用原因直接打印给人，
+    # 再往 stderr 打一份 warning 就是重复噪声。长期运行的 agent 侧需要这条记录，
+    # info 级别在默认日志配置里照样落盘。
+    log.info("工具 %s 不可用：%s", name, reason)
+    return False, reason
+
+
+def cached_probe(name: str, *, now: float | None = None) -> tuple[bool, str]:
+    """:func:`probe` 的只读形式（不触发探测）。"""
+    return probe(name, trigger=False, now=now)
+
+
+def probe_all(
+    names: Iterable[str], settings: Any = None, *, now: float | None = None
+) -> list[dict[str, Any]]:
+    """逐个探测（会触发真实检查），返回可直接展示的行。"""
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        requirement = requirement_of(name)
+        available, reason = probe(name, settings, now=now) if requirement else (True, "")
+        rows.append(
+            {
+                "name": name,
+                "toolset": toolset_of(name),
+                "requirement": requirement,
+                "available": available,
+                "reason": reason,
+            }
+        )
+    return rows
+
+
+def invalidate_probe_cache() -> None:
+    """清空探针缓存（``orbit tools enable/disable`` 之后应当调用）。"""
+    _PROBE_CACHE.clear()
+
+
 # ── 解析 / 视图 ─────────────────────────────────────────────────────────────
 
 
@@ -296,16 +521,45 @@ def resolve(
     names: Iterable[str],
     platform: str = DEFAULT_PLATFORM,
     config: Mapping[str, Any] | None = None,
+    *,
+    now: float | None = None,
 ) -> list[str]:
     """算出该平台**实际暴露**的工具名（保持传入顺序）。
 
-    判定顺序（先禁用、再收窄）：
+    判定顺序（先禁用、再收窄、最后看可用性）：
     1. 命中 ``disabled`` → 排除；
     2. ``enabled`` 非空且不命中 → 排除（白名单模式）；
-    3. 其余暴露。
+    3. 探针缓存里**明确判定不可用** → 排除；
+    4. 其余暴露。
 
     禁用优先于启用：同时写了 ``disable web`` 和 ``enable web_search`` 时，显式禁用赢。
     理由是"关掉"通常是安全决策，"开着"只是便利决策，冲突时该选保守的那个。
+
+    第 3 步**只读缓存**（``probe(trigger=False)``），绝不触发真实探测：``resolve``
+    落在每轮请求的暴露面计算上，而探针会读盘、读密钥、glob 浏览器目录。没探测过
+    或结果过期时按"可用"处理——**宁多暴露一个调不通的工具，也不因为没探测就把工具
+    悄悄摘掉**。真正的探测由 ``orbit tools probe`` / ``probe_all`` 触发。
+    """
+    disabled, enabled = platform_state(config, platform)
+    exposed: list[str] = []
+    for name in _config_exposure(names, platform, config):
+        if not cached_probe(name, now=now)[0]:
+            continue
+        exposed.append(name)
+    return exposed
+
+
+def _config_exposure(
+    names: Iterable[str],
+    platform: str = DEFAULT_PLATFORM,
+    config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """**只看配置**的暴露面（不看探针）。
+
+    与 :func:`resolve` 分开是因为两者语义不同：``resolve`` 回答"此刻能暴露什么"，
+    这个函数回答"配置允许暴露什么"。``post_setup_snapshot`` 必须用后者——把
+    "此刻恰好不可用"（没装 chromium、没配 token）写进配置快照，等于把一次瞬时状态
+    固化成永久禁用，之后用户装好了依赖，工具还是不会回来。
     """
     disabled, enabled = platform_state(config, platform)
     exposed: list[str] = []
@@ -323,6 +577,9 @@ def describe(
     platform: str = DEFAULT_PLATFORM,
     config: Mapping[str, Any] | None = None,
     names: Iterable[str] | None = None,
+    *,
+    settings: Any = None,
+    probe_fresh: bool = True,
 ) -> list[dict[str, Any]]:
     """``orbit tools list`` 的完整视图：工具名 / toolset / 是否暴露 / 为什么被排除。
 
@@ -333,6 +590,10 @@ def describe(
     排除：``resolve`` 里若按"没归类就不暴露"处理，新加的工具会静默消失，模型只会报
     "工具不存在"，排查方向完全跑偏。所以运行时放行 + 打标，由测试和 ``tools list``
     把问题顶到明面上。
+
+    ``probe_fresh``（默认开）：``tools list`` 是**人主动发起的一次性诊断命令**，
+    在这里跑一次探针是合理的——不然"为什么这个工具用不了"永远只能靠猜。反过来
+    ``resolve``（每轮请求都跑）只读缓存，两者刻意不对称。
     """
     pool = list(names) if names is not None else declared_tool_names()
     disabled, enabled = platform_state(config, platform)
@@ -344,6 +605,12 @@ def describe(
             reason = f"禁用集命中「{entry}」"
         elif enabled and not _matching_entry(enabled, name, toolset):
             reason = "不在 enabled 白名单里"
+        else:
+            available, unavailable_reason = (
+                probe(name, settings) if probe_fresh else cached_probe(name)
+            )
+            if not available:
+                reason = f"不可用：{unavailable_reason}"
         note = ""
         if toolset == UNCLASSIFIED:
             note = "未归类：请在 app/toolsets.py 的 TOOL_TOOLSET 里登记"
@@ -354,6 +621,7 @@ def describe(
                 "exposed": not reason,
                 "reason": reason,
                 "note": note,
+                "requirement": requirement_of(name),
             }
         )
     return rows
@@ -447,7 +715,7 @@ def post_setup_snapshot(
     """
     pool = list(names) if names is not None else declared_tool_names()
     disabled, enabled = platform_state(config, platform)
-    exposed = resolve(pool, platform, config)
+    exposed = _config_exposure(pool, platform, config)
     exposed_set = set(exposed)
     return {
         "platforms": {

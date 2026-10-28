@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pypdf import PdfReader
 from sqlalchemy import select
 
@@ -27,6 +27,10 @@ TOOL_CONCURRENCY = 4
 #: MCP 动态工具的名字前缀。遮蔽门禁对它们**整体豁免**：动态发现的工具在重连/换实现后
 #: 同名不同源是常态，走 override 流程只会把正常刷新卡死（照 Hermes 的 `mcp-*` 豁免）。
 MCP_TOOL_PREFIX = "mcp__"
+#: 结果里携带"这条结果出自哪个工具"的内部字段。存在的唯一理由：`as_tool_text`
+#: 需要工具名才能决定要不要包"不可信数据"标记，而它的调用点（`app/graph/nodes.py`）
+#: 是禁改区、拿不到名字。序列化前会被剥掉，**不会出现在模型上下文里**。
+TOOL_SOURCE_KEY = "_tool"
 
 
 class Args(BaseModel):
@@ -293,6 +297,156 @@ class SkillSaveArgs(Args):
     body: str = Field(min_length=1, description="技能正文：触发条件 + 步骤 + 坑 + 绕法")
 
 
+#: `todo` 的容量上限。**单任务 50 条 / 单条 200 字符**。
+#:
+#: 为什么这么小：清单是"模型给自己写的备忘"，不是文档库。条目一多，每次调用回读的
+#: 完整清单就开始吃上下文（50 × 200 ≈ 10K 字符），收益却是零——超过 50 步的任务该拆。
+#: 超限**直接拒绝并说明**，不做静默截断：截断会让模型以为自己记下了，实际丢了。
+TODO_MAX_ITEMS = 50
+TODO_MAX_CHARS = 200
+#: 条目状态机。`in_progress` 允许同时有多条（真实任务本来就并行），不强制唯一。
+TODO_STATUSES = ("pending", "in_progress", "done")
+#: 状态的中文标签（渲染清单用）。
+TODO_STATUS_LABELS = {"pending": "待办", "in_progress": "进行中", "done": "已完成"}
+
+
+class TodoArgs(Args):
+    """`todo` 的参数。
+
+    **Orbit 的取舍：回读，不是注入**。Hermes 的 `todo` 会把清单**注入**进下一轮上下文
+    （`todo_tool.format_for_injection()`，由 agent 运行时拼进系统提示），模型不必调用
+    就能看见。Orbit 这边 `app/storage.py`（不能加表）与 `app/graph/*`（不能改注入）
+    都在禁改区，所以改成"**每次调用都返回完整清单**"：功能可达（增删改查 + 看全量），
+    但**不完全等价**——模型必须主动调用一次才能看到当前状态，漏调就可能凭记忆干活。
+    这就是为什么 `action` 的默认值是 `list`：最省事的调用就是回读。
+    """
+
+    action: str = Field(
+        default="list",
+        description=(
+            "add=追加条目；update=改某条状态；complete=把某条标成已完成；"
+            "remove=删掉某条；list=读完整清单（默认）；clear=清空。"
+            "**每次调用都会返回完整清单**（Orbit 不会自动注入），所以开工前先 list 一次。"
+        ),
+    )
+    items: list[str] = Field(
+        default_factory=list,
+        description=f"add 时要追加的条目，每条一句可执行的小步骤（单条≤{TODO_MAX_CHARS}字符，"
+        f"单任务上限 {TODO_MAX_ITEMS} 条）",
+    )
+    index: int = Field(
+        default=0,
+        ge=0,
+        description="条目序号，**从 1 开始**（update / complete / remove 必填）",
+    )
+    status: str = Field(
+        default="",
+        description=f"update 时的新状态：{' / '.join(TODO_STATUSES)}",
+    )
+
+
+def _inline_refs(node: Any, defs: dict) -> Any:
+    """把 ``$defs``/``$ref`` 就地展开成内联 schema（递归）。
+
+    为什么必须展开：供应商对 JSON Schema 的支持参差不齐，``$ref`` 在 OpenAI 兼容
+    端点上经常被 400 拒掉——而一次 400 会让**整轮请求**发不出去（见
+    :func:`schema_problems` 的注释）。内联之后形状是"普通嵌套对象"，谁都能吃。
+    """
+    if isinstance(node, dict):
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            merged = dict(_inline_refs(defs.get(reference.rsplit("/", 1)[-1], {}), defs))
+            for key, value in node.items():
+                if key != "$ref":
+                    merged[key] = _inline_refs(value, defs)
+            return merged
+        return {key: _inline_refs(value, defs) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_inline_refs(item, defs) for item in node]
+    return node
+
+
+class ClarifyOption(BaseModel):
+    """`clarify` 的一个选项。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=80, description="选项短标签，例如「用 Markdown」")
+    description: str = Field(
+        default="",
+        max_length=400,
+        description="一句话说清选它会带来什么后果（模型该在这里写清代价，而不是重复标签）",
+    )
+
+
+class ClarifyArgs(Args):
+    """`clarify` 的参数。
+
+    与 `ask_user` 的**分工**（写进 docstring 是因为模型真的会混）：
+
+    - `ask_user` = **我卡住了，要你介入**（登录墙、验证码、需要人肉操作的页面）。
+      它打断的是"执行"，用户回答完 agent 继续干活。
+    - `clarify` = **我需要你在几个选项里选一个**（需求有歧义、方案要拍板）。
+      它打断的是"决策"，答案会直接决定下一步走哪条路。
+
+    所以：能自己判断的低风险问题别问；有明确选项的用 `clarify`；需要人动手的用
+    `ask_user`。
+    """
+
+    question: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="要用户决定的问题本身。**不要把选项写进问题文本**——选项放 options。",
+    )
+    options: list[ClarifyOption] = Field(
+        min_length=2,
+        max_length=6,
+        description="2-6 个选项。把你推荐的那个放第一个，并在 description 里写清理由。",
+    )
+    allow_free_text: bool = Field(
+        default=True,
+        description="是否允许用户不选选项、直接用自己的话回答。默认 True；"
+        "只有「必须是这几个之一」时才关掉。",
+    )
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _check_option_count(cls, value):
+        """数量校验在 schema 之外再做一次，只为给出**中文**拒绝理由。
+
+        pydantic 的 `min_length` 报错是英文长句（"List should have at least 2 items…"），
+        模型看到它会去猜"到底要几个"。这里先拦一道，把话说清楚。
+        """
+        if isinstance(value, (list, tuple)) and not 2 <= len(value) <= 6:
+            raise ValueError(
+                f"选项数量必须是 2-6 个，现在给了 {len(value)} 个。"
+                "只有一个选项说明这不是选择题（自己决定就行）；超过 6 个请先合并。"
+            )
+        return value
+
+    @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict:
+        """暴露给模型的 schema 用**内联**形状（展开 ``$defs``，见 :func:`_inline_refs`）。"""
+        schema = super().model_json_schema(*args, **kwargs)
+        defs = schema.pop("$defs", None)
+        return _inline_refs(schema, defs) if isinstance(defs, dict) and defs else schema
+
+
+class ApplyPatchArgs(Args):
+    """`apply_patch` 的参数。"""
+
+    patch: str = Field(
+        min_length=1,
+        max_length=200000,
+        description=(
+            "补丁正文。格式：`*** Begin Patch` → `*** Update File: 路径` / "
+            "`*** Add File: 路径` / `*** Delete File: 路径` → 可选 `@@` 提示 → "
+            "以 `-`/`+`/空格 开头的行 → `*** End Patch`。"
+            "**只写被改的行**，不要重发整个文件。"
+        ),
+    )
+
+
 @dataclass
 class Tool:
     """A callable the model may pick.
@@ -334,6 +488,22 @@ LOCAL_TOOLS = [
         ToolSearchArgs,
     ),
     Tool(
+        "todo",
+        "多步任务的任务清单（增删改查）。**清单不会自动出现在你的上下文里**——"
+        "每次调用都返回完整清单，所以开工前先 list 一次、做完一步再 complete 一次。"
+        f"单任务上限 {TODO_MAX_ITEMS} 条、单条 {TODO_MAX_CHARS} 字符；超限会被拒绝。"
+        "三步以上的任务就该用它，别靠记忆。",
+        TodoArgs,
+    ),
+    Tool(
+        "clarify",
+        "需要用户在几个方案里做决定时，给出一道**选择题**（2-6 个选项）。"
+        "选项会渲染成带序号的可点列表交给用户。"
+        "分工：需要用户动手介入（登录、验证码、页面操作）用 ask_user；"
+        "需求有歧义、要拍板走哪条路，用 clarify。",
+        ClarifyArgs,
+    ),
+    Tool(
         "local_list_files",
         "列出文件。仅工作文件夹模式下只看授权目录；完全访问权限模式下绝对路径可点任意目录，"
         "路径留空会列出整机盘符。",
@@ -357,6 +527,15 @@ LOCAL_TOOLS = [
         "写入或改写文本文件（新建、覆盖）。「仅工作文件夹」档只能落在授权目录内且不覆盖"
         "工作台自身数据；「完全访问权限」档可写整机任意路径、不设限。",
         WriteFileArgs,
+    ),
+    Tool(
+        "apply_patch",
+        "用**结构化补丁**改文件，而不是整文件重写（长文件整段重发必然丢内容）。"
+        "格式：`*** Begin Patch` / `*** Update File: 路径` / `@@ 可选上下文提示` / "
+        "以 `-` 删、`+` 增、空格 表示上下文 / `*** End Patch`；新建用 Add File，"
+        "删除用 Delete File。**全部 hunk 先校验再落盘**：任何一处上下文对不上就整体不写，"
+        "报错会指出第几个 hunk、第几行。只允许改授权工作目录内的文件。",
+        ApplyPatchArgs,
     ),
     Tool(
         "run_command",
@@ -687,6 +866,126 @@ def walk_text_files(base: Path, machine: bool, root: Path, visit_limit: int = 20
             yield path
 
 
+# ── 任务清单（todo）的落盘 ──────────────────────────────────────────────────
+#
+# 状态放 `<data_dir>/todos/<task_id>.json`：`app/storage.py` 是禁改区（不能加表），
+# `app/graph/*` 也是禁改区（不能改注入），所以清单只能落在数据目录里的一等文件上。
+# 为什么不用内存：任务会跨轮次、跨进程（断点恢复 / 重启后接着干），内存里的清单
+# 一重启就没了，而"我做到第几步"正是最不能丢的状态。
+
+
+def _safe_task_id(task_id: str) -> str:
+    """把 task_id 收敛成安全的文件名片段（不含路径分隔符与保留字符）。"""
+    cleaned = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in task_id)
+    return (cleaned or "unknown")[:120]
+
+
+def todos_path(data_dir: Path, task_id: str) -> Path:
+    """清单文件路径。"""
+    return Path(data_dir) / "todos" / f"{_safe_task_id(task_id)}.json"
+
+
+def load_todos(data_dir: Path, task_id: str) -> list[dict]:
+    """读清单。文件不存在/坏掉都返回空列表——清单坏了不该让任务起不来。"""
+    path = todos_path(data_dir, task_id)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    items: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        status = str(entry.get("status") or "pending")
+        items.append(
+            {"text": text, "status": status if status in TODO_STATUSES else "pending"}
+        )
+    return items[:TODO_MAX_ITEMS]
+
+
+def save_todos(data_dir: Path, task_id: str, items: list[dict]) -> Path:
+    """原子写清单：临时文件 + ``os.replace``。
+
+    为什么必须原子：中途崩溃留下半截 JSON 时，`load_todos` 会把它读成空清单——
+    模型会以为自己一步都没做，然后从头再来一遍。原子替换让"旧清单 / 新清单"
+    二选一，永远不存在"半个清单"。
+    """
+    path = todos_path(data_dir, task_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary, path)
+    return path
+
+
+def render_todos(items: list[dict]) -> str:
+    """把清单渲染成给模型/人看的多行文本（带序号与状态）。"""
+    if not items:
+        return "（清单为空）"
+    lines = []
+    for index, item in enumerate(items, start=1):
+        label = TODO_STATUS_LABELS.get(item.get("status", "pending"), "待办")
+        mark = "x" if item.get("status") == "done" else " "
+        lines.append(f"{index}. [{mark}] ({label}) {item['text']}")
+    return "\n".join(lines)
+
+
+def clarify_payload(args: dict) -> dict:
+    """把 `clarify` 的参数变成一份"等用户回答"的载荷。
+
+    **为什么返回 `needs_user` 而不是 `ok`**：`app/graph/nodes.py`（禁改区）里
+    `execute()` 看到 `status in {"needs_user", "uncertain"}` 就会把
+    `{reason, question: message, tool}` 塞进 `waiting`，随后 `gate` 调
+    `langgraph.types.interrupt(...)` 把问题交给前端——这正是 `ask_user` 走的同一条
+    通路。所以 `clarify` 只要**返回同样形状的载荷**，就自动获得了 CLI / Web / gateway
+    三端的提问能力，一行 `nodes.py` 都不用改。
+
+    **选项必须渲染进 `message`**：`nodes.py` 只把 `reason` / `message` / `tool` 三个
+    字段搬进 `waiting`，其余键会被丢掉。所以结构化字段（`options`）是给富前端看的
+    补充，而**任何前端都能用的那份**是 `message` 里的 `1) … 2) …` 文本。
+    """
+    question = str(args.get("question") or "").strip()
+    options = list(args.get("options") or [])
+    allow_free_text = bool(args.get("allow_free_text", True))
+    if not question:
+        raise ValueError("clarify 需要 question（要用户决定什么）")
+    if not 2 <= len(options) <= 6:
+        raise ValueError(
+            f"选项数量必须是 2-6 个，现在给了 {len(options)} 个。"
+            "只有一个选项说明这不是选择题（自己决定就行）；超过 6 个请先合并。"
+        )
+    rendered_options = []
+    lines = [f"需要你决定：{question}", "", "选项："]
+    for index, option in enumerate(options, start=1):
+        label = str(option.get("label") or "").strip()
+        description = str(option.get("description") or "").strip()
+        rendered_options.append({"index": index, "label": label, "description": description})
+        lines.append(f"{index}) {label}" + (f" —— {description}" if description else ""))
+    lines.append("")
+    if allow_free_text:
+        lines.append("回复序号即可；也可以直接用自己的话说明。")
+    else:
+        # 明确写死"只能选"，否则模型/用户会以为还能自由作答。
+        lines.append(f"**只能从上面选一个**：请回复序号（1-{len(options)}），不接受其它回答。")
+    return {
+        "status": "needs_user",
+        "reason": "clarification",
+        "message": "\n".join(lines),
+        "question": question,
+        "options": rendered_options,
+        "allow_free_text": allow_free_text,
+        "tool": "clarify",
+        "notice": "拿到回答后继续原任务，不要在等待期间重复提问。",
+    }
+
+
 class ToolRegistry:
     def __init__(self, settings: Settings, store: Store):
         self.settings, self.store = settings, store
@@ -748,6 +1047,79 @@ class ToolRegistry:
                     await session.commit()
         except Exception as exc:
             log.warning("技能状态覆盖失败（忽略）：%s", exc)
+
+    def todo(self, task_id: str, args: dict) -> dict:
+        """`todo` 的实现：读-改-写，并且**每次都回读完整清单**。
+
+        回读不是"顺手带一下"，是这个工具在 Orbit 里的**唯一可见性机制**：清单不会
+        被注入上下文（`app/graph/*` 禁改），模型只能从返回值里看到它。所以每条分支
+        ——包括 `list` 之外的所有写操作——都返回同一份完整清单。
+        """
+        data_dir = self.settings.data_dir
+        action = str(args.get("action") or "list").strip().lower()
+        items = load_todos(data_dir, task_id)
+        notice = ""
+        if action == "add":
+            incoming = [str(entry).strip() for entry in (args.get("items") or [])]
+            incoming = [entry for entry in incoming if entry]
+            if not incoming:
+                raise ValueError("add 需要给 items：要追加的条目列表（每条形如一句可执行的小步骤）")
+            for entry in incoming:
+                if len(entry) > TODO_MAX_CHARS:
+                    raise ValueError(
+                        f"单条清单不能超过 {TODO_MAX_CHARS} 字符（这条 {len(entry)} 字符）："
+                        f"{entry[:60]}…。请拆成更小的步骤，或把它写成一句摘要。"
+                    )
+            if len(items) + len(incoming) > TODO_MAX_ITEMS:
+                raise ValueError(
+                    f"单任务清单上限 {TODO_MAX_ITEMS} 条，现在已有 {len(items)} 条、"
+                    f"还要加 {len(incoming)} 条。请先 complete/remove 掉已完成或不再需要的条目，"
+                    "或者把任务拆成更少的步骤。"
+                )
+            for entry in incoming:
+                items.append({"text": entry, "status": "pending"})
+            notice = f"已追加 {len(incoming)} 条。"
+        elif action in {"update", "complete", "remove"}:
+            index = int(args.get("index") or 0)
+            if not 1 <= index <= len(items):
+                raise ValueError(
+                    f"index 必须在 1-{len(items)} 之间（当前清单共 {len(items)} 条），收到 {index}。"
+                    "序号从 1 开始；不确定就先 list 一次。"
+                )
+            if action == "remove":
+                removed = items.pop(index - 1)
+                notice = f"已删除第 {index} 条「{removed['text'][:40]}」。"
+            else:
+                status = "done" if action == "complete" else str(args.get("status") or "").strip()
+                if status not in TODO_STATUSES:
+                    raise ValueError(
+                        f"status 必须是 {' / '.join(TODO_STATUSES)} 之一，收到 {status!r}。"
+                    )
+                items[index - 1]["status"] = status
+                notice = f"第 {index} 条已标为「{TODO_STATUS_LABELS[status]}」。"
+        elif action == "clear":
+            notice = f"已清空 {len(items)} 条。"
+            items = []
+        elif action != "list":
+            raise ValueError(
+                f"未知 action：{action}（可选 add / update / complete / remove / list / clear）"
+            )
+        if action != "list":
+            save_todos(data_dir, task_id, items)
+        pending = sum(1 for item in items if item["status"] != "done")
+        return {
+            "task_id": task_id,
+            "action": action,
+            "count": len(items),
+            "pending": pending,
+            "items": [
+                {"index": index, "text": item["text"], "status": item["status"]}
+                for index, item in enumerate(items, start=1)
+            ],
+            "rendered": render_todos(items),
+            "notice": (notice + " " if notice else "")
+            + "清单不会自动出现在上下文里，以这次返回的完整清单为准。",
+        }
 
     def granted(self, name: str) -> bool:
         """True when the user permanently approved this action on the site currently open."""
@@ -858,6 +1230,20 @@ class ToolRegistry:
         """读 ``data/tools.json``（带 mtime 缓存）。坏文件按"全开"处理，见 toolsets.load_config。"""
         return toolsets.load_config(toolsets.config_path(self.settings.data_dir))
 
+    def refresh_tool_availability(self) -> list[dict[str, Any]]:
+        """跑一遍可用性探针，把结果写进 ``app/toolsets`` 的进程内缓存。
+
+        **为什么必须有人显式调用**：``specs()`` 每轮都会算暴露面，而探针会读密钥、
+        glob 浏览器目录，不能挂在每轮请求上（Hermes 的心跳也是"按需探针 + TTL 缓存"，
+        不是定时器）。``toolsets.resolve()`` 只读缓存，所以探测必须由外部触发：
+        ``orbit tools probe`` 或装配层在启动 / 每隔若干轮调一次这个方法。
+        """
+        rows = toolsets.probe_all(list(self.tools), self.settings)
+        unavailable = [row["name"] for row in rows if not row["available"]]
+        if unavailable:
+            log.info("可用性探针：%d 个工具当前不可用（%s）", len(unavailable), "、".join(unavailable))
+        return rows
+
     def unregister_source(self, source: str) -> None:
         """摘掉某个 source 注册的全部工具（MCP 服务下线 / 重连前清理）。
 
@@ -932,10 +1318,24 @@ class ToolRegistry:
                 if name in self.external:
                     result = await self.external[name](name, args, task_id, operation_id)
                 else:
-                    result = {
-                        "status": "ok",
-                        "data": await self.local(name, args, task_id, messages),
-                    }
+                    data = await self.local(name, args, task_id, messages)
+                    # `clarify` 这类元工具要"把问题交回给用户"，而图节点只认
+                    # `status=needs_user/uncertain`（见 app/graph/nodes.py:execute）。
+                    # 本地工具正常只会被包成 {"status": "ok", "data": ...}，所以这里
+                    # 让"自带 status 的载荷"原样穿过——这是不改 nodes.py 就能复用
+                    # ask_user 那条 interrupt 通路的唯一口子。
+                    if isinstance(data, dict) and data.get("status") in {
+                        "needs_user",
+                        "uncertain",
+                    }:
+                        result = data
+                    else:
+                        result = {"status": "ok", "data": data}
+            if isinstance(result, dict):
+                # 把工具名挂在结果上：`as_tool_text` 是模型侧唯一漏斗，而它拿不到
+                # 工具名（调用点是禁改的 nodes.py）。来源判断（是否要包"不可信数据"
+                # 标记）只能靠这个字段，序列化前会被剥掉，不进模型上下文。
+                result.setdefault(TOOL_SOURCE_KEY, name)
         except MemoryWriteRefused as exc:
             result = {
                 "status": "refused",
@@ -956,6 +1356,26 @@ class ToolRegistry:
     async def local(self, name: str, args: dict, task_id: str, messages=None):
         root = self.settings.workspace.resolve()
         machine = self.settings.machine_wide
+        if name == "todo":
+            return self.todo(task_id, args)
+        if name == "clarify":
+            return clarify_payload(args)
+        if name == "apply_patch":
+            # 补丁**永远**按"仅工作文件夹"的边界解析（见 app/patch.py::_resolve）：
+            # 它是批量、不可见的写入，风险比单次写文件高一个量级。
+            from app.patch import parse_and_apply
+
+            outcome = await asyncio.to_thread(parse_and_apply, args["patch"], root)
+            if not outcome.ok:
+                raise ValueError(outcome.error)
+            return {
+                "applied": outcome.applied,
+                "summary": outcome.summary(),
+                "verified": all(
+                    (root / item["path"]).exists() or item["op"] == "delete"
+                    for item in outcome.applied
+                ),
+            }
         if name == "local_list_files":
             if machine and str(args["path"]).strip() in {"", "."}:
                 # 完全访问档下 "." 的语义是"从整机开始看"。把盘符摆出来当入口，
@@ -1408,7 +1828,7 @@ class ToolRegistry:
         return [entry for _score, entry in hits[: max(1, limit)]]
 
 
-def as_tool_text(result: dict) -> str:
+def as_tool_text(result: dict, name: str = "") -> str:
     """把工具结果转成模型看到的文本。**这是密钥脱敏的唯一漏斗**。
 
     为什么在这里脱敏：工具结果是最容易带出密钥的一条路——`read_file` 读到 `.env`、
@@ -1417,7 +1837,36 @@ def as_tool_text(result: dict) -> str:
 
     为什么先脱敏 dict 再序列化（而不是脱敏 JSON 字符串）：字符串级替换可能命中
     JSON 的语法字符，把结构改坏；`redact_obj` 只碰值、不碰结构。
-    """
-    from app import redact
 
-    return json.dumps(redact.redact_obj(result), ensure_ascii=False, default=str)
+    **注入包裹排在脱敏之后**，顺序不能反：先包后脱敏的话，包裹标记本身会被当成
+    正文参与模式匹配（既可能被脱敏改坏标记，也可能让标记里的字样触发误报）；
+    而先脱敏后包裹，得到的是"干净的正文 + 完整的分隔标记"。
+
+    **只包高风险来源**（`app/untrusted.py::is_high_risk`：`web_*`、`browser_*`、
+    `run_command`、`local_read_document`）。来源靠工具名判断——`name` 参数优先，
+    其次读 :data:`TOOL_SOURCE_KEY`（`ToolRegistry.execute` 挂上去的）。两者都没有
+    就不包：宁可漏包一条，也不要把 `memory_search` 这类"用户自己的内容"也标成
+    不可信，那样模型会对一切都半信半疑，真该警惕的那段反而被稀释掉。
+    """
+    from app import redact, untrusted
+
+    payload = result
+    source = (name or "").strip()
+    if isinstance(result, dict) and TOOL_SOURCE_KEY in result:
+        source = source or str(result[TOOL_SOURCE_KEY] or "")
+        payload = {key: value for key, value in result.items() if key != TOOL_SOURCE_KEY}
+    text = json.dumps(redact.redact_obj(payload), ensure_ascii=False, default=str)
+    if untrusted.is_high_risk(source):
+        findings = untrusted.scan(text)
+        if findings:
+            # **只记日志，不改正文**：检测是启发式的，真网页里讲提示注入的文章天天有。
+            # 把"疑似注入"写进模型上下文会让它对一切都半信半疑，而这里要的是审计
+            # 痕迹——出事后能查出"哪次工具结果里带了这类字样"。
+            log.warning(
+                "工具 %s 的结果命中 %d 条注入特征（%s），已按不可信数据包裹",
+                source,
+                len(findings),
+                "、".join(sorted({finding.kind for finding in findings})),
+            )
+        return untrusted.wrap(source, text)
+    return text

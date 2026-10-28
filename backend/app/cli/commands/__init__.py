@@ -23,6 +23,7 @@ from app.cli.commands import (  # isort: split
     gateway,
     hooks,
     mcp,
+    memory_extra,
     model,
     observability,
     ops,
@@ -34,6 +35,7 @@ from app.cli.commands import (  # isort: split
     skills,
     tools,
     ui,
+    ui_extra,
 )
 
 from app.cli.commands import hermes_parity  # noqa: F401
@@ -48,6 +50,7 @@ __all__ = [
     "gateway",
     "hooks",
     "mcp",
+    "memory_extra",
     "model",
     "observability",
     "ops",
@@ -59,5 +62,6 @@ __all__ = [
     "skills",
     "tools",
     "ui",
+    "ui_extra",
     "hermes_parity",
 ]

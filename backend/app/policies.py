@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.budget import Cut, govern
 from app.context import build_context, build_prefix
-from app.storage import Store, Task, ToolResult
+from app.storage import Memory, Store, Task, ToolResult
 
 log = logging.getLogger("orbit.policies")
 
@@ -191,6 +191,36 @@ class Reranker(Protocol):
     """
 
     def rerank(self, query: str, documents: list[str], *, top_k: int) -> list[int]: ...
+
+
+class MemoryProvider(Protocol):
+    """长期记忆的存储与检索后端（W6 记忆层）。
+
+    形状刻意只有 6 个成员：Hermes 的 8 个 provider（holographic / hindsight / mem0 /
+    supermemory / honcho / byterover / openviking / retaindb）差异全在"后端怎么存、
+    要不要云"，不在"Orbit 需要什么能力"，所以接口保持最小——多一个方法，
+    8 个实现就多 8 份要维护的空壳。
+
+    `available()` 是**同步**的：它只做"依赖装了没 / 目录可写吗"这类本地判断。
+    为了问一句"你能用吗"去建一次连接，会让"列一下有哪些 provider"变成一次网络操作。
+
+    实现见 `app/memory_providers.py`（3 个真实现 + 5 个只有接口的），
+    默认实现是本文件的 `DefaultMemoryProvider`。
+    """
+
+    name: str
+
+    def available(self) -> bool: ...
+
+    async def search(self, query: str, limit: int = 10) -> list[dict]: ...
+
+    async def save(self, key: str, value: str) -> dict: ...
+
+    async def delete(self, key: str) -> bool: ...
+
+    async def list_keys(self) -> list[str]: ...
+
+    def describe(self) -> dict: ...
 
 
 class Planner(Protocol):
@@ -647,6 +677,93 @@ class DefaultSubAgentRunner:
         raise NotImplementedError("子 Agent 尚未实现")
 
 
+class DefaultMemoryProvider:
+    """当前行为：`memories` 表上的 key-value 记忆。
+
+    这就是 `memory_save` / `memory_search` / `memory_delete` 已经在用的那个后端，
+    本类只是把它的形状收敛成 `MemoryProvider` 协议，**不引入任何新行为**：
+    `save` 走 `Store.set_memory`（含同义 key 合并），`search` 与 `memory_search`
+    同口径（key/value 子串命中），`delete` 按精确 key 删。
+
+    为什么默认实现放在 `policies.py` 而不是 `memory_providers.py`：接口与默认实现
+    成对出现是本文件的既有约定（`Default*` = 空转即兼容），换实现只改注入点。
+
+    `store` 为 `None` 时**空转**：`search` / `list_keys` 返回空，`save` / `delete`
+    返回"未写入"的观测值而不是抛异常。这条底线保护的是既有调用方——它们拿到的
+    是一个可用的对象，而不是一个需要 try/except 的雷。
+    """
+
+    name = "local"
+    kind = "builtin"
+
+    def __init__(self, store: Store | None = None) -> None:
+        self.store = store
+
+    def available(self) -> bool:
+        return self.store is not None
+
+    async def search(self, query: str, limit: int = 10) -> list[dict]:
+        if self.store is None:
+            return []
+        needle = (query or "").strip().lower()
+        rows = await self.store.rows(select(Memory).order_by(Memory.updated_at.desc()))
+        hits: list[dict] = []
+        for row in rows:
+            if needle and needle not in f"{row.key} {row.value}".lower():
+                continue
+            hits.append(
+                {
+                    "key": str(row.key),
+                    "value": str(row.value),
+                    "provider": self.name,
+                    "updated_at": str(row.updated_at),
+                    "hit_count": int(row.hit_count or 0),
+                }
+            )
+            if len(hits) >= max(1, int(limit)):
+                break
+        return hits
+
+    async def save(self, key: str, value: str) -> dict:
+        if self.store is None:
+            return {"key": key, "saved": False, "provider": self.name, "reason": "未绑定 store"}
+        memory, merged_from = await self.store.set_memory(key, value)
+        return {
+            "key": str(memory.key),
+            "saved": True,
+            "provider": self.name,
+            "merged_from": merged_from,
+        }
+
+    async def delete(self, key: str) -> bool:
+        if self.store is None:
+            return False
+        async with self.store.lock, self.store.sessions() as session:
+            row = await session.scalar(select(Memory).where(Memory.key == key))
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
+
+    async def list_keys(self) -> list[str]:
+        if self.store is None:
+            return []
+        return [str(key) for key in await self.store.rows(select(Memory.key))]
+
+    def describe(self) -> dict:
+        available = self.available()
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "available": available,
+            "backend": "sqlite:memories",
+            "install": "",
+            "requires": [],
+            "reason": "" if available else "未绑定 store（数据库不可用）",
+        }
+
+
 @dataclass
 class Policies:
     context: ContextSource
@@ -662,6 +779,9 @@ class Policies:
     embeddings: Embeddings
     vectors: VectorStore
     reranker: Reranker
+    #: 记忆后端。**带默认值**是刻意的：`Policies(...)` 的既有构造点（13 个字段）
+    #: 一个都不用改，新字段只是多了一个可注入点。
+    memory: MemoryProvider = field(default_factory=DefaultMemoryProvider)
 
     @classmethod
     def default(cls, settings, store: Store) -> Policies:
@@ -686,4 +806,5 @@ class Policies:
             embeddings=build_embeddings(settings),
             vectors=build_vector_store(settings, store),
             reranker=reranker,
+            memory=DefaultMemoryProvider(store),
         )
