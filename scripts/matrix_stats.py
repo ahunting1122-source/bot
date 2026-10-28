@@ -139,6 +139,10 @@ def verifiable_completion(actual: dict[str, int]) -> float:
     return (actual["done"] + actual.get("divergent", 0)) / verifiable * 100
 
 
+#: 软检查的提示（不判错）。`main()` 会把它打出来供人判。
+PROBLEM_HINTS: list[str] = []
+
+
 def status_column_problems(text: str) -> list[str]:
     """状态列的三种病：不是四符号之一、整行出现第二个状态符号、🟢 没写差异。
 
@@ -147,6 +151,7 @@ def status_column_problems(text: str) -> list[str]:
     把这些变成门禁错误，比事后靠人眼发现可靠。
     """
     problems: list[str] = []
+    hints: list[str] = []
     for line in text.splitlines():
         match = ITEM.match(line)
         if not match:
@@ -184,6 +189,17 @@ def status_column_problems(text: str) -> list[str]:
                     f"{ident}：标了 🟢 但「差异：」段里出现 {('、'.join(hit))}——"
                     "这是环境限制，该用 ⚫（本机不可验证），不是有意差异"
                 )
+        # 软检查（不判错，只提示）：标 ✅ 却在证据栏里写了「语义差异」
+        # → 它可能是「有意差异」而不是「完全对齐」。
+        #
+        # 为什么要这条：这类已有 4 例（7.17 / 10.11 / 14.5 / sessions），
+        # 每一例都是靠人肉发现的。**判据**：代价能写成具体行为差异 → 有意差异；
+        # 写不出来 → 就是没做到。做成提示而不是错误，因为它需要人来判。
+        if status == DONE and "语义差异" in line:
+            hints.append(
+                f"{ident}：标了 ✅ 但证据里提到「语义差异」——"
+                "若代价能写成具体行为差异，考虑标「有意差异」；写不出来就是没做到"
+            )
         if status == UNVERIFIABLE:
             # ⚫ 的硬门禁：**必须证明实现真的存在**，否则它就是第二个垃圾桶——
             # 这次收的是「压根没写」。判据是两段都得到：
@@ -199,6 +215,7 @@ def status_column_problems(text: str) -> list[str]:
                 )
             if "缺：" not in line:
                 problems.append(f"{ident}：标了 ⚫ 但没写「缺：<网络/凭证/硬件>」——不说缺什么等于没说")
+    PROBLEM_HINTS[:] = hints
     return problems
 
 
@@ -249,6 +266,13 @@ def main() -> int:
         for problem in problems:
             print(f"  · {problem}", file=sys.stderr)
         return 1
+
+    # 软检查的提示：**不判错**（退出码仍是 0），但要打出来供人判。
+    # 不打出来等于没做——这类「✅ 但语义不同」已经有 4 例，每例都是人肉发现的。
+    if PROBLEM_HINTS:
+        print("提示（不判错，请人判）：", file=sys.stderr)
+        for hint in PROBLEM_HINTS:
+            print(f"  · {hint}", file=sys.stderr)
 
     match = HEADER.search(text)
     if match is None:

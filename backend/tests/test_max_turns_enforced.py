@@ -65,17 +65,36 @@ def test_max_turns_binds_even_when_no_tool_is_called(tmp_path):
     assert policy.check({"actions": 0, "budget": budget}) == ""
 
 
-def test_think_increments_turns():
-    """源码层：`think` 必须把 `turns` 加一，否则计数器永远是 0。
+def test_budget_node_increments_turns():
+    """源码层：**`budget` 节点**必须把 `turns` 加一，否则计数器永远是 0。
 
-    行为测试要跑整张图（成本高且依赖 checkpoint 状态），而「有没有那一行」
-    是这一层要守的东西。
+    **为什么不是 `think`**：图的边是 `think → gate → execute → digest → budget → gate …`，
+    一次 `think` 之后可以**多次** `gate→execute→digest→budget` 循环。把计数放在
+    `think` 里会漏掉那些不经过 think 的循环——而那恰恰是最容易失控的形状
+    （模型反复要求同一个工具）。`budget` 才是每轮循环必过的节点。
+
+    行为证据在 `tests/test_max_turns_end_to_end.py`（真跑整图，跑飞必须停在
+    `max_turns`）；这条只守「那一行在不在」。
     """
     import pathlib
 
     from app.graph import nodes as nodes_module
 
     source = pathlib.Path(nodes_module.__file__).read_text(encoding="utf-8")
-    assert '"turns": int(state.get("turns") or 0) + 1' in source, (
-        "`think` 没有把 `turns` 加一——轮次上限永远读不到真实轮次"
+    assert 'turns = int(state.get("turns") or 0) + 1' in source, (
+        "`budget` 节点没有把 `turns` 加一——轮次上限永远读不到真实轮次"
+    )
+    # 状态 schema 必须声明 `turns`：LangGraph 的 state 是 TypedDict，
+    # 未声明的键会被**静默丢弃**——这是第一版修完仍然不生效的根因之一。
+    from app.graph.state import AgentState
+
+    assert "turns" in AgentState.__annotations__, (
+        "`AgentState` 没声明 `turns`——LangGraph 会静默丢弃它，计数器永远回到 0"
+    )
+    # settings 也必须真有这个字段：pydantic 对未声明的 kwarg 是**静默丢弃**，
+    # 不报错也不生效。这是第二版修完仍然不生效的根因。
+    from app.config import Settings
+
+    assert "max_turns" in Settings.model_fields, (
+        "`Settings` 没有 `max_turns` 字段——`--max-turns` 会被静默丢弃"
     )

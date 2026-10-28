@@ -557,10 +557,6 @@ class Nodes:
             "waiting": {},
             "answer": {},
             "plan": plan,
-            # 轮次计数（MATRIX 2.2）：`actions` 数工具调用，**这一条数循环次数**。
-            # 两者必须分开：一个"每轮只思考、不调工具"的循环 `actions` 永远是 0，
-            # 只靠 `max_actions` 拦不住它，任务会一直转下去。
-            "turns": int(state.get("turns") or 0) + 1,
         }
         if meta_updates:
             # 恢复旧 checkpoint 时补冻的前缀要写回状态，否则每轮 think 都会重算一次。
@@ -1431,7 +1427,16 @@ class Nodes:
                     actions=budget["used_actions"],
                     refs=len(state.get("refs") or {}),
                 )
-        decision = self.policies.budget.check({**state, "budget": budget})
+        # 轮次计数（MATRIX 2.2）：**在这里加，不在 `think` 里加**。
+        #
+        # 为什么：图的边是 `think → gate → execute → digest → budget → gate …`，
+        # 也就是说一次 `think` 之后可以**多次** `gate→execute→budget` 循环。
+        # 把计数放在 `think` 里，会漏掉那些不经过 think 的循环——而那恰恰是
+        # 最容易失控的形状（模型反复要求同一个工具）。
+        # `budget` 是**每轮循环必过**的那个节点（`digest` 无条件连到它），
+        # 所以它才是正确的计数点。
+        turns = int(state.get("turns") or 0) + 1
+        decision = self.policies.budget.check({**state, "budget": budget, "turns": turns})
         budget["stop_reason"] = decision
         if decision:
             await self.store.event(
@@ -1440,9 +1445,11 @@ class Nodes:
                 reason=decision,
                 used_actions=budget["used_actions"],
                 max_actions=budget.get("max_actions"),
+                max_turns=budget.get("max_turns"),
+                turns=turns,
                 elapsed=budget["elapsed"],
             )
-        return {"budget": budget}
+        return {"budget": budget, "turns": turns}
 
     # ── finalize ───────────────────────────────────────────────────────────
     async def finalize(self, state):

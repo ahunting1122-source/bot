@@ -22,6 +22,16 @@ class AgentState(TypedDict, total=False):
     plan: dict
     budget: dict
     refs: dict
+    #: 已走过的 think→execute 循环次数（MATRIX 2.2）。
+    #:
+    #: **必须在这里声明**：LangGraph 的 state 是 TypedDict，`think` 返回的 `updates`
+    #: 里出现未声明的键会被**静默丢弃**。所以「在 think 里 `turns + 1`」这件事，
+    #: 不加这一行就等于没写——轮次计数器永远是 0，上限永远不触发。
+    #: 这正是 2.2 第一版修完仍然不生效的原因（端到端用例抓到的）。
+    #:
+    #: 与 `actions` 的区别：`actions` 数**工具调用**，`turns` 数**循环次数**。
+    #: 一个「每轮只思考、不调工具」的空转循环 `actions` 恒为 0，只靠动作上限拦不住。
+    turns: int
 
     # 可观测与预留
     context_meta: dict
@@ -43,6 +53,7 @@ def defaults() -> dict[str, Any]:
         "messages": [],
         "calls": [],
         "actions": 0,
+        "turns": 0,
         "answer": {},
         "waiting": {},
         "plan": {},

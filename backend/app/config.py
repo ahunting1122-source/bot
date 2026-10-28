@@ -131,6 +131,14 @@ class Settings(BaseSettings):
     browser_url: str = ""
     granted_actions: str = ""
     max_actions: int = 40
+    # 一个任务最多走几轮 think→execute（MATRIX 2.2）。
+    #
+    # **必须在这里声明**：`turn_budgets.resolve()` 用 `getattr(settings, "max_turns")`
+    # 读它，而 pydantic 的 `Settings` 会把**未声明的 kwarg 静默丢弃**——
+    # 之前没有这个字段，所以 `Settings(max_turns=2)` 不报错也不生效，
+    # `resolve()` 永远回落到默认 90。**这正是 2.2 修了两遍仍然不生效的根因。**
+    # `None` = 没配，交给 `turn_budgets` 的默认档（父 90 / 子 50）。
+    max_turns: int | None = None
     # 单轮回复的时间上限（秒）。到点后**任务转后台继续**、先给用户一份中间结论，
     # 而不是直接把任务掐断（`agent.py` 的预算兜底仍会硬停，这里只是默认档位）。
     max_seconds: int = 360
