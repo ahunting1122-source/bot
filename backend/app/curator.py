@@ -470,6 +470,17 @@ class Curator:
         states = self._load_states()
         return {name: self._state_from(states, name) for name in states}
 
+    def state_entries(self) -> dict[str, dict[str, Any]]:
+        """原始状态表（``{名字: {state, reason, updated_at, archived_at?}}``）。
+
+        `state_map` 只给状态字符串；`app/journey.py` 的时间线还需要
+        ``updated_at``（事件发生在哪天）与 ``reason``（为什么迁移）——从字符串反推
+        这两样是不可能的，所以把已解析的表原样交出去，而不是让调用方去读私有
+        ``_load_states``（那样一改内部结构就会静默崩在另一个模块里）。
+        """
+        return {name: dict(entry) for name, entry in self._load_states().items()}
+
+
     def set_state(self, name: str, state: str, reason: str = "") -> None:
         if state not in VALID_STATES:
             raise CuratorError(f"未知状态：{state}")

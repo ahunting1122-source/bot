@@ -436,8 +436,11 @@ async def test_model_failure_after_all_attempts_reports_a_readable_error(tmp_pat
     await runner.start()
     await runner.enqueue(task.id)
     failed = await wait_status(store, task.id, "FAILED")
-    assert f"模型连续 {MODEL_ATTEMPTS} 次调用失败" in failed.error
-    assert "检查连接设置" in failed.error
+    # 断言按「类别 + 建议 + 次数」走，**不锁死整句文案**：建议措辞会演进，
+    # 但这三样是给用户行动依据的东西，丢了就等于回到"请检查连接设置"那种抹平。
+    assert "connection" in failed.error
+    assert "检查网络" in failed.error
+    assert f"已尝试 {MODEL_ATTEMPTS} 次" in failed.error
     await runner.close()
     await store.engine.dispose()
 

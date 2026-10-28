@@ -62,6 +62,15 @@ KIND_RESUMED = "session.resumed"
 KIND_CREATED = "session.created"
 KIND_IMPORTED = "session.imported"
 KIND_PRUNED = "session.pruned"
+#: 归档位（10.3）：Hermes 用 ``sessions.archived`` 标记位，Orbit 加不了列（``storage.py``
+#: 是禁改区），所以用两条互为反向的平面事件表达"当前是否归档"——**最后一条说了算**。
+#: 事件类型常量放在这里而不是 ``session_archive.py``：``kind`` 是平面日志的公共词表，
+#: 散到各模块去定义，迟早出现两处拼写不一致的"归档事件"。
+KIND_ARCHIVED = "session.archived"
+KIND_UNARCHIVED = "session.unarchived"
+#: 系统提示词冻结（10.5）：一条事件记 ``task_id → sha256``，正文落
+#: ``<data_dir>/system-prompts/<hash>.txt``（见 ``app/session_archive.py``）。
+KIND_PROMPT_FROZEN = "prompt.frozen"
 
 #: 统一时间线的三个来源（也是排序并列时的次序）。
 SOURCE_PLANE = "plane"
@@ -603,11 +612,14 @@ def _plane_text(event: Mapping[str, Any]) -> str:
 
 
 __all__ = [
+    "KIND_ARCHIVED",
     "KIND_COMPRESSED",
     "KIND_CREATED",
     "KIND_IMPORTED",
     "KIND_PRUNED",
+    "KIND_PROMPT_FROZEN",
     "KIND_RESUMED",
+    "KIND_UNARCHIVED",
     "MAX_LINEAGE_DEPTH",
     "PLANE_DIRNAME",
     "PLANE_FILENAME",

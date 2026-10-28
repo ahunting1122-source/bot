@@ -6,10 +6,12 @@
 和矩阵里消失——命令面反而缩水。所以照 ``_table.py`` 的约定：表不动，
 这里只声明"这个路径我接了"。
 
-**未实现的子命令保持 ``todo``，不接管**：``search`` / ``install`` / ``update`` /
-``uninstall`` / ``audit`` / ``reset`` / ``list-modified`` / ``diff`` / ``opt-out`` /
-``opt-in`` / ``repair-official`` / ``publish`` / ``tap`` / ``config`` 都依赖远端注册表
-或 bundled 播种通道，本机没有网络也没有 hub，硬做出来只会是"看起来能用"的空壳。
+**未实现的子命令保持 ``todo``，不接管**：``audit`` / ``reset`` / ``list-modified`` /
+``diff`` / ``opt-out`` / ``opt-in`` / ``repair-official`` / ``publish`` / ``tap`` /
+``config`` 都依赖远端注册表或 bundled 播种通道，本机没有网络也没有 hub，硬做出来
+只会是"看起来能用"的空壳。（``search`` / ``install`` / ``update`` / ``uninstall``
+已由 ``skill_extra.py`` 接走：它们是**本地 hub 目录 + quarantine 扫描**，
+不是远端通道——见该模块 docstring。）
 
 三处**刻意的语义差异**（照抄会变成假对齐，所以写在这里而不是偷偷实现）：
 
@@ -429,11 +431,12 @@ _bind("skills trust", run_trust)
 _bind("skills untrust", run_untrust)
 
 #: 显式列出"本模块没接的路径"，让"未实现"这件事可被 grep 到（而不是靠记忆）。
+#:
+#: 注意：``search`` / ``install`` / ``update`` / ``uninstall`` 已由
+#: ``skill_extra.py`` 接管（本地 hub 目录 + quarantine 扫描），所以**从这里移走**了。
+#: 同一个路径被两个模块 ``register_handler`` 会直接抛 ``ValueError``——保留旧条目
+#: 等于让导入顺序决定谁赢，那种失败极难定位。
 UNBOUND_SUBCOMMANDS: tuple[str, ...] = (
-    "skills search",
-    "skills install",
-    "skills update",
-    "skills uninstall",
     "skills audit",
     "skills reset",
     "skills list-modified",

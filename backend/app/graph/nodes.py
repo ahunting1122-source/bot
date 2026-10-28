@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from langchain_core.messages import (
+    AIMessage,
     HumanMessage,
     SystemMessage,
     ToolMessage,
@@ -23,21 +24,38 @@ from langgraph.types import interrupt
 from pydantic import Field
 from sqlalchemy import select
 
+from app import errors
+from app import errors_retry as retry
 from app.budget import TurnBudget
 from app.context import FROZEN_PREFIX_KEY, PROMPT_VERSION, frozen_prefix, prefix_of
+from app.heartbeat import TOOL_PREFIX, Heartbeat
 from app.indexing import chunks_for_tool_result
 from app.policies import estimate_tokens, normalized_origin
 from app.retrieval import PREFETCH_MIN_SCORE
 from app.storage import Task, ToolResult
 from app.tools import Args, Tool, as_tool_text
 from app.vault import Vault
+from app.window import Thresholds, thresholds, thresholds_for
 
 log = logging.getLogger("orbit.nodes")
 
 PREFETCH_TOP_K = 5
 OUTWARD_PREFIXES = ("browser_", "vault_", "notion_")
-#: 模型单步调用尝试次数：流式还没吐出正文时的失败可安全重试
+#: 模型单步调用尝试次数：流式还没吐出正文时的失败可安全重试。
+#: 只对 `errors.RETRYABLE` 四类（限流/超时/连接/过载）生效；其余失败一次就停。
 MODEL_ATTEMPTS = 3
+#: 上下文溢出后压缩到窗口的多少。照抄 Hermes 的 `compression.target_ratio: 0.2`
+#: （research 06 §20）：只压到"刚够用"会让下一轮工具结果立刻又撑爆，
+#: 压到 20% 才有余量跑完当前这轮。
+COMPACT_TARGET_RATIO = 0.2
+#: 单条消息压缩后的地板。压到几十字符等于把工具结果变成噪声，模型会开始猜。
+MIN_COMPACT_CHARS = 2_000
+#: 截断标记。**必须显式告诉模型"这里被截了"**：静默截断会让它以为输出就到这儿，
+#: 于是照着半截日志下结论。
+COMPACT_MARK = "…[上下文压缩：此处已截断]"
+#: 线程被中断时的终态正文。说清"为什么停"比只说"已停止"有用：用户知道这不是
+#: 模型放弃，而是有人/某条路径主动叫停，可以接着再发一次。
+INTERRUPTED_ANSWER = "这条线程已被中断，任务在这里停止。可以重新发一次指令继续。"
 #: 技能简述注入系统提示的上限（同簇只取第一个命中）
 SKILL_INJECT_LIMIT = 5
 STOP_LABELS = {
@@ -47,7 +65,12 @@ STOP_LABELS = {
 
 
 class ModelFailureError(RuntimeError):
-    """模型连续多次调用失败（重试后仍拿不到正文）。文案直接给用户看。"""
+    """模型调用失败且已无补救（不可重试 / 次数用完 / 已吐出半截正文）。
+
+    文案由 `errors.summary(failure, attempts)` 生成：**先说类别与建议，再说试了几次**。
+    这句话会原样进任务终态（`Task.error`）给用户看，所以它必须说"下一步做什么"，
+    而不是只有一句"请检查连接设置"——真实原因是 400 时，那句话会让人去查密钥。
+    """
 
 
 class AskArgs(Args):
@@ -87,6 +110,13 @@ class Nodes:
 
     def __init__(self, runner):
         self.runner = runner
+        # 心跳：优先用 runner 上的那个（进程级、CLI/事件流可读 `status()`）；
+        # 假 runner（测试替身）没有就本地造一个——心跳不该成为"能不能跑"的前提。
+        self.heartbeat = getattr(runner, "heartbeat", None) or Heartbeat()
+
+    def beat(self, kind: str) -> None:
+        """节点进入时报一次进展。**不改编排**：图结构、边、路由一律不动。"""
+        self.heartbeat.beat(kind)
 
     @property
     def settings(self):
@@ -108,9 +138,59 @@ class Nodes:
         browser = self.registry.browser
         return browser.current_host() if browser else ""
 
+    # ── 中断（MATRIX 2.4 / 2.8）────────────────────────────────────────────
+    def interrupted(self, thread_id: str) -> bool:
+        """这条线程是否已被要求中断。
+
+        `runner` 支持 per-thread 中断时问它；测试替身没有这个能力就返回 False
+        （"永不中断"是安全的默认：不会因为少一个方法就把正常任务当成被中断）。
+        """
+        checker = getattr(self.runner, "is_interrupted", None)
+        return bool(checker(thread_id)) if callable(checker) else False
+
+    def interrupted_updates(self, state) -> dict[str, Any]:
+        """把**当前这一轮所有**待执行调用一次性补成中断结果。
+
+        为什么不只补一个：一条 assistant 消息里可能有 N 个 `tool_call`，
+        供应商要求 N 个都有结果。逐个补也行，但中间还要再走一遍
+        digest → budget → gate，白跑几轮；一次补完最省也最不容易漏。
+        """
+        calls = list(state.get("calls") or [])
+        messages = []
+        for call in calls:
+            result = retry.interrupted_result(str(call.get("name") or ""))
+            messages.append(
+                ToolMessage(content=as_tool_text(result), tool_call_id=call["id"])
+            )
+        return {
+            "messages": messages,
+            "calls": [],
+            "actions": int(state.get("actions") or 0) + len(calls),
+            "answer": {},
+            "waiting": {},
+            # 故意不写 `last_result`：中断不是一次工具结果，不该进 `tool_results`
+            # 表（那会让"这个工具被调用过几次"的统计失真）。
+            "last_result": {},
+        }
+
+    def interrupted_answer(self, state) -> dict[str, Any]:
+        """被中断的线程不再调模型：直接给一句终态正文，让图走 finalize 收尾。
+
+        不调模型是有意的：线程都断了，再去请求一次只会多花一次 token，
+        而且拿回来的回答属于"没人要的线程"。
+        """
+        log.warning("线程 %s 已被中断，跳过模型调用", state["task_id"])
+        return {
+            "messages": [AIMessage(content=INTERRUPTED_ANSWER)],
+            "calls": [],
+            "waiting": {},
+            "answer": {},
+        }
+
     # ── prepare ────────────────────────────────────────────────────────────
     async def prepare(self, state):
         """装载上下文并初始化进度字段；只有缺 messages 时才写入（避免重复追加）。"""
+        self.beat("prepare")
         task = await self.store.get(Task, state["task_id"])
         updates: dict[str, Any] = {
             "calls": list(state.get("calls") or []),
@@ -306,6 +386,10 @@ class Nodes:
 
     # ── think ──────────────────────────────────────────────────────────────
     async def think(self, state):
+        self.beat("think")
+        if self.interrupted(state["task_id"]):
+            # 被中断的线程不再请求模型（见 `interrupted_answer`）。
+            return self.interrupted_answer(state)
         runner = self.runner
         task = await self.store.get(Task, state["task_id"])
         meta = state.get("context_meta") or {}
@@ -329,7 +413,16 @@ class Nodes:
         )
         head = f"{prefix}\n{extra}" if extra else prefix
         context = [SystemMessage(content=head)]
-        messages = [*context, *[m for m in state.get("messages") or [] if m.type != "system"]]
+        history = [m for m in state.get("messages") or [] if m.type != "system"]
+        # 配对修补（MATRIX 2.4）：任务被取消/进程被杀时，checkpoint 里可能留下
+        # "有 tool_calls 却没有 tool 结果"的 assistant 消息。这种消息原样发出去就是
+        # 供应商 400，而且此后**每一轮**都带着这个非法配对，整个会话等于废了。
+        # 这里补一条中断占位再发（不改 state，历史保持原样）。
+        repaired = retry.repair_tool_pairs(history)
+        if repaired:
+            log.warning("补齐 %d 条缺失的工具结果（中断占位）", len(repaired))
+            await self.store.event(task.id, "tool_pairs_repaired", count=len(repaired))
+        messages = [*context, *history, *repaired]
         specs = self.policies.exposer.expose(self.registry.specs())
         model = runner.get_model().bind_tools(specs, parallel_tool_calls=False)
         response_id = uuid4().hex
@@ -362,30 +455,170 @@ class Nodes:
         return updates
 
     async def ask_model(self, model, messages, task, identity):
-        """模型调用，带有限重试。
+        """模型调用：按失败类别决定"重试 / 先压缩再重试 / 立刻停"（MATRIX 2.6 / 2.7）。
 
-        只在"还没吐出任何正文"时重试——已经流出半截回答再重试会把重复内容推给前端。
-        用完尝试次数后抛 `ModelFailureError`，由 AgentRunner 落成一句能看懂的错误。
+        **改之前**：任何异常都重试 `MODEL_ATTEMPTS` 次，最后统一说"请检查连接设置、
+        API 地址与密钥"。这有两个问题：401 重试三次还是 401，只是让用户多等三个
+        来回；而真实原因是 400 时，那句统一文案把人引去查密钥——查错了方向。
+
+        **改之后**：判据全在 `app/errors_retry.py::decide`（分类来自 `app/errors.py`），
+        这里只执行：
+        * `COMPACT`：上下文溢出 → 先压缩消息再重试一次（压缩不占常规次数）；
+        * `RETRY`：只有限流/超时/连接/过载四类会走到这里；
+        * `STOP`：不可重试、次数用完、或**已流出半截正文**——直接抛
+          `ModelFailureError(errors.summary(...))`，文案带类别 + 建议 + 次数。
+
+        **保留的旧规矩**：已吐出正文时**原样抛**（不是包成 `ModelFailureError`）。
+        流式回答已经推给前端了，重试会把重复内容再推一遍；而原异常带着真实类型与栈，
+        比一句包装过的话更好排障。
         """
         task_id = task.id
-        last: Exception | None = None
-        for attempt in range(1, MODEL_ATTEMPTS + 1):
+        attempts = 0
+        compacted = False
+        working = list(messages)
+        last: BaseException | None = None
+        failure: errors.Failure | None = None
+        while True:
+            attempts += 1
             try:
-                return await self.stream_model(model, messages, task_id, identity)
+                return await self.stream_model(model, working, task_id, identity)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 last = exc
-                if self.runner.partial.get(task_id):
-                    raise
-                if attempt >= MODEL_ATTEMPTS:
-                    break
-                log.warning("模型调用失败（第 %s 次）：%s", attempt, exc)
-                await self.store.event(
-                    task_id, "model_retry", attempt=attempt, error=type(exc).__name__
+                decision = retry.decide(
+                    exc,
+                    attempt=attempts,
+                    attempts=MODEL_ATTEMPTS,
+                    has_partial=bool(self.runner.partial.get(task_id)),
+                    compacted=compacted,
                 )
-        raise ModelFailureError(
-            f"模型连续 {MODEL_ATTEMPTS} 次调用失败（{type(last).__name__}）："
-            "请检查连接设置、API 地址与密钥，或换一个模型重试。"
-        ) from last
+                failure = decision.failure
+                if decision.reason == "partial":
+                    # 半截正文已经在路上：重试只会让用户看到重复内容。
+                    raise
+                if decision.action == retry.COMPACT:
+                    compacted = True
+                    before = self._context_size(working)
+                    working = self.compact_messages(working)
+                    after = self._context_size(working)
+                    attempts -= 1  # 压缩重试是"这一次调用的补救"，不占常规次数
+                    log.warning(
+                        "上下文溢出，压缩后重试：%s → %s 字符（%s）",
+                        before,
+                        after,
+                        failure.detail[:120],
+                    )
+                    await self.store.event(
+                        task_id,
+                        "context_compacted",
+                        before_chars=before,
+                        after_chars=after,
+                        window_tokens=thresholds_for(self.settings).window_tokens,
+                        reason=failure.kind,
+                    )
+                    continue
+                if decision.action != retry.RETRY:
+                    break
+                log.warning(
+                    "模型调用失败（第 %s 次，%s）：%s", attempts, failure.kind, exc
+                )
+                await self.store.event(
+                    task_id,
+                    "model_retry",
+                    attempt=attempts,
+                    error=type(exc).__name__,
+                    # 注意：载荷里**不能**用 `kind` 这个键——`Store.event` 的第二个
+                    # 位置参数就叫 `kind`（事件类型），同名的关键字会直接 TypeError。
+                    failure_kind=failure.kind,
+                )
+        assert failure is not None  # 循环只可能从 except 分支走到 break
+        raise ModelFailureError(errors.summary(failure, attempts)) from last
+
+    def _context_size(self, messages) -> int:
+        """消息总字符数。只用于"压缩前后有没有变小"的观测与断言。"""
+        total = 0
+        for message in messages:
+            content = getattr(message, "content", "")
+            total += len(content) if isinstance(content, str) else len(str(content))
+        return total
+
+    def compact_messages(self, messages, *, window_tokens: int | None = None):
+        """上下文溢出后的**本地确定性压缩**（MATRIX 2.7 的补救动作）。
+
+        ## 压什么、不压什么
+
+        1. **系统提示一字不动**：它是"冻结前缀"，任务内必须逐字节稳定（提示缓存 +
+           任务自洽，见 `prepare` 的注释）。压它会同时打掉缓存和语义一致性。
+        2. **只压正文，不拆配对**：`tool_calls` 与 `tool` 结果必须成对存在（供应商硬
+           约束）。所以绝不"删掉中间几条消息"，而是先把每条正文截短；仍然超预算时，
+           才**整组**丢弃最老的轮次（一组 = 一条带 tool_calls 的 assistant + 它后面
+           全部 tool 结果），永远不留下半个配对。
+        3. **目标是窗口的 20%**（`COMPACT_TARGET_RATIO`，同 Hermes
+           `compression.target_ratio: 0.2`）：只压到"刚好不溢出"会让下一轮工具结果
+           立刻又撑爆，来回压缩比直接报错更糟。
+
+        ## 为什么是本地截断而不是让模型重写摘要
+
+        `app/summaries.py` 的压缩是**会话级、异步调度**的（`schedule()` 起后台任务、
+        写 `conversations.summary`），它的输入是数据库里的整段对话，不是这一步正在
+        发给模型的 `messages`；`app/context.py` 只负责装配系统提示，没有压缩接口。
+        两者都无法在 `ask_model` 这次同步调用里"立刻返回一份更短的历史"。
+        用辅助模型槽位（`aux_slots.resolve_slot("compression")`）现算一份摘要倒是可行，
+        但那是在失败重试路径里再发一次模型请求——它自己也可能溢出/超时，需要另一套
+        重试与记账，属于独立的一波工作。**所以这里用的是确定性的本地压缩**：
+        不花 token、不依赖网络、可单测，代价是丢掉正文细节而不是压成摘要。
+        """
+        limits: Thresholds = (
+            thresholds(window_tokens) if window_tokens else thresholds_for(self.settings)
+        )
+        target = max(MIN_COMPACT_CHARS, int(limits.window_chars * COMPACT_TARGET_RATIO))
+        kept = [m for m in messages if getattr(m, "type", "") == "system"]
+        rest = [m for m in messages if getattr(m, "type", "") != "system"]
+        if not rest:
+            return list(messages)
+        allowance = max(MIN_COMPACT_CHARS, target // len(rest))
+        compacted = [self._truncate_message(m, allowance) for m in rest]
+        if self._context_size(compacted) > target:
+            compacted = self._drop_oldest_rounds(compacted, target)
+        return [*kept, *compacted]
+
+    @staticmethod
+    def _truncate_message(message, limit: int):
+        """截短单条消息正文（保留头 2/3 + 尾 1/3，中间打标记）。
+
+        为什么留尾巴：工具输出（日志、报错、命令结果）的**结论在末尾**，
+        只留头部会把"最后报了什么错"截掉，模型于是照着半截输出下结论。
+        """
+        content = getattr(message, "content", "")
+        if not isinstance(content, str) or len(content) <= limit:
+            return message
+        head = max(0, limit * 2 // 3)
+        tail = max(0, limit - head)
+        body = content[:head] + f"\n{COMPACT_MARK}\n" + (content[-tail:] if tail else "")
+        copy = getattr(message, "model_copy", None)
+        if not callable(copy):
+            return message
+        return message.model_copy(update={"content": body})
+
+    def _drop_oldest_rounds(self, messages, target: int):
+        """按"整组"从最老的开始丢，直到总字符数进预算。
+
+        一组 = 一条 assistant 消息 + 紧随其后的全部 `tool` 结果（配对不拆开）。
+        **永远保留最后一组**：那是"当前正在做的事"，丢掉它模型就不知道自己
+        刚才在干嘛了。
+        """
+        groups: list[list] = []
+        for message in messages:
+            if groups and getattr(message, "type", "") == "tool":
+                groups[-1].append(message)
+            else:
+                groups.append([message])
+        total = self._context_size(messages)
+        while total > target and len(groups) > 1:
+            dropped = groups.pop(0)
+            total -= self._context_size(dropped)
+        return [message for group in groups for message in group]
 
     async def stream_model(self, model, messages, task_id, identity) -> Any:
         """一次流式调用：边收边发事件，返回完整响应。空响应按失败处理（可重试）。"""
@@ -473,6 +706,7 @@ class Nodes:
 
         v1 完全访问：事前零确认，确认分支整体移除（grants 退化为审计分组标签）。
         """
+        self.beat("gate")
         call = state["calls"][0]
         tool = self.registry.tools.get(call["name"])
         if not tool:
@@ -516,8 +750,15 @@ class Nodes:
 
     # ── execute ────────────────────────────────────────────────────────────
     async def execute(self, state):
+        self.beat("execute")
         call = state["calls"][0]
         task_id = state["task_id"]
+        if self.interrupted(task_id):
+            # per-thread 中断（MATRIX 2.8）：这条线程被标记后**不再真的执行工具**，
+            # 但仍然为**每一个**待执行的调用产出一条正常的工具结果——见
+            # `errors_retry` 的模块 docstring：抛异常会让 `tool_calls` 与
+            # `tool_results` 当场不配对，下一次请求直接被供应商 400。
+            return self.interrupted_updates(state)
         if not state["answer"].get("approved", True):
             result = {
                 "status": "denied",
@@ -545,6 +786,10 @@ class Nodes:
                 "last_result": {},
             }
         operation_id = f"{task_id}:{call['id']}"
+        # 工具执行期的心跳（MATRIX 2.3）：带 `tool:` 前缀的 beat 会把计时切成
+        # "工具内"档（上限 1200 s 而不是 450 s）——编译、跑测试本来就慢，
+        # 用空闲档去量它们必然误判。见 app/heartbeat.py。
+        self.beat(f"{TOOL_PREFIX}{call['name']}")
         # 传 messages 是因为「记忆写入门槛」（M2）必须读到用户原话：
         # 只认用户显式说过的「记住……」，模型自行沉淀一律拒绝。
         result = await self.registry.execute(
@@ -621,6 +866,7 @@ class Nodes:
     # ── digest ─────────────────────────────────────────────────────────────
     async def digest(self, state):
         """原文落库（checksum 幂等）+ 引用登记 + 大小观测；模型看到的内容不变。"""
+        self.beat("digest")
         last = state.get("last_result") or {}
         task_id = state["task_id"]
         if not last:
@@ -730,6 +976,7 @@ class Nodes:
         命中时把**轨迹推导出的提醒**作为一条 harness 消息塞回上下文——注入的是
         "别再重复失败参数 / 别重复已完成步骤"这类纠偏，不是新的待办。
         """
+        self.beat("reflect")
         if not self.policies.reflector.should_reflect(state):
             return {}
         task_id = state["task_id"]
@@ -750,6 +997,7 @@ class Nodes:
 
     # ── budget ─────────────────────────────────────────────────────────────
     async def budget(self, state):
+        self.beat("budget")
         budget = dict(state.get("budget") or {})
         budget["used_actions"] = int(state.get("actions") or 0)
         started = float(budget.get("started_at") or time.time())
@@ -813,6 +1061,7 @@ class Nodes:
     # ── finalize ───────────────────────────────────────────────────────────
     async def finalize(self, state):
         """收尾：回答 + 完成度清单 + 对外动作清单 + 引用回填校验。"""
+        self.beat("finalize")
         task_id = state["task_id"]
         budget = dict(state.get("budget") or {})
         stop = str(budget.get("stop_reason") or "")

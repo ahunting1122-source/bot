@@ -896,11 +896,16 @@ class SkillIndex:
         return {"added": added, "removed": removed, "changed": changed}
 
 
-def _parse_triggers(meta: dict[str, Any]) -> tuple[str, ...]:
+def parse_triggers(meta: dict[str, Any]) -> tuple[str, ...]:
     """触发词可能写在三个位置：``triggers`` / 顶层 ``tags`` / ``metadata.hermes.tags``。
 
     Hermes 里这三处并存（`_parse_tags` 兼容 ``[a, b]`` / ``a, b`` / 已解析列表），
     推荐位置是 ``metadata.hermes.tags``。索引要给出触发词就得三处都认。
+
+    公开导出（原为 ``_parse_triggers``）：`app/skill_lint.py` 的两条规则
+    （触发词过多/过短、触发词重复）要对**同一套解析结果**判定。若 lint 自己再写
+    一份解析，两处口径迟早分叉——索引说「3 条触发词」而 lint 说「5 条」，是最难
+    自证的那种不一致。
     """
     for candidate in (
         meta.get("triggers"),
@@ -927,6 +932,11 @@ def _coerce_list(value: Any) -> tuple[str, ...]:
             text = text[1:-1]
         return tuple(part.strip() for part in text.split(",") if part.strip())
     return ()
+
+
+def _parse_triggers(meta: dict[str, Any]) -> tuple[str, ...]:
+    """`parse_triggers` 的旧名薄包装（内部调用点不动，行为逐字节一致）。"""
+    return parse_triggers(meta)
 
 
 def _category_of(path: Path, root: Path) -> str:
@@ -980,6 +990,7 @@ __all__ = [
     "build_index",
     "check_content_size",
     "index_description",
+    "parse_triggers",
     "scan_skill",
     "scan_text",
     "validate_frontmatter",

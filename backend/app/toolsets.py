@@ -52,6 +52,10 @@ TOOLSETS: dict[str, str] = {
     "core": "对话骨架：提问（ask_user）、选择题（clarify）、任务清单（todo）、工具检索",
     "files": "本地文件读写与检索（local_*、apply_patch）",
     "shell": "在本机执行系统命令（run_command）",
+    # 代码执行（MATRIX 5.17）。**单独立一个 toolset**，不并进 shell：两者风险面不同。
+    # `shell` 是"跑一条系统命令"，`code` 是"跑一段模型自己写的代码"——后者能在一个
+    # 进程里做任意事，收窄暴露面时往往想单独关掉它（保留 run_command 做构建/查询）。
+    "code": "在子进程里执行一段代码（code_execution，非沙箱）",
     "browser": "浏览器观察与操作（browser_*）",
     "vault": "凭据填充与登录（vault_login）",
     "notion": "Notion 页面读写（notion_*）",
@@ -87,6 +91,9 @@ TOOL_TOOLSET: dict[str, str] = {
     "apply_patch": "files",
     # shell
     "run_command": "shell",
+    # code（MATRIX 5.17）：显式登记而不是靠前缀——`code_execution` 没有 `code_` 前缀
+    # 之外的习惯可循，靠猜前缀归类正是这张表要防的那件事。
+    "code_execution": "code",
     # browser
     "browser_observe": "browser",
     "browser_navigate": "browser",

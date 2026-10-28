@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -13,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import approvals, toolsets
+from app import approvals, code_exec, egress, terminal, tirith, toolsets
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Operation, Store, Task, serialize
 
@@ -119,10 +120,24 @@ class MemoryWriteRefused(RuntimeError):
     `status="error"`——对模型来说两者含义不同："被拒绝"表示别再试了，
     "出错"表示换个参数可能就能成。
 
+
     **`refused` 是非终态**：它记的是"以当时那轮上下文，不该写入"，而不是
     "这次调用失败了"。所以 `Operation.status` 要落 WAITING 而不是 DONE——
     若落 DONE，幂等短路会把这条拒绝永久缓存，之后即使用户补了「记住」，
     同一 operation_id 也永远拿不回成功结果（节点重放 / 断点恢复都会踩到）。
+    """
+
+
+class ExecutionRefused(RuntimeError):
+    """执行前裁决拒绝执行：`tirith` 组合扫描、`egress` 出站策略。
+
+    为什么用异常而不是 `return {"status": "refused", ...}`：`ToolRegistry.execute`
+    会把本地工具的 dict 返回值统一包成 `{"status": "ok", "data": ...}`，把拒绝态
+    **覆盖掉**——`MemoryWriteRefused` 已经踩过这个坑（见 `skill_save` 里那句
+    "必须 raise（不能返回 status）"）。走异常是唯一能让拒绝态活着到模型眼前的路径。
+
+    与 `MemoryWriteRefused` 分开成两个类，是因为分发点给的载荷不同：
+    记忆拒绝要带 `saved`（"什么都没存"），执行拒绝只需要 `error`。
     """
 
 
@@ -239,6 +254,41 @@ class CommandArgs(Args):
         ge=1,
         le=1800,
         description="超时秒数，到点强制终止该进程。命令本就该很快结束，别用它等长任务。",
+    )
+
+
+class CodeExecArgs(Args):
+    """`code_execution` 的参数。**故意没有"环境"或"额外文件"这类入口**：
+    参数面越小，越容易说清"这段代码到底在什么条件下跑的"。"""
+
+    code: str = Field(
+        min_length=1,
+        max_length=code_exec.MAX_CODE_CHARS,
+        description=(
+            "要执行的代码正文（Python）。整段放进 `python -c` 跑，不经过 shell，"
+            "所以管道符、重定向符都是代码的一部分而不是 shell 语法。"
+            "要打印结果请用 print：只有 stdout/stderr 会回传。"
+        ),
+    )
+    language: str = Field(
+        default="python",
+        description="语言。本机只保证 python（就是 Orbit 自己的解释器）。",
+    )
+    timeout: int = Field(
+        default=code_exec.DEFAULT_TIMEOUT,
+        ge=1,
+        le=code_exec.MAX_TIMEOUT,
+        description=(
+            f"超时秒数（默认 {code_exec.DEFAULT_TIMEOUT}）。到点终止整棵进程树，"
+            "并回 exit_code=null + timed_out=true。"
+        ),
+    )
+    cwd: str = Field(
+        default="",
+        description=(
+            "工作目录。留空＝授权目录（仅工作文件夹档）或用户主目录（完全访问档）。"
+            "相对路径按授权目录解析。"
+        ),
     )
 
 
@@ -545,6 +595,14 @@ LOCAL_TOOLS = [
         "根目录等）会被拒绝；「完全访问权限」档：不限工作目录、不限命令。",
         CommandArgs,
     ),
+    Tool(
+        "code_execution",
+        "把一段 **Python 代码**放进独立子进程里执行，返回 stdout / stderr / 退出码。"
+        "算数、批处理文件、跑一段一次性逻辑用它；要调用系统命令、装依赖、跑构建用 run_command。"
+        "**不是沙箱**：文件系统、网络、内存都不受限，且子进程继承当前环境变量。"
+        "超时（默认 30 秒）会杀掉整棵进程树。执行前会过与 run_command 同一套危险裁决。",
+        CodeExecArgs,
+    ),
     Tool("memory_search", "按关键词搜索跨对话长期记忆。", SearchArgs),
     Tool(
         "memory_save",
@@ -768,12 +826,17 @@ def terminate_tree(process: subprocess.Popen) -> None:
             pass
 
 
-def run_shell(command: str, cwd: Path, timeout: int) -> dict:
+def run_shell(
+    command: str, cwd: Path, timeout: int, env: dict[str, str] | None = None
+) -> dict:
     """同步执行一条 shell 命令并回收结果。`shell=True`：Windows 走 cmd.exe，其余走 sh。
 
     用 `Popen` 而不是 `subprocess.run`：run 在超时时只杀直接子进程，随后仍会阻塞在
     `communicate()` 上等孤儿进程关掉管道，实测把 1 秒超时拖成 30 秒。这里改成"杀整棵树 +
     有界回收"，超时是真的超时。
+
+    `env` 默认 `None`（= 完全继承当前进程环境，与引入终端后端抽象之前逐字一致）；
+    `app/terminal.py::LocalBackend` 需要注入变量时才显式传。
     """
     started = time.time()
     process = subprocess.Popen(
@@ -782,6 +845,7 @@ def run_shell(command: str, cwd: Path, timeout: int) -> dict:
         cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
         start_new_session=(os.name != "nt"),
     )
     timed_out = False
@@ -1336,6 +1400,11 @@ class ToolRegistry:
                 # 工具名（调用点是禁改的 nodes.py）。来源判断（是否要包"不可信数据"
                 # 标记）只能靠这个字段，序列化前会被剥掉，不进模型上下文。
                 result.setdefault(TOOL_SOURCE_KEY, name)
+        except ExecutionRefused as exc:
+            # 执行前裁决的拒绝（tirith 组合扫描 / egress 出站策略）。载荷形状照
+            # 需求方约定：`{"status": "refused", "error": ...}`，**不带 data**——
+            # 带 data 会让模型以为"有结果但被拒"，从而拿半份结果继续编。
+            result = {"status": "refused", "error": str(exc)[:2000]}
         except MemoryWriteRefused as exc:
             result = {
                 "status": "refused",
@@ -1352,6 +1421,74 @@ class ToolRegistry:
         await self.store.save(operation)
         await self.store.event(task_id, "tool_finished", tool=name, result=result)
         return result
+
+    # ── 执行前的两道闸（tirith 组合扫描 / egress 出站策略）──────────────────
+
+    async def _tirith_gate(self, task_id: str, tool: str, text: str) -> None:
+        """执行前的**组合**风险扫描（MATRIX 14.4 的接线点）。
+
+        ## 为什么 tirith 排在 approvals 之前
+
+        两层判的不是同一件事，顺序也不是随便定的：
+
+        - `tirith` 看**组合**：`curl … | sh`、`find -exec rm`、`echo $DATA | base64 -d | bash`。
+          单看每一段都无害，合起来才是入侵脚本的形状。它的语义**更宽**（跨管道、
+          跨 `&&`/`;`、跨命令替换），所以先跑：先按"整条命令像不像攻击链"过一遍。
+        - `approvals` 看**单条命令的硬地板**：`mkfs`、`diskpart`、`rm -rf /`。
+          它逐条匹配危险模式，回答的是"这条命令本身会不会把机器搞坏"。
+
+        反过来（approvals 先）会留下一个真实的洞：`curl x | sh` 里 approvals 的
+        `pipe_to_shell` 只在 smart/manual 模式下拦，而 `off`（Orbit 默认）直接放行——
+        于是组合攻击在默认配置下**完全不设防**。tirith 不受审批模式影响（它有自己的
+        `tirith_enabled` / `tirith_block_severity`），所以它必须在前。
+
+        顺序也不改变"谁能拦"：任一层拒绝都会让命令不执行。先跑 tirith 只是让
+        "组合攻击"的拒绝信息先出现——那才是用户真正需要看懂的那条。
+        """
+        result = tirith.scan(text, settings=self.settings)
+        if not result.blocked:
+            return
+        kinds = [finding.kind for finding in result.findings]
+        # 被拦了要能从事件流里查到：只回一句 error，事后复盘只能靠猜"当时拦的是什么"。
+        if self.store is not None:
+            try:
+                await self.store.event(
+                    task_id,
+                    "tirith_blocked",
+                    tool=tool,
+                    kinds=kinds,
+                    severity=result.severity,
+                    block_at=result.block_at,
+                    excerpt=(text or "")[:200],
+                )
+            except Exception as exc:  # 事件落库失败不能把拒绝变成放行
+                log.warning("tirith 拒绝事件落库失败（忽略）：%s", exc)
+        raise ExecutionRefused(tirith.refusal(result))
+
+    def _egress_gate(self, command: str) -> None:
+        """出站前检查：`curl` / `wget` 的目标 host 过一遍 egress 策略。
+
+        **只接 run_command，不接 web 工具**：`app/web.py` 不归本轮改动，它自己的
+        `url_safety` 闸管的是"别连本机/内网/元数据地址"，与本层的"这个 host 允不允许
+        出站"是两件事。这里能做的是"命令行里**显式写出**的目标 host"，所以它对
+        `curl https://…` 有效，对 `curl $(cat u)` 无效——如实写在 `app/egress.py` 的
+        模块 docstring 里，不在这里假装是防火墙。
+
+        没有策略文件时 `check()` 一律返回 allow（`default=allow`），这一步对既有行为
+        零影响。
+        """
+        hosts = egress.command_hosts(command)
+        if not hosts:
+            return
+        policy = egress.EgressPolicy.load(self.settings.data_dir)
+        for host in hosts:
+            decision = policy.check(host)
+            if decision.allowed:
+                continue
+            raise ExecutionRefused(
+                f"出站被 egress 策略拦下：{host}（{decision.action}）。{decision.reason}。"
+                f"确认要放行就执行 `orbit egress allow {host}`（或写进 data/egress.json）。"
+            )
 
     async def local(self, name: str, args: dict, task_id: str, messages=None):
         root = self.settings.workspace.resolve()
@@ -1498,9 +1635,14 @@ class ToolRegistry:
             if not command:
                 raise ValueError("命令不能为空")
             start = str(args.get("cwd") or "").strip()
-            # 执行前裁决：两级（硬地板 / 危险模式），判据在 `app/approvals.py`。
-            # **两档都走这一步**——硬地板是否在完全访问档也生效由 `hardline_in_machine`
+            # 执行前裁决，四道，顺序有语义（改顺序前先读 `_tirith_gate` 的 docstring）：
+            #   ① tirith 组合扫描——跨管道/跨 `&&` 的组合语义，不受审批模式影响；
+            #   ② approvals 单条命令的两级裁决（硬地板 / 危险模式），判据在 `app/approvals.py`；
+            #   ③ egress 出站策略——`curl`/`wget` 的目标 host 允不允许出去；
+            #   ④ 交给终端后端真正执行。
+            # **两档都走 ①②**：硬地板是否在完全访问档也生效由 `hardline_in_machine`
             # 决定（默认关，尊重 Orbit 既有的"machine 档不设限"决策）。
+            await self._tirith_gate(task_id, "run_command", command)
             mode = approvals.resolve_mode(self.settings)
             allowlist: tuple[str, ...] = ()
             if mode != "off":
@@ -1517,6 +1659,7 @@ class ToolRegistry:
             )
             if verdict.verdict != approvals.VERDICT_ALLOW:
                 raise ValueError(_refusal(verdict, machine, mode))
+            self._egress_gate(command)
             if machine:
                 # 完全访问档：不限工作目录，默认落用户主目录（比工作目录更"像整机"）。
                 cwd = resolve_path(root, start or str(Path.home()), True)
@@ -1525,7 +1668,60 @@ class ToolRegistry:
             if not cwd.is_dir():
                 raise ValueError(f"工作目录不存在：{cwd}")
             timeout = int(args.get("timeout") or self.settings.command_timeout or 120)
-            return await asyncio.to_thread(run_shell, command, cwd, timeout)
+            # 终端后端抽象（MATRIX 5.18）：默认 `local`，与引入这一层之前逐字一致
+            # （`TerminalResult.as_dict()` 的键名/取值就是原 `run_shell` 的返回）。
+            # 后端不可用时 `run()` 抛 ValueError，错误信息里带原因（缺 wsl.exe / 容器没起等）。
+            backend = terminal.resolve_backend(None, self.settings)
+            # `functools.partial` 而不是直接传 `backend.run` + 关键字：`asyncio.to_thread`
+            # 的泛型推断在同一作用域里会被上面那次 `to_thread(parse_and_apply, …)`
+            # 带偏（mypy 把返回类型解成 `ApplyResult`）。包一层是最省事的确定性写法。
+            runner = functools.partial(backend.run, command, cwd=cwd, timeout=timeout)
+            # 变量名**不复用**上面的 `outcome`：mypy 会拿第一次赋值的类型
+            # （`ApplyResult`）当上下文去反推 `to_thread` 的泛型，复用名字就会连带推断出错。
+            terminal_result = await asyncio.to_thread(runner)
+            return terminal_result.as_dict()
+        if name == "code_execution":
+            code = str(args["code"])
+            start = str(args.get("cwd") or "").strip()
+            # 与 run_command 同一套闸（顺序也一致）：组合扫描在前、硬地板在后。
+            # 代码正文也过 approvals：`os.system("rm -rf /")` 正是这条链要拦的形状。
+            # 代价是"字符串里恰好出现同类字面量"会误拦，拒绝信息里会点名命中的规则，
+            # 用户可以改写代码或拆成两步——比放过一条真破坏命令好。
+            await self._tirith_gate(task_id, "code_execution", code)
+            mode = approvals.resolve_mode(self.settings)
+            allowlist = ()
+            if mode != "off":
+                allowlist = approvals.AllowList.load(
+                    Path(self.settings.data_dir) / "approvals.json"
+                ).rules
+            verdict = approvals.classify(
+                code,
+                mode=mode,
+                allowlist=allowlist,
+                env_type="local",
+                hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
+                machine_wide=machine,
+            )
+            if verdict.verdict != approvals.VERDICT_ALLOW:
+                raise ValueError(_refusal(verdict, machine, mode))
+            if machine:
+                cwd = resolve_path(root, start or str(Path.home()), True)
+            else:
+                cwd = resolve_path(root, start or ".", False)
+            if not cwd.is_dir():
+                raise ValueError(f"工作目录不存在：{cwd}")
+            timeout = int(args.get("timeout") or code_exec.DEFAULT_TIMEOUT)
+            # 同上：包一层 `partial`，且**不复用** `runner` 这个名字（同一个作用域里
+            # 两个不同的返回类型共用变量名会把 mypy 的泛型推断搅在一起）。
+            code_runner = functools.partial(
+                code_exec.run_code,
+                code,
+                language=str(args.get("language") or "python"),
+                timeout=timeout,
+                cwd=cwd,
+            )
+            code_result = await asyncio.to_thread(code_runner)
+            return code_result.as_dict()
         if name == "memory_search":
             memories = await self.store.rows(select(Memory).where(Memory.user_id == "local"))
             return [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -8,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
@@ -18,10 +20,29 @@ from app import fallback as fb
 from app import providers as pv
 from app.graph import build_graph
 from app.graph.nodes import ModelFailureError, Nodes, register_ask_user
+from app.heartbeat import Heartbeat
 from app.policies import Policies
 from app.storage import Message, Operation, Task
 
 log = logging.getLogger("orbit.agent")
+
+#: 后台复审（MATRIX 2.5）：任务成功后追加的那一轮用户消息。
+#: 前半句照抄 Hermes 的学习回路（research 09 §1.5 的 `Review the conversation above…`），
+#: 后半句是给中文模型的行为约束——不约束它会写一整篇读后感。
+BG_REVIEW_PROMPT = (
+    "Review the conversation above and note anything worth remembering. "
+    "只挑真正可复用的东西：可重复使用的做法、关于用户环境/偏好的稳定事实、"
+    "以及不该再犯的错误。最多 5 条短句；如果什么都不值得记，只回复 none。"
+)
+#: 复审的系统提示。刻意**不复用**任务里的冻结前缀：复审是旁路，它要的是"局外人
+#: 视角"，带上任务那套"你是执行者"的提示反而会让它继续干活而不是提炼经验。
+BG_REVIEW_SYSTEM = (
+    "你是一个复盘者，不执行任务、不调用工具。你的唯一工作是从上面这段对话里"
+    "提炼值得长期记住的经验。没有就回复 none。"
+)
+#: 复审带多少条历史。20 条足够看清"做了什么、怎么成的、错在哪"，
+#: 再多只是把成本推高——复审读的是全文，一条大工具结果就能吃掉几千 token。
+BG_REVIEW_HISTORY = 20
 
 
 @dataclass(frozen=True)
@@ -212,6 +233,16 @@ class AgentRunner:
         self.model = model
         self.summaries = summaries
         self.policies = policies or Policies.default(settings, store)
+        # 心跳（MATRIX 2.3）：进程级一个，`Nodes` 各节点进入时 beat 一次，
+        # CLI/事件流读 `status()` 就知道"卡在哪一步、多久没动静"。
+        self.heartbeat = Heartbeat()
+        #: 被要求中断的线程（任务 id）。**软中断**语义，见 `cancel_thread`。
+        self.interrupted_threads: set[str] = set()
+        #: 后台复审任务（MATRIX 2.5）。留在集合里只为一件事：`close()` 时要取消，
+        #: 否则进程退出时它还在等一次模型调用，会把退出拖住。
+        self._bg_reviews: set[asyncio.Task] = set()
+        #: 延迟入队的等待者（见 `enqueue`）：job 收尾后替调用方重新入队。
+        self._deferred: set[asyncio.Task] = set()
         self.nodes = Nodes(self)
         self.partial: dict[str, str] = {}
         #: 每步模型调用的 token 计量（估算值）：{task_id: {prompt_tokens, completion_tokens, elapsed}}。
@@ -274,11 +305,42 @@ class AgentRunner:
         self.worker.cancel()
         for task in self.current.values():
             task.cancel()
-        await asyncio.gather(self.worker, *self.current.values(), return_exceptions=True)
+        # 后台复审是旁路：进程要退就直接取消，绝不为它多等一次模型调用。
+        for review in list(self._bg_reviews):
+            review.cancel()
+        for waiter in list(self._deferred):
+            waiter.cancel()
+        await asyncio.gather(
+            self.worker,
+            *self.current.values(),
+            *self._bg_reviews,
+            *self._deferred,
+            return_exceptions=True,
+        )
+        self._bg_reviews.clear()
+        self._deferred.clear()
         await self.checkpoint_context.__aexit__(None, None, None)
 
     async def enqueue(self, task_id: str, resume: dict | None = None):
-        if task_id in self.queued or task_id in self.current:
+        """入队。**同一任务正在跑时不丢这次请求**，而是等它收尾后再入队。
+
+        为什么不能直接 `return`（原来的写法）：任务进入 `WAITING_USER` 时，状态
+        已经落库、但 job 还没从 `self.current` 里摘掉——中间还隔着事件写入与
+        `finally` 里的摘要收尾。调用方看到"已等待用户"就立刻 `enqueue(..., resume)`，
+        此时 `task_id in self.current` 仍为真，那次 enqueue 会被**静默丢弃**：
+        用户明明回答了，任务却永远停在等待态。这是真实存在的竞态
+        （`tests/test_graph.py::test_ask_user_still_interrupts_and_resumes` 偶发挂死）。
+
+        用"等 job 结束再入队"而不是"阻塞调用方"：调用方可能是 HTTP 请求，
+        不能为一个跑几分钟的任务一直挂着。
+        """
+        job = self.current.get(task_id)
+        if job is not None and not job.done():
+            deferred = asyncio.create_task(self._enqueue_after(job, task_id, resume))
+            self._deferred.add(deferred)
+            deferred.add_done_callback(self._deferred.discard)
+            return
+        if task_id in self.queued:
             return
         await self.store.transition(
             task_id, "PENDING", waiting={"resume": resume} if resume else {}
@@ -286,11 +348,147 @@ class AgentRunner:
         self.queued.add(task_id)
         await self.queue.put(task_id)
 
+    async def _enqueue_after(self, job: asyncio.Task, task_id: str, resume: dict | None):
+        """等当前 job 收尾后再入队。`job.done()` 之后不再判 `current`，否则会自激。"""
+        await asyncio.gather(job, return_exceptions=True)
+        await self.enqueue(task_id, resume)
+
     async def cancel(self, task_id: str):
         job = self.current.get(task_id)
         if job:
             job.cancel()
             await asyncio.gather(job, return_exceptions=True)
+
+    def is_interrupted(self, thread_id: str) -> bool:
+        """这条线程是否被要求中断。`Nodes` 用它决定"还要不要继续这一步"。"""
+        return thread_id in self.interrupted_threads
+
+    async def cancel_thread(self, thread_id: str, reason: str = "") -> bool:
+        """只打断**一条线程**，其它线程照常（MATRIX 2.8）。
+
+        ## 哪些部分是真隔离，哪些是降级
+
+        **真隔离**：Orbit 里"一条线程"= 一个独立任务（`run()` 里的
+        `RunnableConfig.configurable.thread_id` 就是任务 id）。每个任务一个
+        asyncio job、一份 checkpoint、一套状态，标记/跳过这一条完全不影响别的任务。
+
+        **降级（必须说清）**：**同一个任务内部**的步骤是一条串行图
+        （prepare → think → gate → execute → …），没有能单独杀掉的子线程。
+        所以任务内的"中断"只能做成"**标记 + 后续步骤跳过**"：
+        * `Nodes.execute` 不再真的执行工具，但仍为每个待执行调用补一条
+          `[interrupted]` 结果（配对不能断，见 `app/errors_retry.py`）；
+        * `Nodes.think` 不再请求模型，图直接走 finalize 交出半截结果。
+
+        **正在执行的那一步不会被强行终止**——它要么还没开始（被跳过），要么已经
+        在跑（跑完，结果被丢弃）。要立刻硬停整条任务请用 `cancel()`：那会真的
+        抛出 `CancelledError`（代价是拿不到优雅的收尾正文）。
+
+        返回 True 表示这条线程确实在这台 runner 上（在跑或排队中）；False 表示
+        不认识它——但**标记仍然生效**，将来它真跑起来会直接跳过执行。
+        """
+        thread_id = str(thread_id or "")
+        if not thread_id:
+            return False
+        known = thread_id in self.current or thread_id in self.queued
+        self.interrupted_threads.add(thread_id)
+        if known:
+            try:
+                await self.store.event(
+                    thread_id, "thread_interrupted", reason=reason or "user"
+                )
+            except Exception:  # 审计写失败不该让中断本身失败
+                log.warning("中断事件写入失败（忽略）：%s", thread_id)
+        return known
+
+    # ── 后台复审（MATRIX 2.5）──────────────────────────────────────────────
+    def review_enabled(self) -> bool:
+        """复审开关。**默认关**，理由见 `_bg_review` 的 docstring。
+
+        两级来源，与 `fallback.load_chain` 同款读法：
+        1. `settings.bg_review`（`app/config.py` 将来加了字段就自动生效）；
+        2. `<data_dir>/settings.json` 里的 `bg_review`（用户运行时改，不用重启配置）。
+        """
+        inline = getattr(self.settings, "bg_review", None)
+        if inline is not None:
+            return bool(inline)
+        try:
+            data = json.loads(
+                (Path(self.settings.data_dir) / "settings.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            return False
+        return bool(data.get("bg_review", False)) if isinstance(data, dict) else False
+
+    def _spawn_bg_review(self, task: Task) -> None:
+        """起后台复审任务。**立刻返回**，主流程不等它（复审是旁路）。"""
+        if not self.review_enabled():
+            return
+        job = asyncio.create_task(self._bg_review(task))
+        self._bg_reviews.add(job)
+        job.add_done_callback(self._bg_reviews.discard)
+
+    async def _bg_review(self, task: Task) -> None:
+        """任务成功后的后台复审：让模型自己提炼可复用经验（MATRIX 2.5）。
+
+        ## 为什么默认**关**
+
+        Hermes 的 `bg-review` 线程是默认跑的（research 09 §1.5 的实证日志），但那是
+        有前提的：它跑在辅助槽位上、而且有"无事可做就不调用模型"的短路。Orbit 现在
+        缺两样东西：
+
+        1. **消费方还没有**。提炼出来的经验要有地方去（记忆沉淀/技能库）。现在只能
+           落成一条事件——也就是"花钱换一条日志"，纯亏。
+        2. **它是每个成功任务一次的整段上下文模型调用**。在按量计费的 key 上这是
+           一笔静默的倍增成本，而且它发生在任务"已经成功"之后，预算闸门根本看不到它
+           （`budget` 只统计工具结果与摘要）。
+
+        所以：**默认关，接线后可以一行打开**（`settings.json` 里 `{"bg_review": true}`）。
+        等记忆沉淀那条路打通、复审结果有地方落，再默认开。
+
+        ## 失败必须静默
+
+        复审是旁路：它挂了不能影响已经成功的任务，也不该在用户界面上留一条红字。
+        所以只记日志 + 一条 `bg_review_failed` 事件。
+        """
+        try:
+            rows = await self.store.rows(
+                select(Message)
+                .where(Message.conversation_id == task.conversation_id)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(BG_REVIEW_HISTORY)
+            )
+            history = []
+            for row in reversed(list(rows)):
+                if not (row.content or "").strip():
+                    continue
+                cls = AIMessage if row.role == "assistant" else HumanMessage
+                history.append(cls(content=row.content))
+            if not history:
+                return
+            payload = [
+                SystemMessage(content=BG_REVIEW_SYSTEM),
+                *history,
+                HumanMessage(content=BG_REVIEW_PROMPT),
+            ]
+            response = await self.get_model().ainvoke(payload)
+            text = str(getattr(response, "text", "") or "").strip()
+            await self.store.event(
+                task.id,
+                "bg_review",
+                result=text[:2000],
+                empty=(not text or text.lower() == "none"),
+                messages=len(history),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # 复审是旁路，失败一律静默
+            log.info("后台复审失败（静默忽略）：%s", exc)
+            try:
+                await self.store.event(
+                    task.id, "bg_review_failed", error=f"{type(exc).__name__}: {str(exc)[:300]}"
+                )
+            except Exception:
+                pass
 
     async def _record_skill_outcome(self, task: Task, status: str) -> None:
         """任务终态回写技能治理（降级淘汰）。
@@ -389,6 +587,9 @@ class AgentRunner:
             usage = self._token_usage.pop(task.id, {})
             await self.store.event(task.id, "task_completed", text=text, token_usage=usage)
             await self._record_skill_outcome(task, "SUCCEEDED")
+            # 后台复审（MATRIX 2.5）：只起任务、不等结果——主流程的成功路径
+            # 绝不能因为"旁路的复盘"多等一次模型调用。
+            self._spawn_bg_review(task)
         except asyncio.CancelledError:
             await self.save_partial(task)
             raise
