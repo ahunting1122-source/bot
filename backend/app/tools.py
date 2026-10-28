@@ -23,6 +23,7 @@ from app import (
     clarify_delivery,
     code_exec,
     egress,
+    hooks,
     memory_write,
     terminal,
     tirith,
@@ -2071,6 +2072,23 @@ class ToolRegistry:
             # 通道选择与超时语义都在 `approval_channel` 里：无 TTY / 无人值守一律
             # **deny**，且超时是第三态 `timeout`——把"超时"说成"你拒绝了"，
             # 用户会以为自己点过拒绝，然后去找一个不存在的操作记录。
+            #
+            # `pre_approval_request` / `post_approval_response` 发射点（MATRIX 13.5）：
+            # 审批审计是**事后追责的唯一凭据**——谁在什么时候批准了哪条危险命令。
+            # 之前这两个事件只有名字、没有发射点，于是审批过程在观测端完全不可见。
+            try:
+                hooks.emit(
+                    "pre_approval_request",
+                    {
+                        "task_id": task_id,
+                        "tool": tool,
+                        "command": text,
+                        "mode": mode,
+                        "reason": str(getattr(verdict, "reason", "") or ""),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 —— 旁路，不该拦审批
+                log.warning("pre_approval_request 钩子出错（已忽略）：%s", exc)
             decision = approval_channel.approve_or_refuse(
                 text,
                 mode=mode,
@@ -2078,6 +2096,21 @@ class ToolRegistry:
                 task_id=task_id,
                 reason=str(getattr(verdict, "reason", "") or ""),
             )
+            try:
+                hooks.emit(
+                    "post_approval_response",
+                    {
+                        "task_id": task_id,
+                        "tool": tool,
+                        "allowed": bool(decision.allowed),
+                        # 三态（allow / deny / timeout）原样上报——**不要压成布尔**，
+                        # 否则「超时」会被读成「用户拒绝」，而那两件事的处置完全不同。
+                        "outcome": str(decision.outcome),
+                        "reason": str(decision.reason),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("post_approval_response 钩子出错（已忽略）：%s", exc)
             if not decision.allowed:
                 raise ValueError(
                     f"审批未通过（{decision.outcome}）：{decision.reason}"

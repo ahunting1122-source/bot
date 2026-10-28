@@ -468,6 +468,22 @@ class Nodes:
         decision = compaction.plan(tail, window=window_tokens, carried_tokens=carried)
         compacted_now = False
         if decision.needed:
+            # `on_pre_compress` 发射点（MATRIX 13.5）：**压缩之前**发，让订阅方
+            # 有机会看到「即将被摘要掉的那段历史」——压缩之后原文就没了，
+            # 事后钩子只能看到摘要结果，看不到丢了什么。
+            try:
+                hooks.emit(
+                    "on_pre_compress",
+                    {
+                        "task_id": task.id,
+                        "messages": len(tail),
+                        "target_tokens": decision.target_tokens,
+                        "window_tokens": window_tokens,
+                        "carried_tokens": carried,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 —— 旁路，不该拦压缩
+                log.warning("on_pre_compress 钩子出错（已忽略）：%s", exc)
             failures = int(meta.get(COMPACT_FAILED_KEY) or 0)
             if failures >= COMPACT_SUMMARY_ATTEMPTS:
                 # 摘要连着失败过几次：这一轮别再花一次调用去试，直接走截断。
@@ -936,6 +952,58 @@ class Nodes:
         return [message for group in groups for message in group]
 
     async def stream_model(self, model, messages, task_id, identity) -> Any:
+        """**一次 API 请求**的包装层：发 `pre_api_request` / `post_api_request` /
+        `api_request_error`（MATRIX 13.5）。
+
+        **为什么与 `pre_llm_call` 分开**：两者粒度不同。
+        `pre_llm_call` / `post_llm_call` 包的是**整次模型调用**（含重试与压缩重来），
+        而这一层包的是**一次真正的 HTTP 请求**——`ask_model` 的 while 循环每转一圈
+        就是一次请求。观测端做 tracing 要的是后者：重试三次就有三个 span，
+        用 `llm_call` 只能看到一个。
+
+        **`api_request_error` 只在真出错时发**，且**发完照常抛出**——钩子是旁路，
+        旁路不该改变控制流。包 `try` 是为了让钩子自己的异常不影响主循环。
+        """
+        try:
+            hooks.emit(
+                "pre_api_request",
+                {
+                    "task_id": task_id,
+                    "model": str(model),
+                    "messages": len(messages),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 —— 旁路，见上
+            log.warning("pre_api_request 钩子出错（已忽略）：%s", exc)
+        try:
+            result = await self._stream_model_once(model, messages, task_id, identity)
+        except asyncio.CancelledError:
+            # 取消不是错误：不发 `api_request_error`（否则观测端会把用户主动中断
+            # 算成 provider 故障，那会污染错误率）。
+            raise
+        except Exception as exc:
+            try:
+                hooks.emit(
+                    "api_request_error",
+                    {
+                        "task_id": task_id,
+                        "model": str(model),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            except Exception as hook_exc:  # noqa: BLE001
+                log.warning("api_request_error 钩子出错（已忽略）：%s", hook_exc)
+            raise
+        try:
+            hooks.emit(
+                "post_api_request",
+                {"task_id": task_id, "model": str(model), "ok": True},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("post_api_request 钩子出错（已忽略）：%s", exc)
+        return result
+
+    async def _stream_model_once(self, model, messages, task_id, identity) -> Any:
         """一次流式调用：边收边发事件，返回完整响应。空响应按失败处理（可重试）。"""
         response: Any = None
         if hasattr(model, "astream"):
@@ -1271,6 +1339,22 @@ class Nodes:
         host = str(last.get("host") or "")
         projected = self.policies.tool_results.project(name, result)
         text = as_tool_text(projected)
+        # `transform_tool_result` 发射点（MATRIX 13.5）：**治理之后**发，让订阅方
+        # 看到的是"模型真正拿到的那份"（已投影 + 已截断），而不是原始结果。
+        # 位置放在 `project` 之后、`record` 之前：此刻 text 已定形但还没落库，
+        # 订阅方既能读到真实内容，也不影响记账。
+        try:
+            hooks.emit(
+                "transform_tool_result",
+                {
+                    "task_id": task_id,
+                    "tool": name,
+                    "status": status,
+                    "chars": len(text),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 —— 旁路，不该拦记账
+            log.warning("transform_tool_result 钩子出错（已忽略）：%s", exc)
         # 本轮累加器（execute 里创建）：交给 record 去做第三层结算。
         turn = (getattr(self, "_turn_budgets", None) or {}).get(task_id)
         meta = await self.policies.tool_results.record(
@@ -1480,6 +1564,25 @@ class Nodes:
         """收尾：回答 + 完成度清单 + 对外动作清单 + 引用回填校验。"""
         self.beat("finalize")
         task_id = state["task_id"]
+        # `on_session_finalize` 发射点（MATRIX 13.5）。
+        #
+        # 为什么放在这里而不是 `agent.py` 的 `finally`：**语义就是这一节点**。
+        # Hermes 的 `on_session_finalize` 是「收尾产物已成形」——正文、完成度清单、
+        # 成本都已经算完。观测端靠它记录最终答案与花费；`on_session_end`（在
+        # `agent.py` 的 finally）则是「任务真的结束了」，包括失败/取消。
+        # **两者分开，才能区分「跑完并收尾」与「跑完但没收尾」。**
+        try:
+            hooks.emit(
+                "on_session_finalize",
+                {
+                    "task_id": task_id,
+                    "stop_reason": str((state.get("budget") or {}).get("stop_reason") or ""),
+                    "turns": int(state.get("turns") or 0),
+                    "actions": int(state.get("actions") or 0),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 —— 旁路，不该拦收尾
+            log.warning("on_session_finalize 钩子出错（已忽略）：%s", exc)
         budget = dict(state.get("budget") or {})
         stop = str(budget.get("stop_reason") or "")
         plan = dict(state.get("plan") or {})

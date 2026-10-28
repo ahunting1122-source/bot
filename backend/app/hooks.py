@@ -159,29 +159,49 @@ ALL_EVENTS: tuple[str, ...] = HOOK_EVENTS + INFERRED_EVENTS
 #: 只写「17 个里 4 个能用」这种散文，第三方开发者仍不知道**哪 4 个**能用；
 #: 这个集合是可编程的契约——插件可以在注册前先 `if ev in EMITTED_EVENTS`。
 #:
-#: 目前 8 个发射点：
-#:   - `pre_llm_call` / `post_llm_call`（`graph/nodes.py::ask_model` 每次尝试）
+#: 目前 12 个发射点：
+#:   - `pre_llm_call` / `post_llm_call`（`graph/nodes.py::ask_model` 每次**模型调用**，
+#:     含重试与压缩重来）
+#:   - `pre_api_request` / `post_api_request` / `api_request_error`
+#:     （`graph/nodes.py::stream_model` 每次**真实 HTTP 请求**；重试三次就有三个 span，
+#:     用 `llm_call` 只能看到一个。`api_request_error` **不含取消**——用户主动中断
+#:     不该算成 provider 故障，否则污染错误率）
 #:   - `pre_tool_call` / `post_tool_call`（`graph/nodes.py::run_tool` 每次调用）
-#:   - `on_session_start` / `on_session_end`（`agent.py` 任务起止；
-#:     `on_session_end` 放在 `finally` 里，**失败/取消的任务也发**——
-#:     否则观测端的会话数永远少于实际跑过的任务，而「少记」比「记错」更难发现）
-#:   - `subagent_start` / `subagent_stop`（`delegate.py::_execute`；`stop` 也在 `finally` 里，
-#:     **失败/中断/取消的子任务也发**——否则观测端会留下只有 start 没有 stop 的悬挂 span，
-#:     比没有更误导）
+#:   - `on_session_start` / `on_session_end`（`agent.py` 任务起止；`end` 在 `finally` 里）
+#:   - `on_session_finalize`（`graph/nodes.py::finalize`；与 `on_session_end` 分开，
+#:     才能区分「跑完并收尾」与「跑完但没收尾」）
+#:   - `subagent_start` / `subagent_stop`（`delegate.py::_execute`）
+#:   - `pre_approval_request` / `post_approval_response`（`tools.py::_approve_command`；
+#:     **审批审计是事后追责的唯一凭据**。`outcome` 原样上报三态——**不要压成布尔**，
+#:     否则「超时」会被读成「用户拒绝」，而那两件事的处置完全不同）
+#:   - `on_pre_compress`（`graph/nodes.py::think`，**压缩之前**发——压缩之后原文就没了，
+#:     事后钩子只能看到摘要结果、看不到丢了什么）
+#:   - `transform_tool_result`（`graph/nodes.py::digest`，**治理之后**发——订阅方看到的
+#:     是模型真正拿到的那份，不是原始结果）
 #:
-#: 剩下 9 个还没有发射点，落点各自明确：审批前后在 `tools.py::_approve_command`、
-#: 压缩前后在 `compaction`、API 请求前后在 `nodes.stream_model`、
-#: `transform_tool_result` 在 `digest`。
+#: **只剩 `on_session_reset` 没有发射点，而且这不是钩子缺口、是功能缺口**：
+#: Orbit 没有「会话重置」这个动作（`orbit sessions` 有 `delete` / `archive`，但没有
+#: `/new` / `/reset` 那种"清空当前会话继续聊"的语义）。**给它编一个发射点
+#: 会把 `delete` 谎报成 `reset`**，订阅方会收到一个名字对、语义错的事件——
+#: 那比没有更糟。要补它得先实现重置功能。
 EMITTED_EVENTS = frozenset(
     {
         "pre_llm_call",
         "post_llm_call",
+        "pre_api_request",
+        "post_api_request",
+        "api_request_error",
         "pre_tool_call",
         "post_tool_call",
         "on_session_start",
         "on_session_end",
+        "on_session_finalize",
         "subagent_start",
         "subagent_stop",
+        "pre_approval_request",
+        "post_approval_response",
+        "on_pre_compress",
+        "transform_tool_result",
     }
 )
 
