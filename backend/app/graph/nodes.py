@@ -1802,6 +1802,7 @@ def _stop_hint(reason: str, budget: dict, turns: int) -> str:
         return (
             "这个会话已被另一个进程接管（同一个会话不能两个任务同时跑），"
             "本任务主动让出以免两边往同一份对话历史里交错写。"
-            "要继续：等那边结束，或 `orbit plane leases` 看看谁持有。"
+            "要继续：等那边结束，或看 `runtime/active_sessions.json` 里谁持有"
+            "（`orbit plane show <会话>` 能看到该会话的平面视图）。"
         )
     return ""
