@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 160 · 🟢 5 · ⚫ 4 · 🟡 12 · ⬜ 0（严格完成度 91.2% = ✅+🟢；可验证 93.2% = (✅+🟢)/(总数−⚫)）
+条目合计 **181**。当前：✅ 161 · 🟢 5 · ⚫ 4 · 🟡 11 · ⬜ 0（严格完成度 91.7% = ✅+🟢；可验证 93.8% = (✅+🟢)/(总数−⚫)）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -126,7 +126,7 @@
 | 6.1 | toolset 定义 | 【实证】调研 02；【推断】具体成员（PYZ 内） | W4 | ✅ | `TOOLSETS` 覆盖 **19 个功能域 / 23 个 toolset**，域与 toolset 是多对一划分（`DOMAIN_TOOLSETS` 无重叠、无遗漏），每个 `LOCAL_TOOLS` 里的工具都有归属（断言 `UNCLASSIFIED == ()`）。空域不隐藏——列出来并写原因 |
 | 6.2 | 四层过滤（平台 / 场景 / profile / 委托） | 【实证】前作报告 + `hermes tools --platform` | W4 | ✅ | 四层过滤全部落地：**平台**（`data/tools.json` per-platform 禁用集）→ **场景**（`cron` 摘 `ask_user` / `clarify` / `todo`——没人能回答；`subagent` 摘 `delegate_task`——防无限递归；`acp` 摘 `vault_login`）→ **profile**（`data/tools.json` 的 `profiles.<name>` 禁用/白名单）→ **委托**（`delegated=True` 摘 `delegate_task` / `ask_user` / `clarify`）。`explain(tool, context)` **逐层给理由**——能回答「为什么这个工具看不见」，而不是只说「被过滤了」。`tests/test_toolset_filtering.py` 44 条 |
 | 6.3 | `orbit tools {list,enable,disable,post-setup}` | 【实证】`_raw/sub/tools__*.txt` | W4 | ✅ | `app/cli/commands/tools.py` |
-| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | 🟡 | **【第 18 轮审计降级】** `ToolRegistry.specs(platform=...)` 走 `app/toolsets.resolve`，接口成立、默认 `cli` 与改动前逐名相等。**但全仓没有非 `cli` 的调用点**（原证据栏自己写了这句）——`graph/nodes.py` 调 `specs()` 不传 platform，`gateway.py` 与 `cron.py` 也没传。所以「多平台差异化」只有接口没有消费方。**缺**：`nodes.py` 要把当前任务的来源平台传进 `specs(platform=...)` |
+| 6.4 | "注册 vs 暴露"分离（per-run 收窄暴露面） | 【实证】前作 §4 建议；Hermes `tool_search` 即其实现 | W4 | ✅ | **第 18 轮审计查出它「接口成立、零非 cli 调用点」，本轮已接线。** 之前 `ToolRegistry.specs(platform=...)` 与 `toolsets.resolve(platform=...)` **都支持平台**，`platforms.<name>.disabled/enabled` 那套配置也读得好好的，但 `graph/nodes.py` 调 `specs()` 时**不传 platform**，默认 `cli`——于是**多平台差异化从没生效过**。**为什么平台必须由驱动任务的那一层给**：`Task` 与 `Conversation` **都没有平台字段**，运行时自己猜不出来。所以走 `enqueue(..., platform=...)` 记录 → `runner.platform_for(task_id)` 取回 → `nodes.py` 传给 `specs()`。**`main.py` 的三处 HTTP 入队全部传 `platform="api"`**；`chat.py` 用默认 `cli`。**没登记就是 `cli`**——既有行为逐字不变（本条的硬要求：过滤层必须先是「能关」）。**一个必须说清的边界**：`Task` / `Conversation` 仍**没有平台列**，所以平台是**进程内记录**（`AgentRunner._task_platform`），任务结束即摘除。**跨进程/重启后不保留**——要保留得加数据库列（迁移），那是另一件事，而当前两个平台（`cli` / `api`）都在同一进程内入队，所以够用。`tests/test_platform_specs_wired.py` 4 条：**同一份 `tools.json` 下 `cli` 与 `api` 暴露的工具集真的不同**（api 禁用 `history_search_tasks` 后它从 api 面消失、cli 面仍在）/ 没登记时返回 `cli` / `enqueue(..., platform="api")` 之后 `platform_for` 返回 `api` / **`nodes.py` 里 `specs(...)` 必须真的带 platform**（6.4 的虚报形状正是「接口成立、零非 cli 调用点」，只验接口能用是不够的） |
 | 6.5 | 工具 schema 校验前置（dict / parameters 必须 object） | 【实证】`registry.register` raise 检查 | W4 | ✅ | `app/tools.py::schema_problems`（name/description 存在、`parameters.type` 必须是 object、`properties` 是 dict、`required` 的键必须在 properties 里）；`ToolRegistry.specs()` 暴露前逐个查，坏工具**排除并记 error 日志点名**——排除一个工具比让整轮请求 400 损失小。两种形状都吃（OpenAI 函数调用壳 + 裸形状）。`tests/test_tool_schema.py` 10 条（含 15 个内置工具全合法 + 坏工具被排除且好工具一个不少） |
 
 ## L7 Skill / curator 层（Hermes: `skills_*.py` + `bundled-skills`，21 类目 / 91 技能）

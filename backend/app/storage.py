@@ -11,7 +11,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # `event_log` 只依赖标准库（hashlib / json / os / tempfile / threading），
 # **不 import 本模块**——所以这条依赖不会成环。
-from app.event_log import EventLog
+from app.event_log import EVENTS_DIRNAME, EventLog
 
 #: 同义 key 判定的相似度阈值（字符 bigram Jaccard）。
 #: 实测样本：「报告格式偏好」vs「报告偏好与校验码」= 0.43、「报告偏好与校验码」
@@ -319,7 +319,7 @@ class Store:
         # 事件日志（MATRIX 10.14）：与 sqlite 同目录的 `events/` 子目录。
         # 它是**追加式审计轨**，与 `task_events` 表并存——表是查询用的主存储，
         # 日志是可回放、可压缩、带游标的顺序记录。
-        self.event_log = EventLog(Path(path).parent / "events")
+        self.event_log = EventLog(Path(path).parent / EVENTS_DIRNAME)
 
     def describe_event_log(self) -> dict[str, Any]:
         """事件日志的自述：**这是 `EVENT_LOG_FAILURES` 的读点**。

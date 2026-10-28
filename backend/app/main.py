@@ -382,7 +382,7 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         task = await store.save(Task(conversation_id=conversation_id, goal=body.content))
         await store.event(task.id, "task_created", goal=body.content)
         if app.state.runner:
-            await app.state.runner.enqueue(task.id)
+            await app.state.runner.enqueue(task.id, platform="api")
         return serialize(task)
 
     @app.get("/api/tasks")
@@ -486,7 +486,7 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
                     app.state.connector_config.grant(host, tool)
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from None
-        await app.state.runner.enqueue(task_id, body.model_dump())
+        await app.state.runner.enqueue(task_id, body.model_dump(), platform="api")
         return {"status": "PENDING"}
 
     @app.post("/api/tasks/{task_id}/retry", status_code=202)
@@ -506,7 +506,7 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             ))
             await app.state.store.event(replacement.id, "task_created", goal=current.goal)
             if app.state.runner:
-                await app.state.runner.enqueue(replacement.id)
+                await app.state.runner.enqueue(replacement.id, platform="api")
             return serialize(replacement)
 
     @app.get("/api/memories")

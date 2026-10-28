@@ -510,9 +510,9 @@ def _tail_event_log(context: Context, stream: str, count: int) -> int:
     但**没有任何生产代码读它**——「只写不读是半个功能，比没有更糟」：
     用户以为有了审计轨，实际没人能查。
     """
-    from app.event_log import EventLog
+    from app.event_log import EVENTS_DIRNAME, EventLog
 
-    log = EventLog(Path(context.data_dir) / "events")
+    log = EventLog(Path(context.data_dir) / EVENTS_DIRNAME)
     try:
         records = log.tail(stream, count)
     except Exception as exc:  # noqa: BLE001 —— 坏索引/坏文件要说清楚，不吞

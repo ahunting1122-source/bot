@@ -262,6 +262,12 @@ class AgentRunner:
         self.leases = session_leases.LeaseStore(settings.data_dir)
         #: `task_id → conversation_id`：`budget` 节点只有 task_id，而租约按会话记。
         self._lease_sessions: dict[str, str] = {}
+        #: `task_id -> 来源平台`（MATRIX 6.4）。工具暴露面按平台过滤
+        #: （`toolsets.resolve` 的 `platforms.<name>.disabled/enabled`），
+        #: 而**平台必须由驱动任务的那一层告诉运行时**——它自己猜不出来
+        #: （`Task` / `Conversation` 都没有平台字段）。
+        #: 没登记就是 `cli`：既有行为逐字不变。
+        self._task_platform: dict[str, str] = {}
         self.partial: dict[str, str] = {}
         #: 每步模型调用的 token 计量（估算值）：{task_id: {prompt_tokens, completion_tokens, elapsed}}。
         #: 只在收尾时汇总进 task_completed 事件，流式途中不落库（避免每帧一次写盘）。
@@ -339,7 +345,13 @@ class AgentRunner:
         self._deferred.clear()
         await self.checkpoint_context.__aexit__(None, None, None)
 
-    async def enqueue(self, task_id: str, resume: dict | None = None):
+    def platform_for(self, task_id: str) -> str:
+        """该任务的来源平台（MATRIX 6.4）；没登记就是 `cli`（既有行为逐字不变）。"""
+        return self._task_platform.get(task_id, "cli")
+
+    async def enqueue(
+        self, task_id: str, resume: dict | None = None, *, platform: str = "cli"
+    ):
         """入队。**同一任务正在跑时不丢这次请求**，而是等它收尾后再入队。
 
         为什么不能直接 `return`（原来的写法）：任务进入 `WAITING_USER` 时，状态
@@ -352,6 +364,10 @@ class AgentRunner:
         用"等 job 结束再入队"而不是"阻塞调用方"：调用方可能是 HTTP 请求，
         不能为一个跑几分钟的任务一直挂着。
         """
+        # 记下来源平台（MATRIX 6.4）。**放在最前面**：下面有两条早退分支
+        # （任务在跑时延后入队、已排队时忽略），平台信息不该因为走了早退就丢——
+        # 延后入队那条尤其重要，它会在原任务收尾后**重新**入队。
+        self._task_platform[task_id] = str(platform or "cli")
         job = self.current.get(task_id)
         if job is not None and not job.done():
             deferred = asyncio.create_task(self._enqueue_after(job, task_id, resume))
@@ -668,6 +684,7 @@ class AgentRunner:
             except Exception as exc:  # noqa: BLE001
                 log.warning("会话租约释放失败（不影响任务结果）：%s", exc)
             self._lease_sessions.pop(task.id, None)
+            self._task_platform.pop(task.id, None)
             # `on_session_end` 发射点（MATRIX 13.5）：与 `on_session_start` 配对。
             # 放在 `finally` 里，**失败/取消的任务也要发**——否则观测端的会话数永远少于
             # 实际跑过的任务，而"少记"比"记错"更难发现。

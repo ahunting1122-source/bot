@@ -543,7 +543,21 @@ class Nodes:
             # 摘要成功但最后一组自己就超预算（比如一次吐了 20 万字符的工具结果）：
             # 只截正文，不丢组——摘要已经把更早的历史接住了。
             messages = self.truncate_bodies(messages, decision.target_tokens)
-        specs = self.policies.exposer.expose(self.registry.specs())
+        # 工具暴露面按**任务来源平台**过滤（MATRIX 6.4）。
+        #
+        # 之前 `specs()` 不传 platform，默认 `cli`——于是 `toolsets.resolve()` 里
+        # `platforms.<name>.disabled/enabled` 那套**多平台差异化从没生效过**
+        # （接口成立、全仓零非 cli 调用点）。平台由**驱动任务的那一层**告诉运行时
+        # （`enqueue(..., platform=...)`），运行时自己猜不出来；没登记就是 `cli`，
+        # **既有行为逐字不变**。
+        platform = "cli"
+        platform_of = getattr(runner, "platform_for", None)
+        if callable(platform_of):
+            try:
+                platform = platform_of(task.id)
+            except Exception as exc:  # noqa: BLE001 —— 取不到就按默认，不该拦装配
+                log.warning("取任务平台失败（按 cli 处理）：%s", exc)
+        specs = self.policies.exposer.expose(self.registry.specs(platform))
         # 把推理档位真的传下去（MATRIX 4.4）。
         #
         # 之前 `get_model()` 的调用点**全部不传** `reasoning_effort`，于是它恒为 None——

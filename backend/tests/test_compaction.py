@@ -59,7 +59,11 @@ class _Registry:
     def __init__(self) -> None:
         self.tools: dict[str, object] = {}
 
-    def specs(self) -> list:
+    def specs(self, platform: str = "cli") -> list:
+        # 签名要与真实 `ToolRegistry.specs` 一致（MATRIX 6.4 之后
+        # `nodes.py` 会传 platform）。假件签名不准会让「产品真的传了参数」
+        # 变成测试报错——那不是产品的错，是假件过时了。
+        self.platform_seen = platform
         return []
 
 
