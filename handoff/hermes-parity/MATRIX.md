@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 98 · 🟡 44 · ⬜ 39（完成度 54.1%，截至 W3/W4/W6/W12 收口）
+条目合计 **181**。当前：✅ 97 · 🟡 45 · ⬜ 39（完成度 53.6%，截至 W4/W12 收口；按**状态列**口径，不是整行匹配）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -45,7 +45,7 @@
 | 2.3 | 心跳 30s + 双阈值判卡死（idle 15 周期=**450s** / in-tool 40 周期=**1200s**），超阈值只 break 续命、由 gateway inactivity 超时执行真正的杀 =「级联」 | 【实证】`delegate_tool.py:1169,1184,1185`；调研 09 §2 | W11 | ⬜ | — |
 | 2.4 | 中断配对：工具**返回** `{"output":"[interrupted]","returncode":130}` 而非抛异常；父中断时未完成 child 被合成 `status=interrupted` 结果条目；不可修 arguments 降级为 `{}` | 【实证】`tools/interrupt.py`；`delegate_tool.py:4289-4327` | W11 | ⬜ | — |
 | 2.5 | 循环结束后台动作：bg-review 线程 + 同会话追加一轮「Review the conversation above and update the skill library」学习回路 + curator | 【实证】`agent.background_review` 日志实证；调研 09 §4 | W5 | ⬜ | — |
-| 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | 🟡 | `app/errors.py`：**13 类**失败分类（auth / rate_limit / quota / bad_request / context_overflow / not_found / timeout / connection / server / overloaded / content_filter / cancelled / unknown），按「用户下一步该做什么」分而不是按 HTTP 状态码分（同一个 400 可能是「上下文太长」也可能是「参数不合法」，处理完全不同）；**只有 4 类可自动重试**（rate_limit / timeout / connection / overloaded），每类带一句可行动建议。`tests/test_errors.py` 21 条（13 类各自可达 + 只有 4 类可重试 + 未知不硬塞 + 文案顺序）。**未接线**：`Nodes.ask_model` 仍对所有异常重试 `MODEL_ATTEMPTS` 次——那一轮 `app/agent.py` 正被另一个子agent 重写，同时改会互相覆盖 |
+| 2.6 | 错误分类 13 类 + 仅 4 类自动重试 | 【实证】`tools/bot_failure_reasons.py`（`AUTO_RETRYABLE` 4 个） | W4 | 🟡 | `app/errors.py`：**13 类**失败分类（auth / rate_limit / quota / bad_request / context_overflow / not_found / timeout / connection / server / overloaded / content_filter / cancelled / unknown），按「用户下一步该做什么」分而不是按 HTTP 状态码分（同一个 400 可能是「上下文太长」也可能是「参数不合法」，处理完全不同）；**只有 4 类可自动重试**（rate_limit / timeout / connection / overloaded），每类带一句可行动建议。`tests/test_errors.py` 21 条（13 类各自可达 + 只有 4 类可重试 + 未知不硬塞 + 文案顺序）。**未接线**：`Nodes.ask_model` 仍对所有异常重试 `MODEL_ATTEMPTS` 次——那一轮 `app/agent.py` 正被另一个子agent 重写，同时改会互相覆盖。**接线点**：`Nodes.ask_model` 的 `except` 分支 → `errors.classify(exc)` → 仅 `failure.retryable` 才重试，否则立刻抛 `ModelFailureError(errors.summary(...))` |
 | 2.7 | `context_overflow` → 压缩后重试 | 【实证】bot_failure_reasons 映射 | W8 | 🟡 | `errors.is_context_overflow(exc)` 已实现（按 `maximum context length` / `prompt is too long` / `exceeds the maximum context` 等特征识别）。**未接线**：识别出来之后「压缩再重试」的那一步还没接进 `ask_model` |
 | 2.8 | per-thread 中断（可打断单条线程） | 【实证】`tools/interrupt.py` | W11 | ⬜ | — |
 | 2.9 | 三层预算刹车（动作 / token / 时间） | Orbit 已有 | W1 | ✅ | `app/config.py` 的 `max_actions` / `max_seconds`；`app/policies.py` 的 `DefaultBudgetPolicy`；`app/graph/nodes.py` 的 budget 节点 |
@@ -167,7 +167,7 @@
 | 9.7 | `session_search` 四形态（discover/scroll/read/browse）+ 锚点 ±window + bookend 3/3 + 300 行扫描上限 | 【实证】`session_search_tool.py` 1,271 行 | W6 | ✅ | `session_search.py` 的 `SessionSearch.search/discover/anchored_view/read/browse`；`tests/test_session_search.py` |
 | 9.8 | 检索**零 LLM 成本**（无 summary LLM 路径） | 【实证】docstring "No LLM calls anywhere"；PR #26419 | W6 | ✅ | `session_search.py` 不 import 任何模型/连接器（模块 docstring 明示）；CLI 侧 `session-search` 命令同样零模型调用 |
 | 9.9 | 检索参数（limit 默认 3 夹 [1,10]、window 默认 5 夹 [1,20]、read head20/tail10、截断 4000/1200） | 【实证】调研 07 §3 | W6 | ✅ | `session_search.py` 的同名参数与夹取 |
-| 9.10 | 8 个外部 memory provider 插件接口（byterover/hindsight/holographic/honcho/mem0/openviking/retaindb/supermemory） | 【实证】调研 07 §4 | W6 | 🟡 | `app/memory_providers.py`：**8 个 provider 接口**——真实现 3 个（`local` 走 memories 表 / `file` 一记忆一 .md 原子写 / `jsonl` 追加日志可回放审计）；只有接口 5 个（`mem0` / `zep` / `letta` / `chroma` / `pgvector`），`available()` **恒 False**——即使装了包也 False，否则路由器会选中一个一用就抛的 provider；`describe()` 给 install 与原因，读写抛 `ProviderUnavailable`。`MemoryRouter` 读=第一个有命中的可用 provider、写=fanout 多写。`tests/test_memory_providers.py` |
+| 9.10 | 8 个外部 memory provider 插件接口（byterover/hindsight/holographic/honcho/mem0/openviking/retaindb/supermemory） | 【实证】调研 07 §4 | W6 | 🟡 | `app/memory_providers.py`：**8 个 provider 接口**——真实现 3 个（`local` 走 memories 表 / `file` 一记忆一 .md 原子写 / `jsonl` 追加日志可回放审计）；只有接口 5 个（`mem0` / `zep` / `letta` / `chroma` / `pgvector`），`available()` **恒 False**——即使装了包也 False，否则路由器会选中一个一用就抛的 provider；`describe()` 给 install 与原因，读写抛 `ProviderUnavailable`。`MemoryRouter` 读=第一个有命中的可用 provider、写=fanout 多写。`tests/test_memory_providers.py`。**名单与 Hermes 只有 `mem0` 重合**：Orbit 的 8 个是 `local` / `file` / `jsonl` + `mem0` / `zep` / `letta` / `chroma` / `pgvector`，Hermes 的是 byterover / hindsight / holographic / honcho / mem0 / openviking / retaindb / supermemory——数字对上了但名单没对上，**按本机可用生态选，不是照抄** |
 | 9.11 | holographic 本地图记忆（HRR dim=1024、权重 fts0.4/jaccard0.3/hrr0.3、trust ±0.05/−0.10） | 【实证】`plugins/memory/holographic/` | W6 | ⬜ | — |
 | 9.12 | 写入门禁（威胁扫描 → 审批三态 → 快照期二次扫描） | 【实证】调研 07 §5 | W6 | ⬜ | — |
 | 9.13 | 漂移防护（round-trip + 单条超全库上限 → `.bak.<ts>` + 拒写） | 【实证】调研 07 §5 | W6 | ⬜ | — |
@@ -179,7 +179,7 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | 🟡 | `app/session_plane.py::timeline` 把 **plane / messages / task_events** 三个来源合并成一条按时间排序的时间线——**读侧**的统一成立且有测试；**但写侧未统一**：目前只有 `delivery_ledger` 与 plane CLI 在写 plane，`cron` / `gateway` / `agent` / `graph/nodes` / `main` 对它的引用数**全是 0**。另外也不是「同库同表」（plane 走 JSONL，因为 `storage.py` 与 alembic 是禁改区）。→ 变 ✅ 的路径：把 cron / gateway / agent 的会话写入也过 plane |
+| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | 🟡 | `app/session_plane.py::timeline` 把 **plane / messages / task_events** 三个来源合并成一条按时间排序的时间线——**读侧**的统一成立且有测试；**但写侧未统一**：目前只有 `delivery_ledger` 与 plane CLI 在写 plane，`cron` / `gateway` / `agent` / `graph/nodes` / `main` 对它的引用数**全是 0**。另外也不是「同库同表」（plane 走 JSONL，因为 `storage.py` 与 alembic 是禁改区）。→ 可转 done 的路径：把 cron / gateway / agent 的会话写入也过 plane |
 | 10.2 | 消息追加日志 + `id` AUTOINCREMENT 作游标（不复用） | 【实证】调研 03 §5（max id 14,597 > 行数 14,595） | W8 | ✅ | `SessionPlane.append` 写 `<data>/sessions/plane.jsonl`，`id` 单调递增且**重启后能续上**（进程内锁 + 文件尾读回，不靠内存计数器）；`since(cursor)` 按 **id 游标**增量读（不按时间戳——同毫秒内顺序会乱） |
 | 10.3 | 归档不删（`active=0 AND compacted=1`） | 【实证】调研 03 §3（2,101 条） | W8 | ⬜ | — |
 | 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`）；压缩阈值 **0.50** / 目标比 **0.20**；产物前缀 `[CONTEXT COMPACTION` / `[CONTEXT SUMMARY]:`；实测 529k→199k、503k→191k（≈37.6%） | 【实证】调研 09 §6、03 §3 | W8 | 🟡 | `SessionPlane.compress(child, parent)` 记 `parent_session_id` + `compressed_at` + `reason`；`lineage()` 沿父链上溯并**检测循环引用**（脏数据不许让命令挂死）。**缺**：压缩阈值 0.50 / 目标 0.20 与主循环的接线（阈值判断在 `graph`，本轮没接） |

@@ -87,12 +87,29 @@ def test_every_platform_has_a_description_and_label():
         assert spec.platform is platform
 
 
-def test_only_three_platforms_are_implemented():
-    """**只有 3 个平台真能发消息**。多一个就是在假装支持。"""
+def test_implemented_platforms_are_exactly_those_with_adapters():
+    """已实现的平台集合 = `IMPLEMENTED_PLATFORMS`，且每个都必须说清**覆盖范围**。
+
+    这条从「只有 3 个」改成「集合自洽」：数量本身不是契约，**声明与实现一致**才是。
+    11 个已实现里 8 个是「仅出站」（webhook POST / Bot API），`scope` 必须写清
+    没有入站、没有媒体、没有按钮——否则会被读成和 Hermes 一样全功能。
+    """
     implemented = [platform for platform in ALL_PLATFORMS if PLATFORMS[platform].implemented]
-    assert len(implemented) == 3
+    assert len(implemented) == len(IMPLEMENTED_PLATFORMS) == 11
     assert set(implemented) == set(IMPLEMENTED_PLATFORMS)
-    assert {platform.value for platform in implemented} == {"ntfy", "raft", "a2a"}
+    assert {platform.value for platform in implemented} == {
+        "ntfy",
+        "raft",
+        "a2a",
+        "slack",
+        "discord",
+        "telegram",
+        "feishu",
+        "dingtalk",
+        "wecom",
+        "google_chat",
+        "teams",
+    }
     for platform in implemented:
         spec = PLATFORMS[platform]
         assert spec.adapter, f"{platform} 已实现却没登记适配器名"
@@ -101,9 +118,9 @@ def test_only_three_platforms_are_implemented():
 
 
 def test_unimplemented_platforms_explain_reason_and_credentials():
-    """未实现的 19 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
+    """未实现的 11 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
     pending = [platform for platform in ALL_PLATFORMS if not PLATFORMS[platform].implemented]
-    assert len(pending) == 19
+    assert len(pending) == 11
     for platform in pending:
         spec = PLATFORMS[platform]
         assert len(spec.reason.strip()) >= 10, f"{platform} 缺未实现原因"
@@ -353,7 +370,10 @@ def test_webhook_without_url_fails_without_network():
     adapter = WebhookAdapter("", transport=httpx.MockTransport(lambda request: httpx.Response(200)))
     result = adapter.send_text("ch", "hi")
     assert not result.ok
-    assert "未配置出站 URL" in result.error
+    # 文案改成「未配置出站地址 + 具体环境变量名」：写死 `NTFY_URL` 会让人去改
+    # 一个跟自己平台无关的配置。
+    assert "未配置出站地址" in result.error
+    assert "NTFY_URL" in result.error
     health = adapter.health()
     assert health.ok and health.extra["configured"] is False
 
@@ -388,12 +408,14 @@ def test_webhook_media_is_not_supported_not_raised():
 
 
 def test_unimplemented_adapter_raises_with_reason_and_credentials():
-    adapter = UnimplementedAdapter(Platform.TELEGRAM)
-    assert adapter.name == "telegram"
+    # 用 `buzz` 而不是 telegram：telegram 现在有出站适配器了，拿它当"未实现"样本
+    # 会掩盖真正的回归（未实现的平台被悄悄标成实现了）。
+    adapter = UnimplementedAdapter(Platform.BUZZ)
+    assert adapter.name == "buzz"
     with pytest.raises(PlatformNotImplemented) as excinfo:
         adapter.send_text("ch", "hi")
     message = str(excinfo.value)
-    assert "TELEGRAM_BOT_TOKEN" in message
+    assert "BUZZ_PRIVATE_KEY" in message
     assert "未实现" in message
     # 另外几条发送路径也必须拒绝，不能只拦 send_text
     for call in (
@@ -418,9 +440,11 @@ def test_resolve_adapter_rejects_unknown_platform_name():
         placeholder.send_text("ch", "hi")
 
 
-def test_default_adapters_cover_three_platforms_plus_dev_sinks(tmp_path):
+def test_default_adapters_cover_every_implemented_platform_plus_dev_sinks(tmp_path):
+    """默认适配器池 = 2 个开发旁路 + **全部 11 个已实现平台**，不多不少。"""
     adapters = default_adapters(tmp_path)
-    assert set(adapters) == {"console", "file", "ntfy", "raft", "a2a"}
+    expected = {"console", "file"} | {platform.value for platform in IMPLEMENTED_PLATFORMS}
+    assert set(adapters) == expected
     for platform in IMPLEMENTED_PLATFORMS:
         assert adapters[platform.value].platform is platform
 

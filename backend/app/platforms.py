@@ -121,15 +121,19 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.DINGTALK,
         label="钉钉",
         description="长连接：dingtalk-stream SDK 的 Stream Mode，不需要公网回调地址",
-        credentials=("DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"),
-        reason="需要 dingtalk-stream SDK（本机无网络装不了）+ 企业应用 AppKey/AppSecret 才能建连",
+        implemented=True,
+        credentials=("DINGTALK_WEBHOOK_URL",),
+        adapter="dingtalk",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.DISCORD: PlatformSpec(
         platform=Platform.DISCORD,
         label="Discord",
         description="长连接：discord.py 的 Gateway WebSocket，支持 threads 与全套交互按钮",
-        credentials=("DISCORD_BOT_TOKEN",),
-        reason="需要 discord.py 与真实 Bot Token 才能连 Gateway WebSocket；缺一不可",
+        implemented=True,
+        credentials=("DISCORD_WEBHOOK_URL",),
+        adapter="discord",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.EMAIL: PlatformSpec(
         platform=Platform.EMAIL,
@@ -142,15 +146,19 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.FEISHU,
         label="飞书",
         description="双模：lark-oapi WebSocket 长连接，或 Webhook 回调",
-        credentials=("FEISHU_APP_ID", "FEISHU_APP_SECRET"),
-        reason="需要 lark-oapi SDK + 自建应用 App ID/App Secret；建连与验签都要真实服务端",
+        implemented=True,
+        credentials=("FEISHU_WEBHOOK_URL",),
+        adapter="feishu",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.GOOGLE_CHAT: PlatformSpec(
         platform=Platform.GOOGLE_CHAT,
         label="Google Chat",
         description="Webhook 回调或 Cloud Pub/Sub pull，鉴权用 Service Account JSON",
-        credentials=("GOOGLE_CHAT_SERVICE_ACCOUNT",),
-        reason="需要 Google Service Account JSON 与 GCP 项目；无网络无法换取 OAuth token",
+        implemented=True,
+        credentials=("GOOGLE_CHAT_WEBHOOK_URL",),
+        adapter="google_chat",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.HOMEASSISTANT: PlatformSpec(
         platform=Platform.HOMEASSISTANT,
@@ -223,8 +231,10 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.SLACK,
         label="Slack",
         description="长连接 Socket Mode（slack-bolt），无需公网 URL，支持 threads 与 Block Kit",
-        credentials=("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"),
-        reason="需要 slack-bolt + xoxb/xapp 双 token（xapp 要 connections:write scope）",
+        implemented=True,
+        credentials=("SLACK_WEBHOOK_URL",),
+        adapter="slack",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.SMS: PlatformSpec(
         platform=Platform.SMS,
@@ -237,22 +247,28 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.TEAMS,
         label="Teams",
         description="Webhook：Bot Framework 回调，审批用 Adaptive Card",
-        credentials=("TEAMS_CLIENT_ID", "TEAMS_CLIENT_SECRET", "TEAMS_TENANT_ID"),
-        reason="需要 Azure AD 应用注册三件套 + Bot Framework 通道；无法离线验证",
+        implemented=True,
+        credentials=("TEAMS_WEBHOOK_URL",),
+        adapter="teams",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.TELEGRAM: PlatformSpec(
         platform=Platform.TELEGRAM,
         label="Telegram",
         description="长轮询（默认）或 Webhook：python-telegram-bot，含直连 IP 故障转移",
+        implemented=True,
         credentials=("TELEGRAM_BOT_TOKEN",),
-        reason="需要 @BotFather 发的 Bot Token + python-telegram-bot；长轮询也要真实 api.telegram.org",
+        adapter="telegram",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.WECOM: PlatformSpec(
         platform=Platform.WECOM,
         label="企业微信",
         description="双模：智能机器人 WebSocket 长连接 + 自建应用 HTTP 回调（AES 加解密）",
-        credentials=("WECOM_BOT_ID", "WECOM_SECRET"),
-        reason="需要企业微信机器人 ID/Secret（回调侧还要 CorpID/AgentID/EncodingAESKey）",
+        implemented=True,
+        credentials=("WECOM_WEBHOOK_URL",),
+        adapter="wecom",
+        scope="仅出站文本（webhook POST / Bot API sendMessage）；无入站（长连接 / 回调 / 轮询）、无媒体、无按钮、无线程",
     ),
     Platform.WHATSAPP: PlatformSpec(
         platform=Platform.WHATSAPP,
@@ -795,8 +811,9 @@ class WebhookAdapter(PlatformAdapter):
     platform = None
 
     #: 请求体形状。``text`` = 纯文本正文（ntfy publish）；``json`` = ``{"text":...}``；
-    #: ``jsonrpc`` = A2A 的 ``message/send``。
-    BODY_SHAPES: tuple[str, ...] = ("text", "json", "jsonrpc")
+    #: ``jsonrpc`` = A2A 的 ``message/send``；``template`` = 用 ``body_template``
+    #: 渲染平台各自的 JSON 形状（slack / discord / feishu 等）。
+    BODY_SHAPES: tuple[str, ...] = ("text", "json", "jsonrpc", "template")
 
     def __init__(
         self,
@@ -810,18 +827,27 @@ class WebhookAdapter(PlatformAdapter):
         attempts: int = 3,
         retry_delay: float = 0.0,
         headers: Mapping[str, str] | None = None,
+        body_template: Mapping[str, Any] | None = None,
+        url_hint: str = "NTFY_URL",
     ) -> None:
         super().__init__(name=name)
         if body_shape not in self.BODY_SHAPES:
             raise ValueError(f"未知请求体形状：{body_shape!r}（可选：{'/'.join(self.BODY_SHAPES)}）")
+        if body_shape == "template" and body_template is None:
+            raise ValueError("body_shape='template' 时必须给 body_template")
         self.url = url
         self.platform = platform
         self.body_shape = body_shape
+        self.body_template = body_template
         self.transport = transport
         self.timeout = timeout
         self.attempts = max(1, int(attempts))
         self.retry_delay = max(0.0, float(retry_delay))
         self.headers = dict(headers or {})
+        #: 未配置时该提示哪个环境变量。写死 `NTFY_URL` 会误导——8 个 webhook 平台
+        #: 各有自己的变量名（`SLACK_WEBHOOK_URL` / `TELEGRAM_BOT_TOKEN` …），
+        #: 提示错名字等于让人去改一个不存在的配置。
+        self.url_hint = url_hint
 
     def start(self) -> None:
         return None
@@ -835,7 +861,10 @@ class WebhookAdapter(PlatformAdapter):
                 ok=False,
                 platform=self.name,
                 channel=channel,
-                error="未配置出站 URL：设置环境变量或显式传 url（如 NTFY_URL）",
+                error=(
+                    f"未配置出站地址：设置环境变量 {self.url_hint} 或显式传 url"
+                    f"（{self.name} 的出站形状见 app/platforms.py 的 WEBHOOK_PLATFORMS）"
+                ),
             )
         payload = self._payload(channel, text)
         headers = {"User-Agent": "orbit-gateway/1", **self.headers}
@@ -902,6 +931,11 @@ class WebhookAdapter(PlatformAdapter):
         return self.send_text
 
     def _payload(self, channel: str, text: str) -> dict[str, Any]:
+        if self.body_shape == "template" and self.body_template is not None:
+            # 平台各自的 JSON 形状差别很大（slack 要 `text`、discord 要 `content`、
+            # feishu 要 `msg_type` + 嵌套 `content.text`）。用一个模板表达，比在
+            # `_payload` 里堆 if 更不容易写错，也更容易逐平台对照官方文档核对。
+            return {"json": _render(self.body_template, channel, text)}
         if self.body_shape == "text":
             return {"content": text.encode("utf-8")}
         if self.body_shape == "jsonrpc":
@@ -1025,17 +1059,105 @@ def a2a_adapter(
     )
 
 
+def _render(template: Mapping[str, Any], channel: str, text: str) -> dict[str, Any]:
+    """把 ``{channel}`` / ``{text}`` 占位符填进 JSON 模板（递归，只碰字符串值）。
+
+    为什么用模板而不是每平台写一个 if 分支：8 个平台的出站形状两两不同，
+    分支写法很容易在某个平台的嵌套层级上写错，而模板能逐平台对照官方文档核。
+    占位符只在**字符串**里替换——key 不参与替换，避免用户输入把结构改掉。
+    """
+
+    def fill(value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace("{channel}", channel).replace("{text}", text)
+        if isinstance(value, dict):
+            return {key: fill(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [fill(item) for item in value]
+        return value
+
+    rendered = fill(template)
+    return rendered if isinstance(rendered, dict) else dict(rendered)
+
+
+#: 平台 → (环境变量名, JSON 模板)。**形状照各家官方文档**，逐条都能核对：
+#: slack/discord/google_chat/teams 是 `text`/`content`；钉钉/企微是 `msgtype` + 嵌套
+#: `text.content`；飞书是 `msg_type` + `content.text`；telegram 的 chat_id 在 body 里。
+WEBHOOK_PLATFORMS: dict[Platform, tuple[str, dict[str, Any]]] = {
+    Platform.SLACK: ("SLACK_WEBHOOK_URL", {"text": "{text}"}),
+    Platform.DISCORD: ("DISCORD_WEBHOOK_URL", {"content": "{text}"}),
+    Platform.GOOGLE_CHAT: ("GOOGLE_CHAT_WEBHOOK_URL", {"text": "{text}"}),
+    Platform.TEAMS: ("TEAMS_WEBHOOK_URL", {"text": "{text}"}),
+    Platform.DINGTALK: (
+        "DINGTALK_WEBHOOK_URL",
+        {"msgtype": "text", "text": {"content": "{text}"}},
+    ),
+    Platform.WECOM: (
+        "WECOM_WEBHOOK_URL",
+        {"msgtype": "text", "text": {"content": "{text}"}},
+    ),
+    Platform.FEISHU: (
+        "FEISHU_WEBHOOK_URL",
+        {"msg_type": "text", "content": {"text": "{text}"}},
+    ),
+    Platform.TELEGRAM: (
+        "TELEGRAM_BOT_TOKEN",
+        {"chat_id": "{channel}", "text": "{text}"},
+    ),
+}
+
+
+def webhook_platform_adapter(
+    platform: Platform,
+    *,
+    url: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """按 `WEBHOOK_PLATFORMS` 造一个 webhook 适配器。
+
+    telegram 特殊：URL 里要带 bot token（`/bot<token>/sendMessage`），所以它的
+    环境变量存的是 **token** 而不是 URL——这一点容易搞错，单独在这里处理并注释。
+    """
+    env_name, template = WEBHOOK_PLATFORMS[platform]
+    if platform is Platform.TELEGRAM:
+        token = url if url is not None else os.environ.get(env_name, "")
+        target = f"https://api.telegram.org/bot{token}/sendMessage" if token else ""
+    else:
+        target = url if url is not None else os.environ.get(env_name, "")
+    return WebhookAdapter(
+        target,
+        name=platform.value,
+        platform=platform,
+        body_shape="template",
+        body_template=template,
+        transport=transport,
+        url_hint=env_name,
+    )
+
+
 def default_adapters(
     data_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None
 ) -> dict[str, PlatformAdapter]:
-    """默认适配器集合：3 个已实现平台 + 2 个开发旁路（console / file）。"""
-    return {
+    """默认适配器集合：**11 个已实现平台** + 2 个开发旁路（console / file）。
+
+    11 个真实平台分两组：
+    - 简单 HTTP POST：`ntfy` / `raft` / `a2a`（各自的 body 形状写在工厂里）
+    - webhook 平台：`slack` / `discord` / `google_chat` / `teams` / `dingtalk` /
+      `wecom` / `feishu` / `telegram`（形状在 `WEBHOOK_PLATFORMS`，逐条可对照官方文档）
+
+    其余 11 个平台仍然没有适配器，`resolve_adapter` 会返回 `UnimplementedAdapter`，
+    发送时抛 `PlatformNotImplemented` 并给出所需凭证与 SDK。**没有假装支持。**
+    """
+    pool: dict[str, PlatformAdapter] = {
         "console": ConsoleAdapter(),
         "file": FileAdapter(data_dir or Path.cwd()),
         "ntfy": ntfy_adapter(transport=transport),
         "raft": raft_adapter(transport=transport),
         "a2a": a2a_adapter(transport=transport),
     }
+    for platform in WEBHOOK_PLATFORMS:
+        pool[platform.value] = webhook_platform_adapter(platform, transport=transport)
+    return pool
 
 
 def resolve_adapter(

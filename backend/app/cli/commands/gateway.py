@@ -46,7 +46,7 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
 def _service(context: Context) -> gw.GatewayService:
-    """按当前数据目录建服务实例（适配器用默认集合：3 个已实现平台 + console/file）。"""
+    """按当前数据目录建服务实例（适配器用默认集合：全部已实现平台 + console/file）。"""
     return gw.GatewayService(context.data_dir)
 
 

@@ -1,210 +1,230 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 10:46（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 6**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑 `config set` / `doctor --fix` / `config edit` / `doctor --live` / `cron run` / `gateway start` / `backup restore` 等会改状态或真发请求的命令。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `39cbe58`，**工作树干净** ✅）
+**更新时间**：2026-10-28 11:20（本机实测时钟，只读取证）
+**本轮轮次**：**N = 7**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（`config edit` / `doctor --fix` / `--live` / `cron run` / `gateway start` / `backup restore` 全部未运行）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `b5457c9`，**工作树干净** ✅）
 
 ---
 
 ## 总体完成度
 
-### **83 / 181 项 = 45.9%**
+### **97 / 181 项 = 53.6%**
+
+> ⚠️ **与表头的 54.1% 差 1 条，原因是计数工具的口径 bug，不是你在虚报。详见风险 R1。**
 
 | 项 | 说明 |
 |---|---|
-| 清单来源 | `MATRIX.md`，脚本逐行解析：**181 行**（L1–L16），**编号唯一 181/181** |
-| 完成 | **✅ 83 条**（本轮新增 10 条，**复核 9 条 = 90%**） |
-| 部分 | 🟡 **37 条**（你刻意标的 3 条 🟡 **全部复核，判为恰当**） |
-| 未开始 | ⬜ **61 条** |
-| 表头一致性 | MATRIX 表头「181 / ✅83 / 🟡37 / ⬜61 / 45.9%」——**与我的脚本统计逐字一致** ✅ |
+| 权威口径 | **读表格的「状态」列**（第 5 个 `\|` 段），不是整行扫符号 |
+| 完成 | **✅ 97 条** |
+| 部分 | 🟡 **45 条** |
+| 未开始 | ⬜ **39 条** |
+| 合计 | 181（编号唯一 181/181） |
+| 表头 / `matrix_stats.py` 口径 | ✅98 / 🟡44 / ⬜39 = **54.1%** ← **多了 1 条**，见 R1 |
 
-### 硬口径：**全部对上（一个数字有微差）**
+**差异的唯一来源**：`MATRIX 10.1` 的状态列是 **🟡**，但它的证据栏里含我上轮建议的措辞「→ **变 ✅ 的路径**」。`scripts/matrix_stats.py::count()` 用的是 `if DONE in line`（**整行包含即算完成**），于是把这条 🟡 算成了 ✅。
+
+**修正后：97 / 45 / 39 = 53.6%**；本轮真实新增 ✅ = **14 条**（表头显示 15 条）。
+
+### 硬口径：**全部对上**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
-| `REGISTRY` 78 顶层 / 332 二级 / 39 三级 = 449 | **78 / 332 / 39 = 449** | ✅ 完全一致 |
-| done 193 / partial 16 / todo 240 | **193 / 16 / 240** | ✅ 完全一致 |
-| MATRIX 181 项：✅83 / 🟡37 / ⬜61（45.9%） | **181 / 83 / 37 / 61 = 45.9%** | ✅ 完全一致 |
-| pytest 1 failed, 1374 passed, 1 skipped | **1 failed, 1374 passed, 1 skipped（127.52s）** | ✅ 完全一致 |
+| `REGISTRY` 80 顶层 / 345 二级 / 39 三级 = 464 | **80 / 345 / 39 = 464** | ✅ 一致 |
+| done 219 / partial 18 / todo 227 | **219 / 18 / 227** | ✅ 一致 |
+| pytest 1 failed, 1760 passed, 1 skipped | **1 failed / 1760 passed / 1 skipped（153.74s）** | ✅ 一致（你 145.08s） |
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| mypy **84** source files | **86** source files | ⚠️ 微差（多 2 个文件，你跑之后又加了文件；不影响结论） |
-| 工作树干净 | `git status --porcelain` **空** | ✅ 一致 |
-| **唯一失败** = `test_connectors::test_browser_append_and_reload` | 正是它，无其它失败 | ✅ **基线终于干净了** |
-
-> **上轮 P0 已达成**：这是本项目**第一次**拿到"独占 + 干净工作树"的全量基线。耗时 127.52s，对比上轮被并发污染时的 711s——**同一套测试差 5.6 倍**，这就是上轮读数不可采信的直接证据。
+| mypy 103 source files | **103 source files** | ✅ 一致 |
+| 工作树干净 | `git status --porcelain` 空 | ✅ 一致 |
+| 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
+| MATRIX ✅98 / 🟡44 / ⬜39（54.1%） | **97 / 45 / 39（53.6%）** | ⚠️ **差 1 条（R1）** |
 
 ---
 
 ## 分层完成度
 
+（状态列口径）
+
 | 层 | 完成/总数 | 百分比 | 状态 |
 |---|---|---|---|
-| L1 入口 / CLI | 10 / 18 | 55.6% | 进行中（🟡2） |
-| L2 Agent 核心循环 | 1 / 10 | 10.0% | 未开始（🟡1） |
-| L3 上下文装配 | 7 / 8 | 87.5% | 接近对齐 |
-| L4 模型适配 | 1 / 13 | 7.7% | **有风险**（🟡4 全是「已实现未接线」） |
-| L5 工具层 | 8 / 19 | 42.1% | 进行中（🟡2） |
+| L1 入口 / CLI | 10 / 18 | 55.6% | 进行中（🟡4） |
+| L2 Agent 核心循环 | 1 / 10 | 10.0% | **最弱层**（🟡3，⬜6） |
+| **L3 上下文装配** | **8 / 8** | **100%** | **🎉 首个整层对齐** |
+| L4 模型适配 | 6 / 13 | 46.2% | 本轮 +5（🟡3，⬜4） |
+| L5 工具层 | 11 / 19 | 57.9% | 本轮 +3（🟡4，⬜4） |
 | L6 工具集 / 注册 | 3 / 5 | 60.0% | 进行中（🟡2） |
-| L7 Skill / curator | 9 / 18 | 50.0% | 进行中（🟡5） |
-| **L8 MCP** | **6 / 10** | **60.0%** | **本轮从 0 跃到 60%**（🟡2，⬜2） |
-| L9 记忆层 | 5 / 16 | 31.3% | 进行中（🟡2） |
-| **L10 持久化 / 会话** | **5 / 15** | **33.3%** | 本轮 +3（🟡5，⬜5） |
+| L7 Skill / curator | 9 / 18 | 50.0% | 进行中（🟡5，⬜4） |
+| L8 MCP | 6 / 10 | 60.0% | 进行中（🟡2，⬜2） |
+| L9 记忆层 | 8 / 16 | 50.0% | 本轮 +3（🟡3，⬜5） |
+| L10 持久化 / 会话 | 5 / 15 | 33.3% | 🟡5、⬜5 |
 | L11 cron | 3 / 6 | 50.0% | 进行中（🟡2） |
 | L12 Gateway / 多平台 | 7 / 11 | 63.6% | 进行中（🟡3） |
 | L13 插件 | 5 / 10 | 50.0% | 进行中（🟡4） |
-| L14 安全 / 审批 | 5 / 10 | 50.0% | 进行中（🟡3） |
-| L15 可观测性 | 4 / 6 | 66.7% | 进行中 |
-| **L16 Web UI / 前端** | **4 / 6** | **66.7%** | 本轮 +1（16.5 skin） |
-| **合计** | **83 / 181** | **45.9%** | — |
+| L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4 |
+| L15 可观测性 | 4 / 6 | 66.7% | ⬜2 |
+| L16 Web UI / 前端 | 5 / 6 | 83.3% | 本轮 +1（16.1） |
+| **合计** | **97 / 181** | **53.6%** | — |
 
-**没有任何一层为零了**——L8 从 0% 补到 60%，是这轮结构性变化最大的一层。
+**L3 上下文装配 8/8 = 100%** —— 这是项目开跑以来**第一个整层对齐的层**，值得单独记一笔。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：本轮新增 10 条 ✅ **复核 9 条（90%）**；你刻意标的 3 条 🟡 **全部复核**；4 个缺陷修复 **全部复核（4/4）**。
+**抽样率**：本轮新增 14 条 ✅ 中**复核 12 条（86%）**；你点名的 4 条 🟡 **全部复核**；`errors.py` 处置 **独立复核**。
 
-### A. 8.x / 10.x 的 ✅ 撑不撑得住 —— **9 条全撑得住，没有一条虚**
+### A. 你点名的 7 条，逐条判定 —— **7/7 全部撑得住**
 
-**① 8.1 stdio + Streamable HTTP → ✅✅ 两种 client 都是真的，不是只 import 名字**
+**① 4.5 / 4.6「已接线」→ ✅✅ 真接线，且测试确实走 `get_model` + 假 factory**
+
+`app/agent.py` 里裸名 `FallbackChain` 命中 1（在 docstring），`CredentialPool` 命中 1；但**真正的接线走 `fb.` 前缀**（`from app import fallback as fb`）：
+```
+agent.py:476   def get_model(...)                       ← 返回 RoutedModel，不是裸客户端
+agent.py:503       route = _route_of(candidate, len(plan.attempts) - 1)
+agent.py:504       self.last_route = route
+agent.py:512       return RoutedModel(plan, client, route, on_switch=self._on_route_switch)
+agent.py:514   def _on_route_switch(self, route):      ← 切换时写 last_route + log.warning
+agent.py:519   def _targets(self) -> list[fb.FallbackTarget]:   ← 主模型 + fallback_chain
+agent.py:526       primary = fb.FallbackTarget(...)
+agent.py:552       pool = fb.CredentialPool(fb.KeyringStore(f"orbit:{...}"))
+agent.py:166       raise fb.FallbackExhausted(self._plan.attempts) from exc
+```
+`Route`（`agent.py:28`）字段与你说的完全一致：`provider / model / base_url / key_label / attempt / reason`，`to_dict()` 额外给 `switched = attempt > 0` ✓
+
+**测试确实调 `get_model` 走假 factory**（不是只测 `FallbackChain`）：
+```python
+# tests/test_fallback_wiring.py
+@pytest.fixture
+def runner(settings):   # 真 AgentRunner（注释：get_model 是它的方法，不能绕开它测）
+def test_401_switches_key_within_same_provider(settings, runner):
+    use_pool(runner, pool_with("sk-key-A", "sk-key-B"))
+    recorder = Recorder(lambda candidate, n: FakeStatusError(401,...) if n == 1 else FakeClient(...))
+    model = runner.get_model(factory=recorder)
+    assert recorder.providers == ["openai", "openai"]      # 401 不换 provider
+    assert recorder.key_labels == ["pool#0", "pool#1"]     # 换同一家的下一把 key
+    assert model.route.key_label == "pool#1"
+    assert model.route.attempt == 1
+```
+14 条用例覆盖：401/429 换 key、400/503 换 provider、未知错误**不切换**、全链失败报整条链、切换有日志、invoke 期失败切换、`bind_tools` 跨切换存活、注入模型原样返回、`route` 对调用方可见 ✓✓
+**上轮我点名的「库层有、运行时没接」已彻底解决。**
+
+**② 9.4 原子批处理「全有或全无」→ ✅✅ 补偿回滚真被验证**
 
 ```python
-mcp.py:31   from mcp.client.stdio import StdioServerParameters
-mcp.py:32   from mcp.client.streamable_http import streamable_http_client
-mcp.py:289      url = str(entry.get("url") or "").strip()
-mcp.py:290      if url:
-mcp.py:294          return Client(streamable_http_client(url, http_client=http_client))   ← 分支一
-mcp.py:295      command = str(entry.get("command") or "").strip()
-mcp.py:296      if not command: raise ValueError("需要 command 或 url")
-mcp.py:300          ... StdioServerParameters(command=command, ...)                        ← 分支二
+# app/memory_batch.py
+:269  async def apply_batch(...)     """原子批处理：按最终态校验，全有或全无。"""
+:279      （故意在第 N 次写失败，验证补偿真的把状态退回批处理前）
+:300      log.warning("批处理写入失败，开始补偿：%s", exc)
+:302      await engine.restore(before, created)
+:139  async def restore(self, before, created):   """补偿写：改过的 key 写回旧值，新建的 key 删掉。…补偿必须**幂等**"""
 ```
-**是真分支**（url → Streamable HTTP，command → stdio），不是两个 import 摆着。
+**你要的那个「先真写一半再抛」的后端在**：`test_apply_batch_rolls_back_when_write_fails`(:184) 用 `_FlakyBackend(store)`，断言链：
+```python
+assert result.ok is False
+assert result.wrote is True          # 真的写进去了（写了一半）
+assert result.rolled_back is True    # 然后补偿了
+assert "已回滚" in result.error
+assert await _entries(store) == {"k1": "v1"}   # 旧值回来了、新建的 k9 没留下
+```
+**这是真补偿验证，不是"函数被调用过"。** ✓✓
 
-**② 8.2 能力声明前置 → ✅✅ 两处都走 `_capability`**
+**③ 9.5 熔断 → ✅✅ 确实在数调用次数**
 
 ```python
-mcp.py:733  def _capability(client, name: str) -> bool:
-mcp.py:741      caps = client.server_capabilities           ← 读 initialize_result
-mcp.py:743      return bool(dumped(caps).get(name))         ← 拿不到按"不支持"返回 False
-mcp.py:801  if _capability(client, "prompts"):              ← prompts
-mcp.py:811  if _capability(client, "resources"):            ← resources
+async def test_guarded_consolidation_stops_calling_when_tripped(tmp_path):
+    """熔断期间"不再尝试"必须是**不调用**，所以数调用次数。"""
+    ...
+    for _ in range(3): ...        assert calls["n"] == 3
+    # 第 4、5 次：熔断已打开，worker 一次都不该被调用
+    for _ in range(2): ...        assert calls["n"] == 3      ← 仍是 3
+    await consolidate_guarded(..., turn="t2", ...)            assert calls["n"] == 4   ← 下一轮恢复
 ```
-docstring 把理由写清了：「没声明的服务被调用会抛 `Method not found`，把它当成"空清单"处理会让"服务不支持"和"服务出错了"两件事混成同一个现象」。**prompts / resources 两处确实都走它** ✓
+**正是你要的「3 次失败后第 4、5 次仍为 3」** ✓；常量 `_MAX_CONSOLIDATION_FAILURES_PER_TURN = 3`（`memory_batch.py:58`）。
 
-**③ 8.4 命名 `mcp__server__prompt` → ✅**
+**④ 5.12 `todo` 落盘 + 重启 → ✅✅ 用例在**
+
+`test_meta_tools.py:76 async def test_todo_state_survives_a_restart(env)` ✓ —— 就是"重启后还在"。
+另有 `test_todo_add_list_and_reads_back_the_full_list`(:61)（回读）、上限 50 条(:110)、单条 200 字符(:123)。常量 `TODO_MAX_ITEMS = 50` / `TODO_MAX_CHARS = 200` / `TODO_STATUSES = (pending, in_progress, done)`（`tools.py:305-308`）✓
+
+**⑤ 5.16 apply_patch 原子性 → ✅✅ 用例正是那个形状**
+
+`test_patch.py:189 def test_context_mismatch_writes_nothing_at_all(tmp_path)` ✓ —— 「第 2 个 hunk 不匹配 → 第 1 个 hunk 也没写」。
+配套还有 `test_mismatch_names_the_hunk_and_the_line`(:210)、`test_apply_is_idempotent_on_a_second_run`(:233)、`test_path_escape_is_rejected`(:247)、`test_the_same_file_twice_in_one_patch_is_rejected`(:286)，共 22 条。
+
+**⑥ 3.8 注入扫描只包高风险来源 → ✅✅ `memory_search` 确实不被包**
 
 ```python
-mcp_prompts.py:64  def prompt_skill_name(server, prompt) -> str:
-mcp_prompts.py:71      return f"mcp__{sanitize(server)}__{sanitize(prompt)}"[:MAX_SKILL_NAME]   # 64
-mcp_prompts.py:86  def parse_prompt_skill_name(name) -> tuple[str, str] | None:                 # 逆函数
+# app/tools.py（as_tool_text）
+:1851  from app import redact, untrusted
+:1859  if untrusted.is_high_risk(source):
+:1860      findings = untrusted.scan(text)
+:1871      return untrusted.wrap(source, text)
+
+# app/untrusted.py
+:50  HIGH_RISK_TOOLS = frozenset({"run_command", "local_read_document", "web_search", "web_extract"})
+:53  HIGH_RISK_PREFIXES = ("browser_",)
+:48  # 反过来，``memory_search`` / ``skill_load`` / ``history_*`` **不在**名单里：它们读的…
 ```
-命名与 `app/mcp.py` 的 `tool_name()` 同构，且有逆解析 ✓
+用例：`test_high_risk_sources_are_wrapped`(:117) + `test_low_risk_sources_are_not_wrapped`(:127) + `test_redaction_still_happens_inside_the_wrapper`(:147) ✓✓
 
-**④ 8.5 resources 复用现有 RAG（不是自造向量库）→ ✅✅**
+**⑦ 16.1 dashboard 18 页 → ✅✅ 测试现场读 `main.py` 抽路由，不是硬编码**
 
-实际代码调用（非仅 docstring）：
+实跑 `dashboard.report()`：
 ```
-mcp_resources.py:46   from app.indexing import chunks_for_resource
-mcp_resources.py:356  chunks = chunks_for_resource(uri, body, server)
-mcp_resources.py:360  # 先删旧块：FtsIndexer 按 (origin, hash) 判重，只写不删会把旧版本永久留在索引里
-mcp_resources.py:451  async def search_resources(retriever, query, *, limit=5)
-mcp_resources.py:458  ``retriever`` 是 ``app.retrieval.FtsRetriever``（生产里由 …）
+total: 18 | covered: 4 | partial: 11 | missing: 3 | unbacked: {}
 ```
-**关键反证：`pyproject.toml` 里 `lancedb|chromadb|faiss|qdrant|milvus|pinecone` 全部零命中** → 没有偷偷引入新向量库，确实复用既有 `FtsIndexer`/`FtsRetriever` ✓
-
-**⑤ 8.6 心跳 + 失败宽限期 → ✅（深度略浅，如实标注）**
-
-`mcp.py:13-15` 模块 docstring 明确写了「each one runs its own heartbeat… a probe that flaps must not…（见 `HEARTBEAT_GRACE_SECONDS`）」，`:519-522` 有 `graceful = await self._supervise(name, client)`。**我核到了机制存在与宽限常量的引用，但没逐个核宽限秒数与退避序列的数值**——这条我只做到"结构成立"，标为**已核 80%**。
-
-**⑥ 8.9 `mcp serve` → ✅**
-
-`mcp_server.py:95 def to_mcp_tools(specs) -> list[McpTool]` 是纯函数（只做 schema 转换，不起进程），`:186 build_server()` 负责真正起 stdio server ✓ 与 MATRIX「测试只测转换，不真起进程」一致。
-
-**⑦ 10.2 id 游标跨重启续号 → ✅✅ 有专门用例**
-
+**与 MATRIX 的 4 / 11 / 3 完全一致，且 `unbacked` 为空** ✓
+测试确实是现场读文件：
 ```python
-session_plane.py:137   """JSONL 追加日志：单行一条 JSON，``id`` 单调递增且**跨进程/重启续号**。"""
-session_plane.py:247   def append(self, record):
-session_plane.py:250       ident = self._last_id_locked() + 1        ← 不用内存计数器
-session_plane.py:206   def _last_id_locked(self):
-session_plane.py:207       tail = self._last_id_from_tail()          ← 先读文件尾
-session_plane.py:211       tail = self._last_id_from_scan()          ← 尾巴不干净则全扫
+test_dashboard.py:45  MAIN_PY = Path(__file__).resolve().parents[1] / "app" / "main.py"
+test_dashboard.py:6-7 「…`app/main.py` 一改，测试还绿着，面板就开始撒谎。所以这里凡是涉及路由的断言，
+                       都现场 read_text 读 app/main.py 再比对。」
+:121  test_main_py_route_extraction_actually_works   ← 断言 len(routes) >= 25，防正则写坏
+:146  test_no_page_claims_a_route_that_main_py_does_not_have  ← report()["unbacked"] 必须空
 ```
-**你问的"新建实例 id 回到 0"用例确实在**：
-- `tests/test_session_plane.py:59 test_id_continues_after_restart` ✓
-- `tests/test_session_plane.py:77 test_id_continues_past_broken_lines` ✓（尾巴有坏行也能续上）
+**这是本轮质量最高的一条证据设计**：连"正则本身写坏了"都有自检。
 
-**⑧ 10.7 孤儿回收 → ✅✅ 判据与"不 kill"都有断言**
+### B. 你刻意标的 4 条 🟡 —— **四条都标得准**
 
-`orphan_reaper.py` 模块 docstring 直接就是你要的答案：
-- `:10`「**判据：`(pid, host_start_time)` 二元组，不是 pid**」；`:12` 解释 PID 复用会把"别人的进程"当成自己的
-- `:36-38`「**绝不 kill 进程** … 本模块**只清登记**，不 `taskkill`、不 `SIGTERM`、不发信号」
-- `:24-28` 三态分类：`dead`（孤儿，reap 清登记）/ `reused`（PID 复用，报告"身份不符"，reap 也清登记）/ `alive`（什么都不做）
-
-用例 16 条，其中直接对应你两个问题的：
-- **`test_module_never_kills_processes`(:260)** ← 直接断言"从不 kill"
-- `test_pid_reuse_is_not_an_orphan`(:112)、`test_start_time_within_tolerance_is_alive`(:131)
-- `test_dry_run_does_not_touch_the_ledgers`(:187)、`test_reap_removes_only_dead_entries`(:203)
-
-**⑨ 16.5 skin → ✅✅ 3 皮肤 + NO_COLOR 双通道都有用例**
-
-```
-SKINS = 3 → ['default', 'mono', 'solarized']        TOKENS = 7
-no_color_requested() 存在（env + flag 两个来源）
-```
-用例：`test_has_at_least_three_builtin_skins`(:62) · `test_no_color_env_degrades_every_token_to_empty_string`(:99) · `test_no_color_flag_degrades_every_token`(:107) · `test_no_color_requested_sources`(:112) · `test_cli_skin_no_color_flag_degrades`(:242) ✓
-
-> **未复核的 1 条**：10.6（delivery ledger）。上轮它是在飞产物且失败过（`test_written_rows_carry_gateway_field_names` / `test_pending_keeps_only_the_latest_row_per_key`），本轮它出现在 ✅ 且全量绿。**我没有单独复核它的实现**，只确认了测试全绿——如实标为未核。
-
-### B. 你刻意标的 3 条 🟡 —— **三条都标得准，一条不宽也不窄**
-
-**① 8.3 OAuth → 🟡 正确**
-
-- `OAuthStore`(:933) 的 docstring 自己就写：「元数据 → PKCE → 本地回调 HTTP 服务器 → 换 token）**没有做**」
-- 四态实现在 :1012-1027：`missing` / `expired` / `expiring` / `valid`（`:1014` 解释 expiring 与 valid 为何分开）
-- `orbit mcp auth login --help` → 「走完整 OAuth 授权流程（**本轮未实现，如实报错**）」；带假服务名跑 → exit 1「没有名为 'nosuchserver' 的 MCP 服务。已配置：demo」（先校验再报未实现）
-
-**不抬 ✅ 是对的**：真 OAuth 流程（PKCE/回调/换 token）确实没有，本机也没法验证。
-
-**② 10.1「统一 session 平面」→ 🟡 标得准，既不宽也不窄**（你专门问的那条）
-
-| 维度 | 实测 | 判定 |
+| 条目 | 实测 | 判定 |
 |---|---|---|
-| 读侧：三源合并 | `session_plane.py:313 _SOURCE_RANK = {plane:0, message:1, task_event:2}`；`:26-28` docstring「读侧仍然读 `app.sqlite`：`messages` 与 `task_events` 是既有真相源，平面不复制它们，只在 `timeline` 里合并成一条时间线」 | ✅ **统一读视图成立** |
-| 读侧用例 | `test_timeline_merges_three_sources_in_time_order`(:180) · `test_timeline_limit_keeps_the_newest`(:218) · `test_timeline_does_not_leak_other_sessions`(:228) | ✅ 有测试 |
-| **写侧：谁在写 plane** | `delivery_ledger.py` **2 处**、`session_plane.py` 自身 + `plane` CLI；**`cron.py` / `gateway.py` / `agent.py` / `graph/nodes.py` / `main.py` 全部 = 0 命中** | ⚠️ **交互循环、cron、gateway 都不写 plane** |
-| 同库同表 | 不是：plane 是 `<data>/sessions/plane.jsonl`，messages/task_events 在 `app.sqlite` | ❌ 不满足 |
+| **4.9** 辅助槽位 | `aux_slots.SLOTS = ('summary','title','compression','classifier')` = **4** 个（Hermes 18 个） | ✅ 🟡 正确 |
+| **5.13** clarify 的 gateway 按钮 | `grep send_buttons` 于 `tools.py` / `graph/nodes.py` / `gateway.py` = **0 命中** → clarify 确实没走按钮渲染，只渲染文本 | ✅ 🟡 正确 |
+| **9.10** 外部 provider | `PROVIDER_NAMES` = **8**（local/file/jsonl + mem0/zep/letta/chroma/pgvector）；真实现 3 个；其余 `available()` **恒 False**（`:99,103,231,234,349`）；读写抛 `ProviderUnavailable` | ✅ 🟡 正确（**但见 R3 的命名问题**） |
+| **16.1** 3 页无数据源 | `missing: 3` 实测 = 3，`partial: 11` | ✅ 🟡 正确 |
 
-**结论：🟡 恰当，不是标窄了（不该是 ✅），也不是标宽了（不该是 ⬜）。**
-- 不该 ✅：Hermes 的 10.1 原文是「**同库同表**」，Orbit 是"跨库统一读视图"；且写侧只有运维动作（delivery/prune）写 plane，**交互、cron、gateway 三个入口都不写**——"统一平面"目前是"统一读取"而非"统一写入"。
-- 不该 ⬜：读侧合并是真的、有排序（`_SOURCE_RANK`）、有游标（10.2）、有测试，这是实打实的价值。
-- **建议补一句证据**：「写侧目前只有 delivery_ledger 与 plane CLI 写入；cron/gateway/agent 均未写入」——这是 🟡 定级的真正理由，比"不是同库同表"更硬。
+### C. `errors.py` 撤回的处置 —— **我判断：撤回是对的**
 
-**③ 10.4 压缩谱系 → 🟡 正确**
+先说复核结果（你交代的三点全部属实）：
 
-- `SessionPlane.compress()`(:353) 存在，写 `parent_session_id` + `compressed_at` + `reason`
-- `lineage()` 有循环检测 + `MAX_LINEAGE_DEPTH` 兜底
-- **阈值确实没接**：全仓 grep `0.50` / `0.20` / `target_ratio` 在 `session_plane.py` 只命中 `def compress` 一行；`graph/*.py` 与 `agent.py` 里**只有** `nodes.py:139 context_meta.setdefault("compressed", {})`（空占位）
+| 你的说法 | 实测 |
+|---|---|
+| 只保留分类层 | `errors.py`：`ADVICE` 13 类 / `RETRYABLE` 4 类 / `is_context_overflow()` 存在 ✓ |
+| 21 条测试 | `pytest tests/test_errors.py --collect-only` = **21 tests** ✓ |
+| 未接线 | `grep errors` 于 `app/graph/nodes.py` = **0**，`app/agent.py` = **0** ✓ |
+| 撤回后 test_graph 恢复绿 | `pytest tests/test_graph.py -q` = **24 passed in 10.73s** ✓ |
 
-**「谱系有、阈值未接主循环」属实 → 🟡 正确。**
+**为什么"撤回"比"留着红树等对方"更对（4 条理由）**：
 
-### C. 4 个缺陷修复 —— **4/4 全部真实修好**
+1. **绿树是多方共享的公共资产。** 这是并行多 agent 施工；一棵红树会让**所有人**都失去"这次失败是不是我弄的"这个判据——你这轮就正好撞上了这个困境（分不清是自己接线还是别人重写 `agent.py`）。留着红树等于把不确定性扩散给每一个并行的 agent。
+2. **归因必须先隔离成单变量。** 正确顺序是「等 `agent.py` 稳定 → 单独接线 → 跑 test_graph」。撤回把接线变成一个**可重放的干净实验**；留着红树则永远无法归因。
+3. **MATRIX 的标注方式正是诚实优先要的做法。** 2.6/2.7 标 🟡 并写明「**未接线**：`Nodes.ask_model` 仍对所有异常重试 `MODEL_ATTEMPTS` 次——那一轮 `app/agent.py` 正被另一个子agent 重写，同时改会互相覆盖」。**把不确定性写进文档而不是藏起来**，这比"接上了但不知道为什么红"好一个数量级。
+4. **沉没成本没浪费。** 分类层 + 21 条测试留在库里，接线只需把 `ask_model` 的 except 分支改成 `errors.classify(exc)` → 只有 `RETRYABLE` 才重试。成本已经付了，只差一行调用。
 
-| # | 修复 | 代码证据 | 判定 |
-|---|---|---|---|
-| 1 | `_table.Spec.build` 中间节点 | `claimed = HANDLERS.get(path)` → 有则 `handler, state = claimed, "done"`（支持"裸命令+子命令并存"）；`elif children:` → `states == {"done"}` 则 done、`states & {"done","partial"}` 则 partial、否则 todo；注释点名了 `dashboard` 与 `skin` 两个受害案例 | ✅✅ 真修，且两处 bug 都在注释里留了档 |
-| 2 | `lineage` 的 `current = parent` | 现在是 `up: str \| None = parents.get(current)`，尾部注释：「必须走 `up`。这里早先写的是 `current = parent`——`parent` 是上面建 `parents` 映射时留下的循环变量…结果每条谱系都在第二步就自我循环，被误判成"脏数据"直接报错」 | ✅✅ 真修，且**把坑写进了注释** |
-| 3 | `listing_signature` 取第一个就返回 | 现在 `parts` 收集 `meta`+`annotations` 的 5 个键（etag/ETag/lastModified/last_modified/updated_at）+ `size`，`"\|".join(parts)`；docstring 写明旧 bug（「etag 没变但 size 变了完全看不出来」）与代价（「升级后第一次全量重建，一次性成本」） | ✅✅ 真修，代价如实披露 |
-| 4 | `worktree` 的 `list[str]` 被遮蔽 | `worktree.py:47 Names = list[str]`（模块级别名）；`:41-44` 注释：「在类体里写 `list[str]` 会被解析成那个方法而不是内置类型，mypy 直接报 valid-type」；`:314` / `:323` 已改用 `Names` | ✅✅ 真修 |
+**唯一建议补充**：在 2.6/2.7 的证据栏加一句**接线点**（`Nodes.ask_model` 的 except 分支 → `errors.classify` → 仅 `RETRYABLE` 重试），否则下一个人接手时要重新推导一遍。
 
-### D. 一处措辞要改（8.8 举错例子）
+**反过来说，"留着红树"只在两个条件同时成立时才更优**：能即时协调 + 红树存活以分钟计。本轮明显不成立。
 
-`orbit mcp` 实测 **17 个子命令**，`state=done` 的 **14 个**（serve/add/remove/list/test/configure/login/reauth/enable/disable/reload/resources/prompts/auth）——**数字 14/17 与 MATRIX 一致** ✓。
+### D. 其余新增 ✅ 抽查（3 条）
 
-但 MATRIX 8.8 的举例是「`login` / `reauth` 如实报未实现」，**这两个实际是 `state=done` 且有真 handler（`run_login` / `run_reauth`）**；真正 `state=todo` 的是 **`picker` / `catalog` / `install`**（实测 `orbit mcp catalog` → exit 3「尚未实现」）。
-→ 建议改成：「17 条里实现 14 条；`picker`/`catalog`/`install` 未实现（exit 3）；`auth login`/`reauth` 命令已实现但 **OAuth 流程本身**如实报未实现」。**count 没错，举例错了。**
+| 条目 | 证据 | 判定 |
+|---|---|---|
+| **4.3** per-model 路由 | `app/model_router.py::route()` 实跑：`gpt-5.4`→openai ✓、`deepseek-chat`→deepseek ✓、`totally-unknown-model`→`supported=False` + 「不在任何 provider 的模型表里」**不猜** ✓；`test_model_router.py` 28 条 | ✅ |
+| **4.4** 推理翻译表 | `reasoning.py`：`Translator` 类 + 逐家请求构造 `_deepseek_request` / `_zai_request` / `_kimi_request` + `_ANTHROPIC_BUDGET` + `NotSupported` | ✅ |
+| **4.11** MoA | `moa.py`：`Proposer` / `MoAPlan` / `Proposal` / `MoAResult` / `per_slot_cap` / `build_aggregator_prompt`（N proposer + 1 aggregator） | ✅ |
+| **5.3** check_fn 探针 | `toolsets.py:313 PROBE_TTL_SECONDS = 30.0`、`:316 PROBE_GRACE_SECONDS = 60.0`、`_PROBE_CACHE`、三步逻辑（新鲜即返回 / 失败在宽限内判抖动 / 超宽限才摘） | ✅ |
+
+> **未复核的 2 条**：9.15（`orbit memory`）、14.6 / 14.10 其中之一。如实标注。
 
 ---
 
@@ -214,56 +234,72 @@ no_color_requested() 存在（env + flag 两个来源）
 
 | # | 未完成项 | 现状 | 量级 |
 |---|---|---|---|
-| 1 | **L4 模型适配（8 ⬜ + 4 🟡）** | **4 条 🟡 全是「库层有、运行时没接」**：fallback 链 / credential pool / provider 钩子 / transport。已连续 3 轮排第一类风险 | 12 条待补 |
-| 2 | **L9 记忆层（9 ⬜ + 2 🟡）** | 缺 USER.md 用量自曝头、原子批处理 `operations[]`、熔断、8 个 memory provider、写入门禁、漂移防护、CJK FTS | 11 条待补 |
-| 3 | **L5 工具层（9 ⬜ + 2 🟡）** | 29 工具 vs Hermes 94；缺 code_execution、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant、元工具 | 差 65 个工具 |
-| 4 | **L2 核心循环（8 ⬜ + 1 🟡）** | 子 Agent 已落地但零消费；缺 13 类错误分类、心跳判卡死、中断配对、压缩重试、后台学习回路 | 9 条待补 |
-| 5 | **L1 入口 / CLI（6 ⬜ + 2 🟡）** | `serve` / `dashboard` / `desktop` / `gui` / `acp` / TUI / 全局 23 flag | 8 条待补 |
-| 6 | **L7 Skill 剩余（4 ⬜ + 5 🟡）** | 缺 hub 分发、bundles、sync 三方合并、`skills_guard` 107 条威胁模式、curator 剩 8 子命令 | 9 条待补 |
-| 7 | **L10 持久化剩余（5 ⬜ + 5 🟡）** | 缺 `active=0 AND compacted=1` 归档、`system_prompts` 内容寻址、存活租约、双 FTS、`hosted_room_*` 事件溯源；🟡 里 10.1 写侧未统一 | 10 条待补 |
-| 8 | **L13 插件剩余（1 ⬜ + 4 🟡）** | 缺 dashboard 插件契约、懒发现、`all`/`pack` CLI | 5 条待补 |
-| 9 | **L12 剩余（1 ⬜ + 3 🟡）** | 19 个平台适配器全是占位；缺 `gateway` 11 子命令全量、peer、monitoring 导出 | 4 条待补 |
-| 10 | **L14 剩余（2 ⬜ + 3 🟡）** | 缺 tirith、egress 代理、`orbit hooks` CLI、`path_security`/`url_safety` 四件套 | 5 条待补 |
+| 1 | **L2 核心循环（6 ⬜ + 3 🟡）** | 唯一"几乎没动"的层：13 类错误分类**未接线**、`context_overflow` 压缩重试**未接线**、心跳判卡死、中断配对、后台学习回路 | 9 条待补 |
+| 2 | **L10 持久化（5 ⬜ + 5 🟡）** | 归档不删、`system_prompts` 内容寻址、存活租约、双 FTS、`hosted_room_*` 事件溯源；🟡 里 10.1 写侧未统一、10.4 压缩阈值未接 | 10 条待补 |
+| 3 | **L7 Skill 剩余（4 ⬜ + 5 🟡）** | hub 分发、bundles、sync 三方合并、`skills_guard` 107 条威胁模式、curator 剩 8 子命令 | 9 条待补 |
+| 4 | **L1 入口（4 ⬜ + 4 🟡）** | `serve` / `dashboard` / `desktop` / `gui` / `acp` / TUI / 全局 23 flag | 8 条待补 |
+| 5 | **L9 记忆剩余（5 ⬜ + 3 🟡）** | USER.md 用量自曝头、8 个外部 provider（`available()` 恒 False）、holographic、写入门禁、漂移防护、CJK FTS | 8 条待补 |
+| 6 | **L4 模型剩余（4 ⬜ + 3 🟡）** | `proxy` / `egress` / 三级能力元数据 / TTS-STT；🟡 里 4.1 只 16/48、4.2 只 3 transport、4.9 只 4/18 槽位 | 7 条待补 |
+| 7 | **L5 工具剩余（4 ⬜ + 4 🟡）** | 29 工具 vs 94；缺 code_execution、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant | 差 65 个工具 |
+| 8 | **L13 插件剩余（1 ⬜ + 4 🟡）** | dashboard 插件契约、懒发现、`all`/`pack` CLI | 5 条待补 |
+| 9 | **L14 安全剩余（0 ⬜ + 4 🟡）** | tirith、egress、`path_security`/`url_safety` 四件套、脱敏出口未全覆盖 | 4 条待补 |
+| 10 | **L12 剩余（1 ⬜ + 3 🟡）** | 19 个平台适配器全是占位；`gateway` 11 子命令全量、peer、monitoring 导出 | 4 条待补 |
 
 ---
 
 ## 风险与漂移
 
-### R1 🟡 **8.8 的举例错位（count 对、例子错）**
+### R1 🔴 **计数工具的口径 bug：`matrix_stats.py` 把 1 条 🟡 算成了 ✅（本轮最重要）**
 
-见 D 节：`login`/`reauth` 是 done，未实现的是 `picker`/`catalog`/`install`。建议改措辞，避免下轮有人去找"login 未实现的证据"而困惑。
+```python
+# scripts/matrix_stats.py:37  count()
+if DONE in line:          # ← 整行包含 ✅ 就算完成
+    done += 1
+```
+而它的**自己的 docstring（:14）写的是**「状态取该行里出现的**第一个**标记」——**实现与文档不符**。
 
-### R2 🟡 **10.1 的 🟡 理由可以更硬**
+后果：`MATRIX 10.1` 状态列是 **🟡**，但证据栏含我上轮建议的措辞「→ **变 ✅ 的路径**」→ 被算成 done。
 
-现在理由写的是「不是同库同表」。**更硬的理由是写侧**：`cron` / `gateway` / `agent` / `graph/nodes.py` / `main.py` 对 plane 的引用数**全是 0**，只有 `delivery_ledger` 与 `plane` CLI 在写。建议补进证据栏——这决定了 10.1 短期不可能变 ✅（要变 ✅ 得让三个入口都写 plane）。
+| 口径 | ✅ | 🟡 | ⬜ | 完成度 |
+|---|---|---|---|---|
+| `matrix_stats.py`（整行包含） | **98** | 44 | 39 | 54.1% |
+| **状态列（权威）** | **97** | **45** | 39 | **53.6%** |
 
-### R3 🟡 **L4 的 4 条 🟡 已连续 3 轮无人动**
+**全表只有 1 行**是「状态列符号 ≠ 行内唯一符号」：`10.1`（行内同时出现 ✅ 和 🟡）。所以修法很小：
+1. `count()` 改成**读状态列**（按未转义的 `|` 切段取第 5 段）；
+2. 加一条断言：**每行状态列必须是且仅是 ✅/🟡/⬜ 之一**（现在 181 行都满足，除了符号唯一性）；
+3. 加一条断言：**行内不得出现与状态列不同的状态符号**（当前唯一违反者 10.1）。
 
-fallback / credential pool / provider 钩子 / transport 四条 🟡 从第 4 轮就是这个状态（"库层有、运行时没接"），本轮 W7/W8/W11/W12 全部绕过了 L4。**这是全表最稳定的一块欠账**，且性价比最高（`agent.get_model()` 里接一次 `FallbackChain` 能把 4.5/4.6 同时翻 ✅）。
+> 讽刺的是：这个工具当初就是为"分母不能虚高"造的（`duplicate_ids` 门禁），结果**分子**被同一个 bug 污染了 1 条。而且污染源是我上轮写的建议措辞——**以后建议里不要写字面 ✅ 符号**，改写成"可转 done"。
 
-### R4 🟢 **上轮的两个教训已记入本报告（按你要求）**
+### R2 🟡 **我自己的统计方法也有同一缺陷（已修正，需披露）**
 
-**教训 1：本机不能并发跑重活。**
-- 你的观测：`import app.mcp` 看似挂死（faulthandler 停在 `get_data`），实际是 pytest + mypy 后台任务压满 CPU，独占重跑 2.1 秒。
-- **我本轮提供了旁证**：同一套全量测试，上轮（4 子agent 在跑）**711s**，本轮（独占）**127.52s** —— **5.6 倍差**。所以"跑得慢/看似挂起"的第一诊断永远是"先看有没有并发重活"，不是"代码有问题"。
-- 我在第 5 轮也踩过同一类：想跑"只含已跟踪测试文件"的基线，>15 分钟未结束只好中止；本轮独占后 127s 就跑完了。
+第 2–6 轮我用的是 PowerShell 整行 `-match '✅'`，与本轮 `matrix_stats.py` 同一个口径。本轮改用**状态列解析**后才发现差异。
+- 第 6 轮报的 83 条是否受影响：**无法回溯确认**（当时 10.1 的 🟡 证据栏还没有 ✅ 字样，大概率准确），但**从本轮起统一用状态列口径**，并在报告里注明。
+- 教训：**"扫描符号"永远不可靠**——报告文本里会出现被引用的符号。必须定位到结构化字段。
 
-**教训 2：PowerShell 会吃掉反引号。**
-- 你的观测：用 `python -c` 改含反引号的 Markdown 行会**静默改不动**（踩了两次），要改用脚本文件。
-- **我这边同族的坑**：PowerShell 对 native command 的 stderr 处理会伪造退出码——我在前几轮多次看到 `--help` 后面跟着 `[exit code: 1]`，逐个单独复核后**全是 0**；本轮 `orbit mcp auth login --help` 也显示 exit 2 但那是"缺 NAME 参数"的真实 argparse 错误。**结论：凡"退出码异常"，先在干净的单命令里复核一次，再下结论。**
+### R3 🟡 **9.10 的 8 个 provider 名与 Hermes 的 8 个只有 `mem0` 重合**
 
-### R5 🟡 **未验证项（如实标注，不许当通过）**
+- Hermes 侧（MATRIX 条目原文）：`byterover / hindsight / holographic / honcho / mem0 / openviking / retaindb / supermemory`
+- Orbit 侧实测：`local / file / jsonl`（真实现 3 个）+ `mem0 / zep / letta / chroma / pgvector`（接口 5 个）
+→ **接口数量 8 对上了，但名字只有 `mem0` 重合**。这不算虚报（🟡 且写明了 `available()` 恒 False），但建议在证据栏注明「**provider 名单按可用生态选，不是照抄 Hermes 的 8 家**」，否则下轮容易误以为"8 个 provider 已对齐"。
+
+### R4 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| 10.6 delivery ledger 实现 | 只确认测试全绿，**未单独读实现**（上轮它是在飞产物且失败过） |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用，**未逐个核数值** |
-| `orbit chat` 交互式会话 | 会起 REPL 并可能调模型 → 未运行 |
-| `gateway start` / dispatcher 实际互斥 | 会起服务、写 `dispatcher.lock` → 未运行 |
-| `cron run` / 投递 | 会真执行任务、写 `runs.jsonl` → 未运行 |
-| `backup create` / `restore` | 会写 zip、改数据目录 → 未运行 |
-| `config edit` / `doctor --fix` / `doctor --live` | 拉编辑器 / 写盘 / 真发请求 → 未运行 |
-| `matrix_stats.py` 端到端 exit 1 | 只读固定 MATRIX.md、无路径参数；实跑需改禁改区（第 4 轮起一直是这个状态） |
+| 9.15（`orbit memory {setup,status,off,reset}`）、14.6/14.10 之一 | 本轮新增 14 条里未逐条复核的 2 条 |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用，未逐个核数值（连续 2 轮如此） |
+| `orbit chat` 交互式、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 全部会改状态或真发请求 → 未运行 |
+| `matrix_stats.py` 端到端 exit 1（重复编号门禁） | 只读固定 MATRIX.md、无路径参数；实跑需改禁改区（第 4 轮起一直如此） |
+
+### R5 🟢 **上轮两条建议都已落地（记录以免重复提）**
+
+| 上轮建议 | 本轮实测 | 状态 |
+|---|---|---|
+| 保住干净基线并写进文档口径 | 本轮仍是独占跑（1760 passed / 153.74s），且我复核到 ruff/mypy 全绿 | **已落地** |
+| L4 的 fallback 接线（全表 ROI 最高） | `get_model()` 走 `FallbackChain` + `CredentialPool`，返回 `Route`；4.5/4.6 转 ✅，14 条用例 | **已落地** |
+| （上轮 R2）10.1 补「写侧未统一」的理由 | MATRIX 10.1 证据栏**逐字采纳**了我的措辞（含「引用数全是 0」「变 ✅ 的路径」） | **已落地**（但引发了 R1） |
 
 ---
 
@@ -271,15 +307,15 @@ fallback / credential pool / provider 钩子 / transport 四条 🟡 从第 4 �
 
 按优先级：
 
-1. **【P0】保住"干净基线"这个新资产**：本轮 1374 passed / 1 failed / 1 skipped（127.52s）是**第一次可信基线**。建议把它写进 `MATRIX.md` 附注或 `ROADMAP.md`，并规定"每轮收口必须独占跑一次"。上轮 711s vs 本轮 127s 的对比就是理由。
-2. **【P0】L4 的 4 条 🟡 该动手了**：连续 3 轮无人碰，且是"库层有、运行时没接"这一类。在 `agent.get_model()` 里接一次 `FallbackChain`，**一条改动能同时把 4.5/4.6 翻回 ✅**，还能顺手把 `credential_pool` 的 429 熔断接上。这是全表 ROI 最高的一处。
-3. **【P1】修 8.8 的举例**（`login`/`reauth` → `picker`/`catalog`/`install`），并补一句「`auth login` 命令已实现但 OAuth 流程如实报未实现」。
-4. **【P1】给 10.1 补"写侧"理由**：把「`cron`/`gateway`/`agent`/`nodes`/`main` 对 plane 引用数 = 0，只有 `delivery_ledger` 与 `plane` CLI 在写」写进证据栏。这既解释了为什么是 🟡，也给出了变 ✅ 的路径。
-5. **【P1】L9 记忆层是下一个大块**：9 ⬜ + 2 🟡，且缺的都是**可离线验证、测试好写**的东西（USER.md 用量头、`operations[]` 原子批处理、3 次失败熔断、写入门禁、漂移防护）。Orbit 已有 memories 表 + USER.md 底座，性价比高于 L5（要新增 65 个工具）。
-6. **【P2】把 `picker`/`catalog`/`install` 三条 todo 收掉**：`catalog` 可以做成"读 optional-mcps 目录"的只读命令（顺带解掉 8.10），`picker` 可做成交互选择。三条加起来能把 8.8 从 🟡 推到 ✅。
-7. **【P2】给每条 ✅ 补「验证命令」列**：本轮 9 条复核里有 6 条是"读源码 + 对常量 + 看用例名"，只有 8.1/8.5/8.8 有可一键复跑的命令。补上后下轮监视不必重读源码。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 4 轮未核（`Tool.confirmation` / `granted()` / `budget["summary_mark"]` / `context_meta["compressed"]` 等）。注意 `nodes.py:139` 的 `context_meta.setdefault("compressed", {})` 我这轮顺带看到**仍是空占位**——正是那 15 条里的一条。
+1. **【P0】修 `matrix_stats.py::count()` 的口径**（R1）：改成读状态列，并加两条断言（状态列必须是三符号之一；行内不得出现与状态列不同的符号）。改完后表头应显示 **97 / 45 / 39 = 53.6%**。这一条会同时消除"分母门禁"与"分子虚高"两类风险。
+2. **【P0】给 2.6 / 2.7 补「接线点」**：`Nodes.ask_model` 的 except 分支 → `errors.classify(exc)` → 仅 `RETRYABLE` 才重试。你撤回的处置是对的，但**接线点没写下来**，下一个人要重新推导。
+3. **【P1】L2 是现在最弱的一层（6 ⬜ + 3 🟡，10 条里只 ✅1）**：它恰好是"接线类"欠账（错误分类、压缩重试两条已经写好但没接）。**把 2.6/2.7 接上，L2 立刻从 10% 涨到 30%**，比新开一层便宜得多。
+4. **【P1】9.10 补一句 provider 名单口径**（R3），并考虑把 `local/file/jsonl` 之外的 5 个接口**要么标"仅为契约占位"**、要么换成 Hermes 的真实名单（byterover/honcho/…），否则"8 个 provider"这个数字会被误读。
+5. **【P1】L10 的 10.1 该决定方向了**：要么把 cron/gateway/agent 的写入过 plane（变 ✅），要么把条目判据改成"统一读视图"并把"同库同表"降级为差异说明。现在这条 🟡 已经挂了 2 轮，且它的证据栏含 ✅ 字样正在污染计数。
+6. **【P2】把"状态列唯一性"做成测试**：`tests/test_matrix_format.py` 里断言 181 行的状态列 ∈ {✅,🟡,⬜} 且行内无第二个状态符号。这样 R1 这类问题会在 CI 里当场红，而不是靠监视者肉眼发现。
+7. **【P2】每条 ✅ 补「验证命令」列**：本轮 16.1 / 9.4 / 9.5 三条的证据质量极高（现场读文件、数调用次数、断言补偿后状态）；把这种"可一键复跑"的断言补到其余条目。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 5 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
 
 ---
 
-*本报告由 monitor 角色只读生成。本轮新增 10 条 ✅ 复核 9 条（90%），你点名的 3 条 🟡 全部判为**标得恰当**（10.1 尤其：不宽不窄，但理由该换成"写侧未统一"）；4 个缺陷修复 **4/4 全部真修**。未验证项单列，不混进完成项。所有数字可按上文命令复现。*
+*本报告由 monitor 角色只读生成。本轮新增 14 条 ✅ 复核 12 条（86%），你点名的 7 条**全部撑得住**、4 条 🟡 **全部标得准**；`errors.py` 撤回的处置我判为**正确**。最重要的发现是计数工具把 1 条 🟡 算成了 ✅（真实 53.6%，不是 54.1%），且污染源是我上轮建议里的 ✅ 字面符号。未验证项单列，不混进完成项。*

@@ -11,7 +11,13 @@
 
 口径：
 - 只统计形如 `| 12.3 | …` 的条目行（分层清单），附录与说明表不计入。
-- 状态取该行里出现的第一个标记：✅ 已实现 / 🟡 部分 / ⬜ 未开始。
+- 状态取**状态列**（第 5 个 `|` 段），不是"整行里出现了哪个符号"。
+
+  **这一条踩过坑**：早先的实现是 `if DONE in line`，只要证据栏里出现一个 ✅ 就算完成。
+  监视子agent 的一条建议里写了「→ 变 ✅ 的路径」，于是 10.1（状态列是 🟡）被算成完成，
+  完成度虚报 1 条。整行匹配的错法很隐蔽：状态列明明写着 🟡，数字却对不上。
+  现在改成读状态列，并加两条断言（状态列必须是三符号之一、整行不得出现第二个状态符号），
+  让"证据栏提到别的符号"当场被门禁抓住。
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from pathlib import Path
 MATRIX = Path(__file__).resolve().parents[1] / "handoff" / "hermes-parity" / "MATRIX.md"
 
 DONE, PARTIAL, TODO = "\u2705", "\U0001F7E1", "\u2b1c"
+SYMBOLS = (DONE, PARTIAL, TODO)
 ITEM = re.compile(r"^\| (\d+)\.(\d+[a-z]?) \|")
 #: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟡 4 · ⬜ 154"
 #: 数字前面带状态表情，所以用 `[^\d]*` 吃掉分隔符，而不是硬编码具体表情——
@@ -34,19 +41,59 @@ HEADER = re.compile(
 )
 
 
+def status_of(line: str) -> str:
+    """取状态列（第 5 个 `|` 段）。取不到返回空串。
+
+    **必须先处理转义竖线**：条目的"依据"栏里常有 ``iwr\\|iex`` 这种转义写法，
+    直接 ``line.split("|")`` 会把它切成两段，状态列整体右移一格，于是
+    「状态列不是三符号之一（'W13'）」——5.9 / 5.10 就是这么被静默漏掉的
+    （两个状态都算不进任何一桶，总数却照数，导致 95+45+39 ≠ 181）。
+    """
+    # 用一个不会出现在 Markdown 里的占位符替掉转义竖线，再按真竖线切。
+    safe = line.replace("\\|", "\x00")
+    parts = safe.split("|")
+    if len(parts) < 7:
+        return ""
+    return parts[5].strip()
+
+
 def count(text: str) -> dict[str, int]:
     total = done = partial = todo = 0
     for line in text.splitlines():
         if not ITEM.match(line):
             continue
         total += 1
-        if DONE in line:
+        status = status_of(line)
+        if status == DONE:
             done += 1
-        elif PARTIAL in line:
+        elif status == PARTIAL:
             partial += 1
-        elif TODO in line:
+        elif status == TODO:
             todo += 1
     return {"total": total, "done": done, "partial": partial, "todo": todo}
+
+
+def status_column_problems(text: str) -> list[str]:
+    """状态列的两种病：不是三符号之一，或整行出现第二个状态符号。
+
+    第二种正是虚报的成因——证据栏写「变 ✅ 的路径」时，状态列是 🟡，整行却含 ✅。
+    把它变成门禁错误，比事后靠人眼发现可靠。
+    """
+    problems: list[str] = []
+    for line in text.splitlines():
+        match = ITEM.match(line)
+        if not match:
+            continue
+        ident = f"{match.group(1)}.{match.group(2)}"
+        status = status_of(line)
+        if status not in SYMBOLS:
+            problems.append(f"{ident}：状态列不是三符号之一（{status!r}）")
+            continue
+        found = [symbol for symbol in SYMBOLS if symbol in line]
+        if len(found) > 1:
+            others = "、".join(symbol for symbol in found if symbol != status)
+            problems.append(f"{ident}：状态列是 {status}，但行内还出现了 {others}（会被误算）")
+    return problems
 
 
 def duplicate_ids(text: str) -> list[str]:
@@ -81,6 +128,13 @@ def main() -> int:
     dupes = duplicate_ids(text)
     if dupes:
         print(f"条目编号重复：{'、'.join(dupes)}", file=sys.stderr)
+        return 1
+
+    problems = status_column_problems(text)
+    if problems:
+        print("状态列有问题：", file=sys.stderr)
+        for problem in problems:
+            print(f"  · {problem}", file=sys.stderr)
         return 1
 
     match = HEADER.search(text)

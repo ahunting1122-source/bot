@@ -338,10 +338,10 @@ def test_deliver_to_unimplemented_platform_is_flagged_not_raised(tmp_path):
     """未实现平台：``not_implemented=True``（不是"网络抖动"），且账本照样记一笔。"""
     service = _service(tmp_path)
     service.start()
-    result = service.deliver("hello", platform="telegram", channel="@me")
+    result = service.deliver("hello", platform="buzz", channel="@me")
     assert result.ok is False
     assert result.not_implemented is True
-    assert "TELEGRAM_BOT_TOKEN" in result.error
+    assert "BUZZ_PRIVATE_KEY" in result.error
     assert service.deliveries()[-1]["status"] == "failed"
 
 
@@ -431,11 +431,15 @@ def _run(tmp_path: Path, *argv: str) -> int:
 
 
 def test_cli_gateway_status_and_doctor(tmp_path, capsys):
+    from app.platforms import IMPLEMENTED_PLATFORMS
+
     assert _run(tmp_path, "gateway", "status") == 0
     out = capsys.readouterr().out
     assert "dispatcher" in out
     assert "22 个已登记" in out
-    assert "3 个已实现" in out
+    # 数量跟着 `IMPLEMENTED_PLATFORMS` 走，不写死——否则每加一个适配器就要改测试，
+    # 而测试该守的是"报告与实际一致"，不是某个具体数字。
+    assert f"{len(IMPLEMENTED_PLATFORMS)} 个已实现" in out
 
     assert _run(tmp_path, "gateway", "start") == 0
     capsys.readouterr()
@@ -469,11 +473,11 @@ def test_cli_send_to_console_and_file(tmp_path, capsys):
 
 def test_cli_send_to_unimplemented_platform_reports_reason(tmp_path, capsys):
     """未实现平台发消息：退出码 1 + 说清原因与所需凭证。"""
-    code = _run(tmp_path, "send", "--to", "telegram:-100123", "hi")
+    code = _run(tmp_path, "send", "--to", "buzz:room-1", "hi")
     assert code == 1
     err = capsys.readouterr().err
     assert "未实现" in err
-    assert "TELEGRAM_BOT_TOKEN" in err
+    assert "BUZZ_PRIVATE_KEY" in err
 
 
 def test_cli_send_unknown_platform_is_usage_error(tmp_path, capsys):
@@ -584,7 +588,19 @@ def test_cli_gateway_setup_lists_platforms(tmp_path, capsys):
     assert "22 个" in out
     assert "ntfy" in out and "telegram" in out
     payload = json.loads((tmp_path / "data" / "gateway" / "platforms.json").read_text("utf-8"))
-    assert payload["enabled"] == ["a2a", "ntfy", "raft"]
+    assert payload["enabled"] == [
+        "a2a",
+        "dingtalk",
+        "discord",
+        "feishu",
+        "google_chat",
+        "ntfy",
+        "raft",
+        "slack",
+        "teams",
+        "telegram",
+        "wecom",
+    ]
     assert len(payload["platforms"]) == 22
 
 
