@@ -809,20 +809,22 @@ class AgentRunner:
 
         **路由放在最前（MATRIX 4.3）**：之前 `app/model_router.py::route()` 写好了、
         单测也过，但**生产里零调用方**——选客户端读的是 per-provider 静态
-        `profile.transport`，与模型名无关。于是 `model = "deepseek-chat"` 配一个空的
-        `model_provider` 时，`resolve_provider` 只能靠 base_url 反查或退回 custom，
-        **模型名里那条最可靠的信息被丢掉了**。
+        `profile.transport`，与模型名无关。
 
-        **只在用户「完全没表达 provider 意图」时才用路由**（`model_provider` 与
-        `model_base_url` 都为空）。为什么这么保守：`route()` 的优先级是
-        「显式 provider **且该家模型表里有这个模型**」，所以
-        `model_provider=openai` + 一个在别家表里的模型名时，它会**反查成别家**——
-        直接接上去就成了「用户明说了却被悄悄改掉」，那比不路由糟得多。
-        **用户说了话就听用户的；用户没说才让模型名说话。**
+        **两个前提条件，缺一不可**（第一版写错过，被监视子agent 查出是假阳性）：
+
+        1. **用户没有显式指定 `model_provider`**。`route()` 自己的优先级是
+           「显式 provider **且该家模型表里有这个模型**」，所以
+           `model_provider=openai` + 一个在别家表里的模型名时它会**反查成别家**——
+           直接接上去就成了「用户明说了却被悄悄改掉」。**用户说了话就听用户的。**
+        2. **`model_base_url` 不携带额外信息**——即它为空，或**等于被路由那家的默认
+           端点**。这一条是第一版漏掉的：`model_base_url` 会**由模型名自动派生**
+           （`model="deepseek-chat"` → `https://api.deepseek.com`），所以「两个都为空」
+           这个条件在默认配置下**永不成立**，路由分支其实是惰性的。
+           判据改成「base_url 等于该家默认」既覆盖派生的情况，又能在用户**真填了
+           自建端点**时正确地让 `resolve_provider` 说了算。
         """
-        if not str(getattr(self.settings, "model_provider", "") or "").strip() and not str(
-            getattr(self.settings, "model_base_url", "") or ""
-        ).strip():
+        if not str(getattr(self.settings, "model_provider", "") or "").strip():
             from app import model_router
 
             try:
@@ -831,7 +833,12 @@ class AgentRunner:
                 log.warning("模型路由失败（退回原有解析）：%s", exc)
                 decision = None
             if decision is not None and decision.provider in pv.PROVIDERS:
-                return pv.PROVIDERS[decision.provider]
+                profile = pv.PROVIDERS[decision.provider]
+                configured = str(getattr(self.settings, "model_base_url", "") or "").strip()
+                default = str(getattr(profile, "default_base_url", "") or "").strip()
+                # 用户没填端点，或填的正是这家的默认端点 → 端点不携带额外信息，听模型名的
+                if not configured or configured.rstrip("/") == default.rstrip("/"):
+                    return profile
         try:
             return pv.resolve_provider(self.settings)
         except pv.UnknownProvider as exc:

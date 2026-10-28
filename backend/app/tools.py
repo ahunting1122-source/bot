@@ -24,6 +24,7 @@ from app import (
     code_exec,
     egress,
     hooks,
+    memory_plugin_bridge,
     memory_write,
     terminal,
     tirith,
@@ -2577,6 +2578,13 @@ class ToolRegistry:
             memory, merged_from = await self.store.set_memory(
                 args["key"], args["value"], task_id
             )
+            # 镜像到插件 provider（MATRIX 13.4）。**必须在这里**——即 `MEMORY.md`
+            # 已经过完三段闸并写成功之后。
+            #
+            # **顺序不能反**：`MEMORY.md` 是权威，provider 是镜像。先写权威，
+            # 成功了才镜像；镜像失败只记账、不回滚——否则一个可选插件就能阻止
+            # 核心记忆写入，方向就错了。
+            memory_plugin_bridge.mirror(memory.key, str(args["value"]))
             payload = serialize(memory)
             if merged_from:
                 # 如实告诉模型发生了合并，让它知道键名已被归一，避免下次再换写法

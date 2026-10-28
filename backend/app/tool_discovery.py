@@ -422,6 +422,15 @@ def load_index(path: str | Path) -> Index | None:
 
     为什么容忍坏文件：索引是**加速与诊断用的旁路数据**，不是配置。它坏了应该退回
     "重扫一遍"，而不是让 ``orbit tools discover`` 直接失败。
+
+    **安全边界**：索引文件里写的是**模块路径**，而 `ensure_loaded()` 会
+    `importlib.import_module(...)`——也就是说**谁能写索引，谁就能让进程 import
+    任意模块**。当前索引只由 `discover()` 扫 `app_root()` 生成、没人从外部加载，
+    但 `load_index(path)` **这个函数已经存在**，而 `data_dir` 是可写的。
+
+    所以这里加一道：**只接受 `root` 目录里面的模块文件**。判据用每个条目的 `path`
+    （必须是 `root` 下的真实路径）——`module` 字符串本身可以随便写，`path` 才可核对。
+    **不满足的条目整条丢掉**（不是整个索引作废：一个坏条目不该让好的那些一起失效）。
     """
     target = Path(path)
     try:
@@ -434,9 +443,23 @@ def load_index(path: str | Path) -> Index | None:
     tools = raw.get("tools")
     if not isinstance(root, str) or not isinstance(tools, dict):
         return None
+    try:
+        root_path = Path(root).resolve()
+    except (OSError, ValueError):
+        return None
     entries: dict[str, ModuleInfo] = {}
     for name, item in tools.items():
         if not isinstance(item, dict):
+            continue
+        # 安全边界：条目指向的文件必须真的在 root 目录里面。
+        # **一个能被外部改写的索引，等于一个代码执行面。**
+        raw_path = item.get("path")
+        if not isinstance(raw_path, str):
+            continue
+        try:
+            Path(raw_path).resolve().relative_to(root_path)
+        except (OSError, ValueError):
+            log.warning("索引条目 %s 指向 %s（在 %s 之外），已忽略", name, raw_path, root)
             continue
         entries[str(name)] = ModuleInfo(
             name=str(item.get("name") or name),

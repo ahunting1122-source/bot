@@ -178,6 +178,31 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             settings, tool_sink=registry, hook_sink=DEFAULT_HOOKS
         )
         app.state.plugin_host.attach_to_app(app)
+        # 插件记忆 provider 真的装进路由器（MATRIX 13.4）。
+        #
+        # **之前 `memory_providers.build_router()` 零生产调用方**——那套
+        # 「15 个 provider 名字 + 路由器」的抽象从来没被装配过，生产里的记忆就是
+        # 一个 `MEMORY.md` 文件。插件能注册 provider 对象，但**没有任何生产代码
+        # 去读它或写它**。
+        #
+        # 这里把插件 provider 并进路由器的 provider 列表，再交给桥（读/写/记账）。
+        # **失败不拦启动**：记忆 provider 是增强项，装不上不该让整个服务起不来。
+        try:
+            from app import memory_plugin_bridge
+            from app.memory_providers import build_router, default_providers
+
+            _plugin_memory = list(app.state.plugin_host.memory_providers().values())
+            _router = build_router(
+                settings=settings,
+                store=app.state.store,
+                providers=[*default_providers(store=app.state.store, data_dir=settings.data_dir),
+                           *_plugin_memory],
+                data_dir=settings.data_dir,
+            )
+            memory_plugin_bridge.configure(_router, plugin_providers=_plugin_memory)
+            app.state.memory_bridge = memory_plugin_bridge.describe()
+        except Exception as exc:  # noqa: BLE001 —— 增强项，不该拦启动
+            log.warning("插件记忆 provider 装配失败（不影响核心记忆）：%s", exc)
         # 工具层额外的真实现（MATRIX 5.14）：`tool_describe` / `cron_job` 写在
         # `app/tool_extra_impl.py`，而 `LOCAL_TOOLS` 是禁改区。不在这里注册的话，
         # 覆盖率报告会说"覆盖了"，但模型看不见——**那种不一致比没做更糟**。

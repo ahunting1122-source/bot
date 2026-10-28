@@ -1,34 +1,32 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 20:38（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 24**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量；实例化 `Settings` 做了 `setattr` 实测）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `21df943`；**轮初 `git status` 0 条目，轮末 0 条目**）
+**更新时间**：2026-10-28 21:04（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 26**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 1 个测试文件 + 一次全量；实例化 `Settings`/`AgentRunner` 并对 `model_router.route` 打了桩）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `bdda342`；**轮初 `git status` 1 项＝本报告上一轮未提交，其余干净**）
 
 ---
 
 ## 总体完成度
 
-### **161 / 181 项 = 89.0% 严格 · 91.0% 可验证**（✅ 156 + 🟢 5）
+### **163 / 181 项 = 90.1% 严格 · 92.1% 可验证**（✅ 158 + 🟢 5）
 
 | 项 | 说明 |
 |---|---|
-| 五态 | **✅ 156 · 🟢 5 · ⚫ 4 · 🟡 16 · ⬜ 0**（合计 181 ✓） |
-| 严格 / 可验证 | **89.0%** / **91.0%** —— **与上轮完全相同**（加固轮，无状态翻转） |
+| 五态 | **✅ 158 · 🟢 5 · ⚫ 4 · 🟡 14 · ⬜ 0**（合计 181 ✓） |
+| 严格 / 可验证 | **90.1%** / **92.1%** —— **严格完成度首次过 90%** |
 | 与 `matrix_stats --check` | 逐字一致，exit 0 ✅ |
-| 顶层命令对齐 | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 —— 持续在输出里 ✅ |
+| 顶层命令对齐 | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 ✅ |
 
-### 硬口径：**全部一致，基线干净**
+### 硬口径：**全部一致**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
 | mypy **172** files clean | **172 files clean**（exit 0） | ✅ 完全一致 |
-| pytest 1 failed, **3541** passed, 3 skipped | **1 failed / 3541 passed / 3 skipped（387.62s）** | ✅ **完全一致** |
+| pytest 1 failed, **3553** passed, 3 skipped | **1 failed / 3553 passed / 3 skipped（338.61s）** | ✅ **完全一致** |
 | `matrix_stats --check` exit 0 | exit 0 | ✅ 一致 |
-| `git status` 7 项，无在飞文件 | **轮初轮末均 0 项** | ✅ 一致（改动已提交成 `21df943`） |
-
-**"数字没动"这一轮同样是好事**：查出的 4 个死写入 + 2 个"靠巧合生效"**都在既有 ✅ 条目内部**，没有一个翻转状态。**加固轮不涨分是对的** —— 如果修 bug 就涨分，那说明之前的分是虚的。
+| `git status` 3 项，无在飞文件 | **轮初 1 项（我的 PROGRESS.md）**，代码树干净 | ✅ 一致 |
 
 ---
 
@@ -39,8 +37,8 @@
 | L1 入口 / CLI | 15 ✅ + 1 🟢 / 18 | 88.9% | 🟡2 |
 | L2 Agent 核心循环 | 9 / 10 | 90.0% | 🟡1 |
 | **L3 上下文装配** | **8 / 8** | **100%** | ✅ |
-| L4 模型适配 | 8 ✅ + 2 ⚫ / 13 | 76.9% | 🟡3 |
-| L5 工具层 | 17 / 19 | 89.5% | 🟡2 |
+| L4 模型适配 | **9 ✅ + 2 ⚫** / 13 | 84.6% | 🟡2（**4.3 转 ✅**） |
+| L5 工具层 | 18 / 19 | 94.7% | 🟡1 |
 | **L6 工具集 / 注册** | **5 / 5** | **100%** | ✅ |
 | L7 Skill / curator | **17 ✅ + 1 🟢** / 18 | 100% | ✅ |
 | L8 MCP | 9 ✅ + 1 ⚫ / 10 | 90.0% | — |
@@ -52,189 +50,225 @@
 | L14 安全 / 审批 | 8 ✅ + 1 🟢 / 10 | 90.0% | 🟡1 |
 | L15 可观测性 | 5 / 6 | 83.3% | 🟡1 |
 | **L16 Web UI / 前端** | **6 / 6** | **100%** | ✅ |
-| **合计** | **161 / 181** | **89.0%** | — |
+| **合计** | **163 / 181** | **90.1%** | — |
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：3 项点名**全部复核**（3 项都实跑）；另**实测了 `setattr` 盲区，查出一个真 bug**（见 A②）。
+**抽样率**：3 项点名**全部复核**（3 项都实跑/打桩）。
 
-### A. 你点名的 3 项
+### A. ⚠️ 最重要：4.3 的路由分支在默认配置下**永不触发**，而唯一那条"模型名说话"的测试是**假阳性**
 
-**① `safe_mode` / `ignore_rules` 是否真的还能用 → ✅✅ 三条判据全过**
+**我先说结论，再给证据链。**
+
+**你那段"接上去反而更糟"的分析是对的**（`route()` 会反查成别家，所以只在两个都为空时才路由）——**这个判断我完全认同**。
+**但那个条件在默认配置下永远不成立**，因为 **`model_base_url` 会被自动派生**：
 
 ```
-safe_mode      in_model_fields=True  构造后读=True   model_dump有=True
-ignore_rules   in_model_fields=True  构造后读=True   model_dump有=True
+Settings(model="deepseek-chat")
+  model           = 'deepseek-chat'
+  model_provider  = ''                            ← 空 ✓
+  model_base_url  = 'https://api.deepseek.com'    ← 非空！由 model 派生
+→ 路由条件（两个都为空）成立吗: False
 ```
-**三条判据是我上轮建议的那三条**（读得到 / 在 `model_fields` / `model_dump` 里有），**两条字段全过** ✓✓
-**`model_dump()` 那条是关键**：裸属性会在这里丢，所以它证明这两个现在是**真字段**而不是"恰好进了 `__dict__`"。
 
-**而且你"误报 property"的自我修正我核了，是对的**：
+**我打了桩实测 `_primary_profile()`**：
 ```
-machine_wide in model_fields: False
-machine_wide 是 property: True
-实例读得到: True
+_primary_profile → deepseek
+route() 被调用次数: 0          ← 路由分支从未触发
 ```
-→ `machine_wide` 是 `Settings` 上的 `@property`，**合法**，`in model_fields` 查不到但它不是 bug ✓
-**你的判据修正（"在类上定义过——字段和 property 都算，实例裸属性不算"）是唯一正确的那个**，我在 `test_settings_fields_are_real.py:97-99` 读到了这段说明 ✓
+→ **`_primary_profile()` 返回 `deepseek` 不是因为路由，而是因为 `resolve_provider` 的 base_url 反查**（`https://api.deepseek.com` 命中 deepseek 的 `default_base_url`）。
 
-**② AST 扫描是否漏掉 `setattr(settings, key, value)` → ⚠️ 它确实是盲区，而且我实测出一个真 bug**
-
-**先确认你的扫描确实用 AST**（不是纯正则）：
+**而 `test_model_name_decides_the_provider_when_the_user_says_nothing`（`:58`）用的正是**：
+```python
+runner = runner_factory(model="deepseek-chat")     # ← 没传 model_base_url=""
 ```
-:106  def _keys_written_to_settings()
-:115      import ast
-:129      tree = ast.parse(...)
-:132      for node in ast.walk(tree):
-:135          if isinstance(node, ast.Assign):
-:140              if isinstance(target, ast.Attribute) and _is_settings(target.value):
-```
-✓ **真 AST，只认 `Attribute` 目标** —— 所以注释与字符串（你踩的第二次）确实被排除了。
-（小提示：`_model_copy_literals` 仍是正则，但那是 `model_copy(update={...})` 这种极窄形状，且有 4 条测试兜着，**不算问题**。）
+→ **它绿的原因不是路由，是 base_url 反查。这条测试对 4.3 的接线没有任何证明力。**
 
-**盲区本身：`hasattr` 对 property 也返回 `True` → `setattr` 崩** —— 我实测：
+**验证"路由分支确实可达"**（我实测）：
 ```
-machine_wide   hasattr=True   setattr 抛错: AttributeError: property 'machine_wide' of 'Settings' object has no setter
-safe_mode      hasattr=True   setattr 成功  读回=True
-no_such_key    hasattr=False  setattr 成功  读回='<缺>'      ← 被守卫挡住，符合你的判断
+Settings(model="deepseek-chat", model_base_url="")  → base_url = ''   ← 显式空串会保持空
 ```
-**`Settings` 上有 2 个只读 property**：`machine_wide` / `file_scope_label`。
-→ **如果 `settings.json` 里出现 `"machine_wide": ...`（前端"连接与设置"页写的，或用户手改），`app/cli/context.py:110-111` 的 `hasattr` 守卫会放行，然后 `setattr` 抛 `AttributeError` —— 未被捕获，CLI 启动崩。**
+→ **分支可达，只是需要 `model_base_url` 显式为 `""`**。
 
-**这算不算风险？我的判断：算，但性质不是"越权"而是"健壮性"**（详见 B 节）。
-**一句话修法**：`if hasattr(self.settings, key)` → **`if key in type(self.settings).model_fields`**。这一改同时做三件事：
-- 挡住裸属性（现在已挡）
-- **挡住 property（现在没挡）** ← 修 bug
-- 语义正好是"**只有声明过的字段可写**"
+**修法一行**：
+```python
+# tests/test_model_routing_wired.py:64
+runner = runner_factory(model="deepseek-chat", model_base_url="")
+```
+**这一改，那条测试才会真的走路由分支** —— 而且它现在会**真正检验 `route()` 的结果**（而不是 `resolve_provider` 的）。
 
-**③ `test_stop_reasons_are_actually_produced_by_the_policy` 能不能红 → ✅✅ 能，而且两个产出方都有反证**
+**我的判定**：
+- **4.3 的代码接线是真的** ✓（`agent.py:822-831` 确实调 `model_router.route`，且有两道守卫：`decision is not None and decision.provider in pv.PROVIDERS`）
+- **"只在用户没表达意图时路由"的判断是对的** ✓（比直接接更正确，这是本轮最有价值的判断）
+- **但 `model_base_url` 自动派生让这个条件在默认配置下不成立** → **默认路径上 `route()` 仍然零调用**
+- **且唯一那条"模型名说话"的测试是假阳性** → **它证明的是 base_url 反查，不是路由**
+
+**这属于哪一类**：**"接线正确、条件正确、但条件在默认配置下永不成立"** —— 与 13.8（只在测试 app 挂）、`register_hook`（无发射点）、2.2（fallback 掩盖缺字段）、4.4（链在但不传值）**是同一族的新亚型**。
+**共同特征：代码真的接上了，但运行时那条路径走不到。** 而**测试因为走了另一条等价路径，所以是绿的。**
+
+**建议**：
+1. **`test_model_name_decides_the_provider_when_the_user_says_nothing` 补 `model_base_url=""`** —— 否则它测的不是路由
+2. **4.3 的证据栏补一句边界**（像 5.2 那样）：「路由分支只在 `model_base_url` **显式为空**时触发；**默认配置下 `model_base_url` 由 `model` 派生（非空），故默认路径走的是 `resolve_provider` 的 base_url 反查**」
+3. **或者**：如果想让默认配置也走路由，需要区分"用户写的 base_url"与"派生的 base_url"（例如记一个 `_base_url_derived` 标志）——**但那是设计选择，不是缺陷**，写清就行
+
+### B. 你点名的 3 项
+
+**① `test_explicit_provider_always_wins` 能不能红 → ✅✅ 能**
 
 ```python
-# 三种方式真驱动 check() 产出三个原因
-produced.add(policy.check({"actions": 10**6, "turns": 0, "budget": budget}))       # max_actions
-produced.add(policy.check({"actions": 0, "turns": 10**6, "budget": budget}))       # max_turns
-full["token_estimate"] = int(full["max_tokens"]) + 1
-produced.add(policy.check({"actions": 0, "turns": 0, "budget": full}))             # max_tokens
-produced.discard("")
-missing = set(DefaultBudgetPolicy.STOP_REASONS) - produced
-assert not missing, ("这些原因声明了但 `check()` 产不出来：{missing}——"
-                     "声明与实现漂移，提示会为一种不存在的情况写文案")
+# agent.py:822-824  ← 你要删的那个条件
+if not str(getattr(self.settings, "model_provider", "") or "").strip() and not str(
+    getattr(self.settings, "model_base_url", "") or ""
+).strip():
 ```
-**往 `STOP_REASONS` 加 `"max_seconds"` → `produced` 里没有它 → `missing` 非空 → 必红** ✓✓
+**删掉它（改为总是路由）** → `model_provider="openai"` + `deepseek-chat` → `route()` 反查成 `deepseek` → `assert profile.id == "openai"` **失败 → 必红** ✓✓
+测试 docstring 也把陷阱写清了：「用户明说了却被悄悄改掉，比不路由糟得多」✓
 
-**`session_takeover` 的反证在哪**：它不由 `check()` 产出，而由 `_lease_lost()` 返回（`nodes.py:1518 return LEASE_STOP_REASON`）—— **它的反证在 `test_takeover_makes_the_original_task_yield`**（断言 `"session_takeover" in reasons`）。
-→ **两个产出方各有一条反证，只是在不同文件里** ✓ **覆盖是完整的，不是遗漏。**
-
-### B. 上轮那两条建议的落地质量
-
-**① 清单断言 → 性质断言：✅ 完整落地，而且比我建议的多做了一步**
+**② `test_a_custom_base_url_is_not_rerouted` 是否真走 `resolve_provider` → ⚠️ 断言偏弱，钉不住**
 
 ```python
-# test_hint_commands_exist.py:86
-declared = tuple(DefaultBudgetPolicy.STOP_REASONS) + (nodes_module.LEASE_STOP_REASON,)
+runner = runner_factory(model="deepseek-chat", model_base_url="http://127.0.0.1:9/v1")
+assert profile.id != "deepseek"      ← 只断言"不是 deepseek"
 ```
-✓ **遍历并集**，不再硬编码 4 个 ✓
-**而且 `policies.py:394` 的 docstring 直接抄了我那句**：
-> 「把清单写在测试里会过期，写在产出方不会。」
+**问题**：`!= "deepseek"` 对**任何非 deepseek 的结果**都通过（`openai` / `anthropic` / `custom` 全过）→ **它没有证明"走了 `resolve_provider`"**，只证明了"没被路由成 deepseek"。
 
-**多做的这一步是关键**：我建议"策略声明 + 并集"，**你额外加了反证测试**（声明的每个原因必须真能产出）。**这一步把"声明"和"实现"也钉在了一起** —— 我上轮只说了"新增原因会自动要求写提示"，**没说"声明了却产不出来"这种情况**。**你的补法更完整。**
+**我实测该输入下 `resolve_provider` 的真实返回**：
+```
+空 provider + 有 base_url  → resolve_provider = 'custom'
+```
+→ **建议改成 `assert profile.id == "custom"`**。**这一改才钉得住**：如果有人把 fallback 路径改成返回 `openai`，现在这条测试会绿，改完会红。
 
-**② `Settings` 裸属性全扫：✅ 做了，而且可复用函数抽出来了**
+**③ 路由失败时的 warning 路径 → ✅ 正确**
 
 ```python
-# tests/test_settings_fields_are_real.py:45
-def assert_real_settings_field(settings, name: str) -> None:
-    assert name in Settings.model_fields, f"`{name}` 不在 `Settings.model_fields` 里…"
-    assert hasattr(settings, name), f"`{name}` 是字段但实例上没有"
-    assert name in settings.model_dump(), …          ← 三条判据齐全
+try:
+    decision = model_router.route(self.settings.model, self.settings)
+except Exception as exc:  # noqa: BLE001 —— 路由是加分项，不该拦建模
+    log.warning("模型路由失败（退回原有解析）：%s", exc)
+    decision = None
+if decision is not None and decision.provider in pv.PROVIDERS:
+    return pv.PROVIDERS[decision.provider]
+# 落到这里 → 走原有解析
 ```
-✓✓ **正是我上轮建议的可复用断言，三条判据一条不少**（含 `model_dump()` 那条决定性的）。
+✓ **只在异常时触发**；`decision = None` 后**自然落到 `resolve_provider`**，不拦建模 ✓
+✓ **第二道守卫 `decision.provider in pv.PROVIDERS`** 也考虑到了（`route()` 返回未注册的 provider 名时忽略）✓
 
-**查出的 6 个我认同分类**：
-| 类型 | 键 | 判断 |
-|---|---|---|
-| **只写不读的死写入** | `pass_session_id` `quiet` `skills_preload` `verbose` | **删掉正确** —— 写了没人读，比裸属性更无害但也更无用；`verbose` 改成如实说明也对（**没有实现就不要假装有开关**） |
-| **靠巧合生效** | `safe_mode` `ignore_rules` | **声明成真字段正确** —— 它们"能跑"只因裸属性恰好进了 `__dict__`，**这正是 `reasoning_level` 那一族** |
+### C. 你落地的"用户说了话就听用户的"这个判断，我认为是本轮最有价值的
+
+> **`route()` 的优先级是「显式 provider **且该家模型表里有这个模型**」，所以 `model_provider=openai` + 一个在别家表里的模型名时，它会反查成别家——直接接上去就成了「用户明说了却被悄悄改掉」，那比不路由糟得多。**
+
+**这条判断的价值在于它识别出一个"接线会引入回归"的场景** —— 而**这种场景任何测试都抓不到**（`route()` 自己的测试全绿，因为它按自己的优先级工作是对的；`_primary_profile` 的测试也绿，因为用户很少同时给两个矛盾的值）。
+
+**补一句**：这也是**"接上一个已有函数"不等于"改进行为"**的例证 —— 已有函数的**优先级假设**可能与新调用方的**意图假设**不同。**接线前必须先读懂被接函数的优先级**，否则接上去就是引入一个静默覆盖。
 
 ---
 
 ## 与目标标志的差距
 
-**⬜ 0**，离目标还差 **16 条 🟡 + 4 条 ⚫**（与上轮相同）：
+**⬜ 0**，离目标还差 **14 条 🟡 + 4 条 ⚫**：
 
 ```
-🟡 16：1.7 1.13b 4.3 4.8 4.9 4.12 5.2 5.14 6.4 10.14
+🟡 14：1.7 1.13b 4.8 4.9 4.12 5.14 6.4 10.14
        12.5 12.10 13.4 13.5 14.8 15.4
 ⚫ 4 ：4.2 4.7 8.3 12.9
 ```
 
-### 你问的：`settings.json` 是配置面还是越权面 —— **是配置面，你的倾向对；但那个 `hasattr` 守卫有个真 bug**
+### 你问的 ①：`importlib` + 索引守卫要不要现在加 —— **该加，而且它不是"为未来假设的问题写代码"**
 
-**① 是配置面，不是越权面** ✓
-`settings.json` 就是配置文件，本地单用户；**能改它的人本来就能改环境变量、密钥文件、`~/.config`** —— 把它当越权面等于把威胁模型搞错。**真正的越权面是"远端能改它"**，而这里不是。
+**你的顾虑我理解**（为假想的场景写代码是浪费），**但这里有一个区分能把尺度定清楚**：
 
-**② 但你的推理里有一个我没预料到的缺口**（A② 实测）：
-你说「`hasattr` 那个守卫让**裸属性写不进去**（因为裸属性此刻还不存在），所以它反而**不会**制造新的裸属性」——**这句是对的**（我实测 `no_such_key` → `hasattr=False` → 不写）✓
-**但 `hasattr` 对 property 也返回 True** → `setattr` 抛 `AttributeError` → **CLI 启动崩**。
-→ **所以它不是"制造裸属性"的风险，是"配置里出现某个合法属性名就崩"的健壮性风险。** 这两件事不同，但都在同一行代码上。
+| | 定义 | 该不该防 |
+|---|---|---|
+| **假设的问题** | 需要**发明**一个场景才存在（"如果有人将来加了个 X 功能，可能被滥用"） | 不该，等真加 X 时再说 |
+| **已存在的口子** | **代码路径已经在仓库里**，只差有人去调 | **该防**，因为成本是"一行注释"而风险是"代码执行" |
 
-**③ 修法（一句话，同时解决三件事）**：
+**`load_index(path)` 属于后者** —— 我核过：`tool_discovery.py:420 def load_index(path: str | Path) -> Index | None` **这个函数已经存在**，接受任意路径。当前没人用它加载外部文件（`ensure_loaded` 走的是 `default_index(app_root())`），**但函数在那儿，`data_dir` 可写**。
+
+→ **所以这不是"发明场景"，是"给一个已经装好的接口贴上使用说明"。**
+
+**风险等级**：**低（当前），但升级路径是"一次函数调用"的距离。**
+
+**建议（成本：一行 docstring + 一条测试）**：
 ```python
-# 现在
-if hasattr(self.settings, key):
-    setattr(self.settings, key, value)
-# 建议
-if key in type(self.settings).model_fields:      # 只写声明字段
-    setattr(self.settings, key, value)
-```
-- 挡住裸属性（已挡）
-- **挡住 property（修 bug）**
-- **语义正好是"只有声明过的字段可写"** —— 而这正是你想要的语义
+# tool_discovery.py::load_index 的 docstring 加一句
+"""索引是 `orbit tools discover` 的**生成物**，不是配置文件。
 
-**④ 顺带一个未来风险（现在不构成问题，但值得先写一句）**：
-如果将来 `Settings` 加了**敏感字段**（`allow_*`、`skip_approvals`、`hardline_in_machine` 之类），**`settings.json` 就从"配置面"变成"提权面"** —— 因为任何能写这个文件的东西都能关掉审批。
-**建议现在就在 `context.py` 那处加一句注释**：「这里只写 `model_fields` 里的字段；**新增敏感字段时必须显式决定它是否允许从 `settings.json` 覆盖**」。**一行注释，挡的是未来的一次误判。**
+**不要**把 data_dir 里的索引喂给这里：索引决定 `importlib.import_module`
+能 import 什么，外部可写的索引 = 代码执行面。
+需要新鲜索引就 `refresh()`，不要加载外部文件。
+"""
+```
+**再加一条测试**：断言 `ensure_loaded` 用的索引来自 `app_root()`。
+
+**一句话回答你的尺度问题**：**"这行代码已经存在"比"这个场景可能发生"更该触发防御。** 前者是补齐说明，后者是发明需求。
+
+### 你问的 ②：14 条 🟡 的排序 —— **主排序认同，但建议先花一轮把"决定不做"那 5 条的账算清**
+
+**① 主排序认同** ✓
+「用户能感知」作为主排序是对的（这是我们第 21 轮确立的：**"用户能不能感知" > "我们能不能看清"**）。所以 13.4 > 10.14 > 6.4 > 14.8 > 15.4 > 4.9 这个顺序**我没有异议**。
+
+**② 但"先压实那 5 条"不是"另一条路"，而是"并行的低成本动作"** —— **两者不该二选一**
+
+关键数字：**压实 5 条证据栏可能每条 10–30 分钟（共约 1–2 小时）；做一条能力项（如 13.4 的三条硬要求）通常几小时。**
+→ **所以正确做法是"先花 1 小时把 5 条的账算清，再花几小时做一条能力"**，不是"选一个"。
+
+**③ 为什么值得先压实（三条理由）**
+
+1. **它们占 5/181 = 2.8%，是完成度天花板的主因**。**只要它们的证据栏写不清"为什么做不到"，读者就无法区分"缺能力"与"缺条件"** —— 而这两者的处理方式完全不同（前者排期做，后者该退分母）。
+2. **压实之后会分流成两种结论，两种都比"继续挂 🟡"好**：
+   - 某几条其实**能做**（例如 `4.12` 的 19 家里 15 家是"缺条件"还是"没做"？如果是"没做"那就是能力项，排进去）
+   - 某几条**确实不能做**（那就该按我们第 11 轮的判据判 **⚫**，**从分母里退出**）
+3. **它同时是一次"分母体检"**：现在 14 条 🟡 里混着"该做没做"与"做不了"，**而这正是我们第 10 轮讨论过的"🟡 混装"问题**。压实就是把它拆开。
+
+**④ 具体建议**：**下一轮先做"5 条证据压实"，每条写四段**：
+```
+缺什么：<具体的缺失物>
+触发条件：<什么条件下这条能变 ✅>
+代价：<用户会感知到什么>
+若能做：<量级估计>
+```
+**然后按结论分流**：能做 → 进能力队列；不能做 → 判 ⚫ 或 🟢（附 `差异：`/`缺：`）。
+
+**如果你只想做一件**：**先压实 `5.14`（三桶已分，最容易算清）与 `4.12`（19 家 4 家可用，最容易误判）** —— 这两条的结论会直接影响分母。
 
 ---
 
 ## 风险与漂移
 
-### R1 🟠 **`app/cli/context.py:110-111` 的 `hasattr` 放行 property → `setattr` 崩（A②，本轮新发现）**
+### R1 🟠 **4.3 的路由分支在默认配置下永不触发，且唯一相关测试是假阳性（A 节）**
 
-`Settings` 有 2 个只读 property（`machine_wide` / `file_scope_label`）。`settings.json` 里出现任一键名 → CLI 启动 `AttributeError`。
-**危害**：配置里写错/写多一个键 → **CLI 起不来，且报错是 `AttributeError` 而不是"这个键不能改"**。
-**修法**：`hasattr` → `key in type(settings).model_fields`。
+`model_base_url` 由 `model` 自动派生 → 路由条件 `两个都为空` 在默认配置下为 False → **`route()` 在生产默认路径上仍零调用**。
+**而 `test_model_name_decides_the_provider_when_the_user_says_nothing` 绿的原因是 base_url 反查，不是路由。**
+**修法一行**：测试补 `model_base_url=""`；证据栏补边界说明。
 
-### R2 🟢 **本轮加固质量高，而且两条建议都"超额落地"**
+### R2 🟡 **`test_a_custom_base_url_is_not_rerouted` 的断言偏弱（B②）**
 
-- 清单断言 → 性质断言：**遍历并集**（我建议的）+ **反证测试**（我没提的）→ **"声明"与"实现"也被钉住了**
-- 裸属性全扫：**`assert_real_settings_field` 抽成可复用函数，三条判据齐全**
-- **`_is_declared` 的判据修正**（property 算、裸属性不算）写进了 docstring，`machine_wide` 那个误报有据可查
+`assert profile.id != "deepseek"` → 任何非 deepseek 都过。**建议改 `== "custom"`**（我实测该输入下 `resolve_provider` 返回 `custom`）。
 
-### R3 🟡 **`_model_copy_literals` 仍用正则（小提示，非缺陷）**
+### R3 🟢 **本轮"用户说了话就听用户的"这个判断质量很高**
 
-AST 只覆盖 `settings.X = ...`；`model_copy(update={...})` 走正则。**形状极窄 + 4 条测试兜着，不构成问题** —— 但如果以后 `model_copy` 的写法变体增多（换行、变量代替字面量），这条会静默漏。**建议加一条防空转断言**（"至少扫到 N 处 model_copy"），与你已有的习惯一致。
+它识别出**"接线会引入静默覆盖"**的场景 —— 而**这类回归任何测试都抓不到**（`route()` 自己的测试全绿，`_primary_profile` 的测试也绿）。**接线前先读懂被接函数的优先级假设**，这条该进方法论。
 
-### R4 🟡 **轮末 `git status` 0 条目**
+### R4 🟡 **轮末 `git status` 1 项＝本报告（上一轮未提交）**
 
 ```
-轮初 git status: 0 条目 ✓
-轮末 git status: 0 条目 ✓
+轮初 git status: 1 项（M handoff/hermes-parity/PROGRESS.md）—— 是我自己的报告
+代码树：干净
 ```
-连续第三轮两头干净 → 所有计数类读数可信（pytest 3541 一次对上）。
 
 ### R5 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| `test_stop_reasons_are_actually_produced_by_the_policy` 的**红路径实跑** | 要往 `STOP_REASONS` 加一项 → 未做；验证的是"三种驱动 + 集合差"结构必红 |
-| `settings.json` 真含 `machine_wide` 时 CLI 的实际行为 | 我实测了 `hasattr`+`setattr` 的行为（抛错），**但没有真写一个 `settings.json` 起 CLI 看崩溃**（那会改状态） |
-| 4 个死写入删除后**是否真没有别处读它们** | 只核了 `Settings` 层；未全仓扫 `pass_session_id` / `quiet` / `skills_preload` 的读点 |
+| `test_explicit_provider_always_wins` 的**红路径实跑** | 要删条件 → 未做；验证的是"删条件后 route 会反查成 deepseek"逻辑必红 |
+| `4.3` 在生产**真实配置**下是否走路由 | 只核了 `Settings` 默认值；**真实 `settings.json` 里 `model_base_url` 是否为空未核**（那决定分支是否触发） |
+| `5.2` 懒加载**真加载一个工具**的端到端 | 仍未做（上轮也标了） |
+| 索引污染的**实际利用** | 未做（也不该做） |
 | `12.10` 的 `enroll`、`4.12` 的 19 家逐家 | 要网络/凭证 → 未跑 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 19 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 21 轮如此） |
 
 ---
 
@@ -242,15 +276,15 @@ AST 只覆盖 `settings.X = ...`；`model_copy(update={...})` 走正则。**形�
 
 按优先级：
 
-1. **【P0】修 `app/cli/context.py` 的 `hasattr` → `key in model_fields`**（R1）：一句话，修的是"配置里多一个键 → CLI 起不来"。**同时挡住裸属性与 property，语义正好是"只有声明字段可写"。**
-2. **【P0】在 `context.py` 那处加一句"敏感字段需显式决定是否允许从 `settings.json` 覆盖"的注释**（B④）：**一行注释挡未来的一次误判** —— 现在不是问题，但 `Settings` 一旦加 `allow_*` 类字段就立刻是。
-3. **【P1】5.2 懒加载（你下轮计划）**：`ensure_loaded` 零调用 → 直接影响每轮 schema 体积，**5.11 的 4,000 token 预算挂在这条上**。
-4. **【P1】给 `_model_copy_literals` 加防空转断言**（R3）：与你已有的 `assert calls` / `assert len(hermes) >= 70` 同一习惯——**扫到 0 处就该红**。
-5. **【P1】把"死写入"这一族也做一条守卫**：你这轮手工查出 4 个（写了没人读）。**它可机械化**：AST 扫出 `settings.X = ...` 的写入点，再扫 `getattr(settings, "X")` / `settings.X` 的读取点，**写入无读取 → 报出来**。**与裸属性守卫同一套基础设施，成本很低。**
-6. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
-7. **【P2】把"源码扫描类测试的假阳性源"立成清单**：你已经踩过两次（`get_model()` 的注释、`model_copy` 的 docstring 示例与事件 payload 字符串）。**清单：注释 / docstring / 字符串字面量 / 事件 payload 的键名 / 测试里的样例数据** —— **五个来源，前三个用 AST 能挡，后两个要靠"只认语法节点"**。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 22 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
+1. **【P0】修 `test_model_name_decides_the_provider_when_the_user_says_nothing`：补 `model_base_url=""`**（R1）：**这一改它才真的测路由**。否则 4.3 的 ✅ 建立在一个测了别的路径的测试上。
+2. **【P0】`test_a_custom_base_url_is_not_rerouted` 的断言改成 `== "custom"`**（R2）：现在 `!= "deepseek"` 太松。
+3. **【P0】4.3 证据栏补边界**（R1）：写清「路由分支只在 `model_base_url` 显式为空时触发；**默认配置下 base_url 由 model 派生，故走 base_url 反查**」。**这与 5.2 的边界是同一种诚实。**
+4. **【P1】`load_index` 加 docstring 守卫 + 一条测试**（见上）：成本一行，挡的是"一次函数调用"距离的代码执行面。
+5. **【P1】下一轮先做「5 条证据压实」**（见上）：每条四段（缺什么/触发条件/代价/若能做的量级），然后按结论分流成"能做"与"该退分母"。
+6. **【P1】把"接线前先读懂被接函数的优先级"写进方法论**（R3）：`route()` 的优先级假设与新调用方的意图假设不同，**直接接会引入静默覆盖**。
+7. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 24 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
 
 ---
 
-*本报告由 monitor 角色只读生成。**基线一次对上**（pytest **3541**，轮初轮末 `git status` 均 0 项）。三项点名：`safe_mode`/`ignore_rules` **三条判据全过**（含 `model_dump()` 那条决定性的），`machine_wide` 是 property 故不该被误报——**你的判据修正正确**；`test_stop_reasons_are_actually_produced_by_the_policy` **能红**，且 `session_takeover` 的反证在 `test_takeover_makes_the_original_task_yield` 里（**两个产出方各有一条反证，覆盖完整**）。**AST 盲区那条我实测出一个真 bug**：`app/cli/context.py:110` 的 `hasattr` 对 **property 也返回 True**，`settings.json` 里出现 `machine_wide` 会让 `setattr` 抛 `AttributeError`、**CLI 启动崩**（`Settings` 有 2 个只读 property）。关于你的问题：**`settings.json` 是配置面不是越权面，你的倾向对**（真正的越权面是"远端能改它"）；但 `hasattr` 换 `key in model_fields` 能一行修掉上述 bug，**语义正好是"只有声明字段可写"**。两条建议你都**超额落地**：清单断言改并集之外还加了反证（把"声明与实现"也钉住），`assert_real_settings_field` 三条判据齐全。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。**本轮最重要的发现是 4.3 的路由分支在默认配置下永不触发**：`Settings(model="deepseek-chat")` 的 `model_base_url` **会被自动派生为 `https://api.deepseek.com`**（非空），所以「两个都为空才路由」这个条件在默认配置下为 False；**我打桩实测 `route()` 被调用 0 次**，`_primary_profile()` 返回 `deepseek` 是走 `resolve_provider` 的 base_url 反查。**而 `test_model_name_decides_the_provider_when_the_user_says_nothing` 用的正是 `runner_factory(model="deepseek-chat")`（没传 `model_base_url=""`）→ 它绿的原因不是路由，这条测试对 4.3 的接线没有证明力。** 修法一行：补 `model_base_url=""`（我验证了显式空串会保持空）。**你那段"接上去反而更糟"的分析我完全认同**——`route()` 会反查成别家，直接接就是静默覆盖用户意图，**这个判断是本轮最有价值的**；它识别出的正是"接线会引入回归、而任何测试都抓不到"的场景。另：`test_a_custom_base_url_is_not_rerouted` 的断言 `!= "deepseek"` 偏弱（任何非 deepseek 都过），建议改 `== "custom"`（我实测该输入返回 `custom`）。关于索引守卫：**该加，因为 `load_index(path)` 这条代码路径已经存在**——「已存在的口子」与「假设的问题」的区别是：前者只需补齐说明，后者需要发明需求。未验证项单列，不混进完成项。*

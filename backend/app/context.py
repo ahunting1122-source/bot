@@ -1,11 +1,14 @@
+import logging
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlalchemy import select
 
-from app import memory_prompt
+from app import memory_plugin_bridge, memory_prompt
 from app import profile as profile_module
 from app.storage import Conversation, Memory, Message, Store, Task, now
+
+log = logging.getLogger("orbit.context")
 
 #: 系统提示词版本号。改 agent.md 内容就 +1，并让它随 message_started 事件落库——
 #: 事件流里能查到"这次回答用的是哪版提示词"，回滚 = git revert + 版本号可追溯。
@@ -229,6 +232,18 @@ async def build_context(store: Store, task: Task, settings, *, touch: bool = Tru
         # 超预算时从最旧的开始丢，刚记住的东西不该第一个消失。
         [(memory.key, memory.value) for memory in reversed(memories)]
     )
+    # 插件记忆的**读路径**（MATRIX 13.4）：只写不读是半个功能，**比没有更糟**
+    # ——用户以为记住了，模型永远看不到。没装插件 provider 时 `recall` 返回空串，
+    # 这一行的开销是零。
+    try:
+        # 检索词用**当前任务的目标**（`task.goal`）——它是这一轮最贴近"我现在要找什么"
+        # 的信号。用会话标题会太宽（一个会话能跑很多任务）。
+        plugin_memory = memory_plugin_bridge.recall(str(getattr(task, "goal", "") or ""))
+    except Exception as exc:  # noqa: BLE001 —— 记忆检索失败不该让整轮装配失败
+        log.warning("插件记忆检索失败（已忽略）：%s", exc)
+        plugin_memory = ""
+    if plugin_memory:
+        memory_text = f"{memory_text}\n\n{plugin_memory}" if memory_text else plugin_memory
     summary = conversation.summary if conversation and conversation.summary_message_count else ""
     # 画像层：整段注入、与 memories 分开陈述。空画像返回空串，不占预算。
     #

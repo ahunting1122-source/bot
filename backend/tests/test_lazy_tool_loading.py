@@ -106,3 +106,50 @@ def test_the_mechanism_is_reachable_from_production_code():
     assert "self._lazy_tool(name)" in code, (
         "`validate()` 不再调 `_lazy_tool` 了——按需加载又变成死机制"
     )
+
+
+def test_an_index_pointing_outside_its_root_is_rejected(tmp_path):
+    """**安全边界**：索引文件里指向 `root` 之外的条目必须被丢掉。
+
+    索引里写的是**模块路径**，而 `ensure_loaded()` 会 `importlib.import_module(...)`
+    ——**谁能写索引，谁就能让进程 import 任意模块**。
+    当前索引只由 `discover()` 扫 `app_root()` 生成，但 `load_index(path)` 这个函数
+    已经存在、`data_dir` 又可写，所以这条边界要现在就有。
+
+    **为什么不是「为未来假设的问题写代码」**：`load_index` 是**已存在的接口**，
+    不是需要发明场景才存在的风险。判据是「这行代码已经存在」而不是
+    「这个场景可能发生」。
+    """
+    import json
+
+    from app.tool_discovery import load_index
+
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / "ok.py").write_text("TOOL = 1\n", encoding="utf-8")
+
+    index_file = tmp_path / "index.json"
+    index_file.write_text(
+        json.dumps(
+            {
+                "root": str(root),
+                "tools": {
+                    "inside": {"module": "app.ok", "path": str(root / "ok.py"), "lineno": 1},
+                    # 越界：指向系统目录里的一个真实文件
+                    "outside": {
+                        "module": "os",
+                        "path": str(tmp_path / ".." / "outside.py"),
+                        "lineno": 1,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    index = load_index(index_file)
+    assert index is not None, "索引整体不该因为一个坏条目就作废"
+    names = {entry.name for entry in index.entries.values()} if index.entries else set()
+    assert "outside" not in names, (
+        "越界条目没被丢掉——一个能被外部改写的索引就是代码执行面"
+    )
