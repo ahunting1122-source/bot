@@ -68,6 +68,7 @@ from app.cli.commands import (
     session_extra2,  # noqa: E402,F401
     session_extra3,  # noqa: E402,F401
     skill_extra2,  # noqa: E402,F401
+    skill_extra3,  # noqa: E402,F401
 )
 
 # 表组装完之后要做的状态校正：`tools_extra2` 接管的 iron-proxy 生命周期命令
