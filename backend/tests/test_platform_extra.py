@@ -204,14 +204,15 @@ def test_new_platform_specs_are_honest(name):
     assert spec.credentials
 
 
-def test_implemented_count_is_seventeen():
-    assert len(platforms.IMPLEMENTED_PLATFORMS) == 17
+def test_implemented_count_is_nineteen():
+    """17 → 19：`email`（SMTP）与 `irc`（裸 socket）本轮补上，两者都能离线验证。"""
+    assert len(platforms.IMPLEMENTED_PLATFORMS) == 19
     pending = [
         platform.value
         for platform in platforms.ALL_PLATFORMS
         if not platforms.PLATFORMS[platform].implemented
     ]
-    assert pending == ["buzz", "email", "irc", "photon", "simplex"]
+    assert pending == ["buzz", "photon", "simplex"]
 
 
 def test_rest_platform_table_documents_every_new_adapter():
@@ -282,19 +283,28 @@ def test_cli_peer_dm_unknown_peer_is_actionable(tmp_path, capsys):
     assert "peer add" in capsys.readouterr().err
 
 
-def test_cli_peer_run_and_stop_report_unimplemented(tmp_path, capsys):
-    """``run`` / ``stop`` 如实报未实现（退出码 3），并写清缺哪一层。"""
+def test_cli_peer_run_and_stop_actually_contact_the_peer(tmp_path, capsys):
+    """``run`` / ``stop`` 现在**真的去连对端**，连不上就报连接错误并指出查什么。
+
+    这条原来断言的是「退出码 3 + peer run 未实现」——那是真实现出现之前的事实。
+    `app/peer_client.py` 落地后，占位已让位，新契约是：
+    **有真实现、真的发请求、失败时报可行动的错**。
+
+    为什么这比「未实现」更有用：未实现只说明"没有"；连接错误说明"有，但对端没起"——
+    后者直接告诉用户下一步该查什么。
+    """
     _add_peer(tmp_path)
     capsys.readouterr()
-    assert _run(tmp_path, "peer", "run", "spark", "长任务") == 3
+    # 测试环境连不上 spark.test（DNS 解析失败），所以是普通失败而不是"未实现"
+    assert _run(tmp_path, "peer", "run", "spark", "长任务") == 1
     err = capsys.readouterr().err
-    assert "peer run 未实现" in err
-    assert "api_server" in err
+    assert "peer run" in err
+    # 错误里必须给出**下一步查什么**，而不是只说失败
+    assert "peer list" in err or "URL" in err
 
-    assert _run(tmp_path, "peer", "stop", "spark", "run_abc") == 3
+    assert _run(tmp_path, "peer", "stop", "spark", "run_abc") == 1
     err = capsys.readouterr().err
-    assert "peer stop 未实现" in err
-    assert "run_abc" in err
+    assert "peer stop" in err
 
 
 # ── orbit gateway ───────────────────────────────────────────────────────────

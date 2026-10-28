@@ -15,7 +15,7 @@
    临时文件 + ``os.replace``；读坏文件当空而不是抛异常（一个手抖写坏的 JSON 不该让
    整个网关从此起不来）。
 3. **本轮不起线程、不开监听**。:class:`GatewayService.start` 只写状态文件、拿锁、
-   扫孤儿。真正的长连接要等各平台适配器实现（见 :mod:`app.platforms` 的 19 个
+   扫孤儿。真正的长连接要等各平台适配器实现（见 :mod:`app.platforms` 里还剩 3 个
    ``implemented=False``）。先把**可测的投递路径与状态契约**做对，比先起一个
    半死不活的守护进程值钱。
 4. **投递不抛异常**（:meth:`GatewayService.deliver`）。调用方是 cron 与 CLI，
@@ -73,6 +73,11 @@ DELIVERIES_FILENAME = "deliveries.jsonl"
 WEBHOOKS_FILENAME = "webhooks.json"
 #: 对等网关登记表。
 PEERS_FILENAME = "peers.json"
+#: 多实例登记表（MATRIX 12.10）：``{version, updated_at, instances: [...]}``。
+#: 为什么要它：``gateway list`` 在 Hermes 里列的是"各 profile 的网关"。Orbit 是单数据
+#: 目录，但用户真的会在两台机器（或两个数据目录）上各跑一个网关，于是"本机只有一条"
+#: 这个事实需要一个**能放多条**的落点——单条不是写死的形状，只是当前的事实。
+INSTANCES_FILENAME = "instances.json"
 #: 配对状态目录（照 Hermes 的 ``<home>/pairing/``）。
 PAIRING_DIRNAME = "pairing"
 #: 紧急停止哨兵（MATRIX 11.6 的 gateway 一侧）。与 ``cron/paused`` 同一个机制：
@@ -315,6 +320,11 @@ class GatewayPaths:
     @property
     def peers(self) -> Path:
         return self.root / PEERS_FILENAME
+
+    @property
+    def instances(self) -> Path:
+        """多实例登记表（``<data_dir>/gateway/instances.json``）。"""
+        return self.root / INSTANCES_FILENAME
 
     @property
     def pairing(self) -> Path:
@@ -833,6 +843,7 @@ class GatewayService:
         self.directory = ChannelDirectory(self.paths.channel_directory)
         self.webhooks = WebhookStore(self.paths.webhooks)
         self.peers = PeerRegistry(self.paths.peers)
+        self.instances = InstanceRegistry(self.paths.instances)
         self.pairing = PairingStore(self.paths.pairing)
 
     # ── 生命周期 ──
@@ -965,6 +976,7 @@ class GatewayService:
             "adapters": sorted(self.adapters),
             "webhooks": len(self.webhooks.load()),
             "peers": len(self.peers.load()),
+            "instances": len(self.instances.load()),
         }
 
     def health(self) -> HealthReport:
@@ -989,9 +1001,14 @@ class GatewayService:
                 issues.append(f"适配器 {name} 自检异常：{type(exc).__name__}: {exc}")
                 continue
             if not report.ok:
+                # 未配置 = 未启用，不是故障（否则干净环境下 doctor 永远红灯）。
+                # `email` / `irc` 这类"凭证缺一项就一条也发不出去"的适配器会把
+                # 未配置如实报成 ``ok=False``，所以这里先看 ``configured`` 再看 ok——
+                # 顺序反了会让没配邮箱的机器永远自检不通过。
+                if report.extra.get("configured") is False:
+                    continue
                 issues.append(f"适配器 {name} 不健康：{report.detail}")
             elif report.extra.get("configured") is False:
-                # 未配置 = 未启用，不是故障（否则干净环境下 doctor 永远红灯）。
                 continue
         state_files = {
             "gateway-starts.log": self.paths.starts.exists(),
@@ -1549,6 +1566,527 @@ class PeerRegistry:
         return f"{text[:4]}{'*' * max(3, len(text) - 4)}"
 
 
+# ── 多实例登记表（MATRIX 12.10 的 gateway list 一侧）─────────────────────────
+
+
+@dataclass(frozen=True)
+class GatewayInstance:
+    """一个网关实例的登记条目。
+
+    字段刻意少：只放"排障时要一眼看到"的东西（在哪台机、哪个数据目录、对外地址）。
+    运行态（dispatcher 活没活、启动过几次）**不落这张表**——那是本机实时事实，
+    写进登记表只会变成一份迟早过期的快照。
+    """
+
+    id: str
+    data_dir: str = ""
+    host: str = ""
+    url: str = ""
+    note: str = ""
+    platforms: tuple[str, ...] = ()
+    updated_at: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "data_dir": self.data_dir,
+            "host": self.host,
+            "url": self.url,
+            "note": self.note,
+            "platforms": list(self.platforms),
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> GatewayInstance:
+        platforms = raw.get("platforms")
+        return cls(
+            id=str(raw.get("id") or raw.get("name") or ""),
+            data_dir=str(raw.get("data_dir") or ""),
+            host=str(raw.get("host") or ""),
+            url=str(raw.get("url") or ""),
+            note=str(raw.get("note") or ""),
+            platforms=tuple(str(item) for item in platforms) if isinstance(platforms, list) else (),
+            updated_at=str(raw.get("updated_at") or ""),
+        )
+
+
+class InstanceRegistry:
+    """``<data_dir>/gateway/instances.json``：多实例登记表。
+
+    为什么用 JSON 而不是数据库：这张表是"用户手改最想改、备份最想备"的东西
+    （和 ``cron/jobs.json`` / ``webhooks.json`` 同一个理由）。读坏文件当空，
+    一个手抖写坏的文件不该让 ``gateway list`` 从此崩掉。
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+
+    def load(self) -> list[GatewayInstance]:
+        raw = _read_json(self.path, {})
+        items = raw.get("instances") if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            return []
+        out: list[GatewayInstance] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            instance = GatewayInstance.from_dict(item)
+            if instance.id:
+                out.append(instance)
+        return out
+
+    def save(self, items: Iterable[GatewayInstance], *, now: float | None = None) -> None:
+        payload = {
+            "version": 1,
+            "updated_at": _iso_now(now),
+            "instances": [item.as_dict() for item in items],
+        }
+        _atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def register(self, instance: GatewayInstance, *, now: float | None = None) -> GatewayInstance:
+        """按 ``id`` upsert（同名覆盖，不追加第二条）。"""
+        items = [item for item in self.load() if item.id != instance.id]
+        record = GatewayInstance(
+            id=instance.id,
+            data_dir=instance.data_dir,
+            host=instance.host,
+            url=instance.url,
+            note=instance.note,
+            platforms=instance.platforms,
+            updated_at=instance.updated_at or _iso_now(now),
+        )
+        items.append(record)
+        self.save(items, now=now)
+        return record
+
+    def remove(self, ident: str) -> bool:
+        items = self.load()
+        kept = [item for item in items if item.id != str(ident)]
+        if len(kept) == len(items):
+            return False
+        self.save(kept)
+        return True
+
+    def local(
+        self,
+        data_dir: str | Path,
+        *,
+        host: str = "",
+        url: str = "",
+        note: str = "",
+        now: float | None = None,
+    ) -> GatewayInstance:
+        """本机这一条的登记记录（id 固定 ``local``）。"""
+        import platform as _platform
+        import socket as _socket
+
+        resolved = str(Path(data_dir).resolve())
+        return GatewayInstance(
+            id="local",
+            data_dir=resolved,
+            host=host or _hostname(),
+            url=url,
+            note=note or f"{_platform.system() or 'unknown'} / {_socket.gethostname() or 'unknown'}",
+            platforms=tuple(platform.value for platform in IMPLEMENTED_PLATFORMS),
+            updated_at=_iso_now(now),
+        )
+
+    def ensure_local(self, data_dir: str | Path, *, now: float | None = None) -> GatewayInstance:
+        """确保登记表里有本机这一条（没有就写一条，有就原样返回）。
+
+        为什么"自动补一条"而不是要求用户先 ``gateway instances add``：
+        ``gateway list`` 的第一价值是"这台机器上到底有没有网关在跑"。
+        为了看这一行先手写一份 JSON 是本末倒置。
+        """
+        items = self.load()
+        for item in items:
+            if item.id == "local":
+                return item
+        return self.register(self.local(data_dir, now=now), now=now)
+
+
+def _hostname() -> str:
+    """本机名。取不到就返回空串（不抛：hostname 失败不该让登记表写不进去）。"""
+    import socket as _socket
+
+    try:
+        return _socket.gethostname() or ""
+    except OSError:
+        return ""
+
+
+def instance_rows(data_dir: str | Path, *, now: float | None = None) -> dict[str, Any]:
+    """给 ``gateway list`` 用的多实例视图：登记表 + **本机实时状态**。
+
+    三条刻意的取舍：
+
+    1. 本机那一条的 dispatcher 状态**现读**（:class:`GatewayService` 的锁与启动戳），
+       不信任登记表里的任何快照——"表里写着在跑"是最容易骗人的一种状态。
+    2. 远端实例**不探测**：本机无网络（铁律一），一个会发真实请求的 ``list``
+       在离线环境里要么超时、要么谎报"离线"。所以远端明确标成"未探测"。
+    3. ``single`` 只描述**当前事实**：本机只有一个数据目录时如实说明，
+       而不是假装有 Hermes 那样的 profile 多实例。
+    """
+    registry = InstanceRegistry(GatewayPaths(Path(data_dir)).instances)
+    registry.ensure_local(data_dir, now=now)
+    rows: list[dict[str, Any]] = []
+    for item in registry.load():
+        is_local = Path(item.data_dir).resolve() == Path(data_dir).resolve() if item.data_dir else False
+        row: dict[str, Any] = {
+            "id": item.id,
+            "data_dir": item.data_dir,
+            "host": item.host,
+            "url": item.url,
+            "note": item.note,
+            "is_local": is_local,
+            "dispatcher": "（远端实例，本机无网络未探测）",
+            "starts": "",
+            "platforms": "",
+        }
+        if is_local:
+            status = GatewayService(item.data_dir or data_dir).status()
+            dispatcher = status["dispatcher"]
+            if dispatcher["running"]:
+                row["dispatcher"] = f"运行中（pid={dispatcher['holder'].get('pid')}）"
+            elif dispatcher["holder"]:
+                row["dispatcher"] = f"未运行（残留锁 pid={dispatcher['holder'].get('pid')}）"
+            else:
+                row["dispatcher"] = "未运行"
+            row["starts"] = f"{status['starts']['total_starts']} 次"
+            row["platforms"] = f"{len(IMPLEMENTED_PLATFORMS)}/{len(PLATFORMS)}"
+        rows.append(row)
+    return {
+        "ok": True,
+        "instances": rows,
+        "count": len(rows),
+        "single": len(rows) == 1,
+        "registry": str(registry.path),
+        "note": (
+            "本机只有一个网关实例（Orbit 是单数据目录，没有 Hermes 的 profile 多实例语义）"
+            if len(rows) == 1
+            else f"登记表里有 {len(rows)} 个实例；只有 data_dir 指向本机的那条是实时状态，"
+            "其余为登记信息（本机无网络，不探测远端）"
+        ),
+    }
+
+
+# ── 后台服务单元（MATRIX 12.10 的 install / uninstall 一侧）─────────────────
+
+#: 支持生成的服务单元种类。**只生成内容，不安装**——安装要写系统目录（见下）。
+SERVICE_KINDS: tuple[str, ...] = ("systemd-user", "systemd-system", "launchd", "windows")
+
+
+@dataclass(frozen=True)
+class ServiceUnit:
+    """一份**生成好但没装**的服务单元：文件内容 + 放哪 + 怎么启用/卸载。
+
+    为什么生成内容也算交付：``gateway install`` 的真正难点不是"写文件"，
+    而是"ExecStart 该写什么、崩溃循环保护怎么配、开机自启要哪两条命令"。
+    把这些写对、让用户复制粘贴就能装，比一个半吊子安装器有用得多——
+    何况 Orbit 的写入范围只到 ``data_dir``，系统目录本来就不该由它写。
+    """
+
+    kind: str
+    filename: str
+    path: str
+    content: str
+    install_steps: tuple[str, ...] = ()
+    uninstall_steps: tuple[str, ...] = ()
+    note: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "filename": self.filename,
+            "path": self.path,
+            "content": self.content,
+            "install_steps": list(self.install_steps),
+            "uninstall_steps": list(self.uninstall_steps),
+            "note": self.note,
+            "installed": False,
+        }
+
+
+def render_service_unit(
+    kind: str = "systemd-user",
+    *,
+    data_dir: str | Path,
+    executable: str = "orbit",
+    user: str = "",
+) -> ServiceUnit:
+    """生成一份服务单元（systemd / launchd / Windows 计划任务）。**纯函数**。
+
+    ``ExecStart`` 用 ``gateway run`` 而不是 ``gateway start``：``start`` 是
+    "启动已安装的后台服务"（Orbit 没装），``run`` 才是"就在这个进程里跑"——
+    让 systemd 直接管前台进程，崩溃后由 systemd 重启，这是唯一自洽的组合。
+
+    崩溃循环保护写进单元（``StartLimitIntervalSec`` / ``StartLimitBurst``）而不是
+    只靠 Orbit 自己的 ``gateway-starts.log`` 判据：进程还没起来就崩的时候，
+    只有 init 系统能拦住无限重启。
+    """
+    name = str(kind or "").strip().lower()
+    if name not in SERVICE_KINDS:
+        raise ValueError(f"未知的服务单元种类：{kind!r}（可选：{'/'.join(SERVICE_KINDS)}）")
+    resolved = str(Path(data_dir).resolve())
+    exec_line = f"{executable} gateway run --data-dir {resolved}"
+    if name in {"systemd-user", "systemd-system"}:
+        user_line = f"User={user}\n" if (name == "systemd-system" and user) else ""
+        content = (
+            "[Unit]\n"
+            "Description=Orbit 消息网关（前台 dispatcher：拿锁 + 写状态文件 + tick）\n"
+            "After=network-online.target\n"
+            "Wants=network-online.target\n"
+            "# 崩溃循环保护：10 分钟内 3 次重启就停手（与 gateway 自己的判据同值）\n"
+            "StartLimitIntervalSec=600\n"
+            "StartLimitBurst=3\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f"{user_line}"
+            f"ExecStart={exec_line}\n"
+            f"WorkingDirectory={resolved}\n"
+            "Restart=on-failure\n"
+            "RestartSec=5\n"
+            "# 日志走 journald，不要在单元里重定向到文件（否则轮转要自己管）\n"
+            "StandardOutput=journal\n"
+            "StandardError=journal\n"
+            "\n"
+            "[Install]\n"
+            f"WantedBy={'default.target' if name == 'systemd-user' else 'multi-user.target'}\n"
+        )
+        if name == "systemd-user":
+            return ServiceUnit(
+                kind=name,
+                filename="orbit-gateway.service",
+                path="~/.config/systemd/user/orbit-gateway.service",
+                content=content,
+                install_steps=(
+                    "mkdir -p ~/.config/systemd/user",
+                    "把上面的内容写到 ~/.config/systemd/user/orbit-gateway.service",
+                    "systemctl --user daemon-reload",
+                    "systemctl --user enable --now orbit-gateway.service",
+                    # 不开 linger 的话，用户退出登录（没有会话）网关就被停了——
+                    # 而网关恰恰要在没人登录时也跑着。
+                    "loginctl enable-linger $USER   # 未登录时也保持运行",
+                ),
+                uninstall_steps=(
+                    "systemctl --user disable --now orbit-gateway.service",
+                    "rm -f ~/.config/systemd/user/orbit-gateway.service",
+                    "systemctl --user daemon-reload",
+                ),
+                note="用户级单元不需要 root；Orbit 只生成内容，**没有替你安装**。",
+            )
+        return ServiceUnit(
+            kind=name,
+            filename="orbit-gateway.service",
+            path="/etc/systemd/system/orbit-gateway.service",
+            content=content,
+            install_steps=(
+                "sudo cp orbit-gateway.service /etc/systemd/system/orbit-gateway.service",
+                "sudo systemctl daemon-reload",
+                "sudo systemctl enable --now orbit-gateway.service",
+            ),
+            uninstall_steps=(
+                "sudo systemctl disable --now orbit-gateway.service",
+                "sudo rm -f /etc/systemd/system/orbit-gateway.service",
+                "sudo systemctl daemon-reload",
+            ),
+            note="系统级单元要 root（Orbit 不写 data_dir 之外的路径）；--run-as-user 请填 User=。",
+        )
+    if name == "launchd":
+        content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">\n'
+            "<dict>\n"
+            "  <key>Label</key><string>com.orbit.gateway</string>\n"
+            "  <key>ProgramArguments</key>\n"
+            "  <array>\n"
+            f"    <string>{executable}</string>\n"
+            "    <string>gateway</string>\n"
+            "    <string>run</string>\n"
+            "    <string>--data-dir</string>\n"
+            f"    <string>{resolved}</string>\n"
+            "  </array>\n"
+            "  <key>RunAtLoad</key><true/>\n"
+            "  <key>KeepAlive</key>\n"
+            "  <dict><key>SuccessfulExit</key><false/></dict>\n"
+            "  <key>WorkingDirectory</key>\n"
+            f"  <string>{resolved}</string>\n"
+            "  <key>StandardOutPath</key>\n"
+            f"  <string>{resolved}/gateway/launchd.out.log</string>\n"
+            "  <key>StandardErrorPath</key>\n"
+            f"  <string>{resolved}/gateway/launchd.err.log</string>\n"
+            "</dict>\n"
+            "</plist>\n"
+        )
+        return ServiceUnit(
+            kind=name,
+            filename="com.orbit.gateway.plist",
+            path="~/Library/LaunchAgents/com.orbit.gateway.plist",
+            content=content,
+            install_steps=(
+                "mkdir -p ~/Library/LaunchAgents",
+                "把上面的内容写到 ~/Library/LaunchAgents/com.orbit.gateway.plist",
+                "launchctl load -w ~/Library/LaunchAgents/com.orbit.gateway.plist",
+            ),
+            uninstall_steps=(
+                "launchctl unload -w ~/Library/LaunchAgents/com.orbit.gateway.plist",
+                "rm -f ~/Library/LaunchAgents/com.orbit.gateway.plist",
+            ),
+            note="launchd 用 KeepAlive.SuccessfulExit=false 实现「崩了才重启」，"
+            "对应 systemd 的 on-failure。",
+        )
+    # Windows：**没有**"把控制台程序注册成服务"的标准做法——真正的服务需要
+    # 一个 service wrapper（NSSM / WinSW），Orbit 不自带也不下载（本机无网络）。
+    # 计划任务是最接近的等价物：登录时启动、退出即停，且完全用系统自带工具。
+    content = (
+        "@echo off\r\n"
+        "REM Orbit 网关：登录时启动的前台 dispatcher（计划任务，不是 Windows 服务）\r\n"
+        "REM 路径含空格时，请把 %ORBIT_CMD% 换成你自己的包装 .cmd，schtasks 的引号规则很坑\r\n"
+        f'set ORBIT_CMD="{executable}" gateway run --data-dir "{resolved}"\r\n'
+        'schtasks /Create /TN "OrbitGateway" /SC ONLOGON /RL LIMITED /F /TR "%ORBIT_CMD%"\r\n'
+        "REM 想用真正的 Windows 服务，需要 service wrapper（NSSM/WinSW）：\r\n"
+        f"REM   nssm install OrbitGateway {executable} gateway run --data-dir {resolved}\r\n"
+        "REM   nssm start OrbitGateway\r\n"
+    )
+    return ServiceUnit(
+        kind=name,
+        filename="orbit-gateway-task.cmd",
+        path="（本机任意位置；执行一次即注册计划任务）",
+        content=content,
+        install_steps=(
+            "把上面的内容存成 orbit-gateway-task.cmd",
+            "以**当前用户**身份运行它（注册 ONLOGON 计划任务，不需要管理员）",
+            'schtasks /Query /TN "OrbitGateway"   # 确认已注册',
+            'schtasks /Run /TN "OrbitGateway"     # 立即启动一次',
+        ),
+        uninstall_steps=(
+            'schtasks /End /TN "OrbitGateway"',
+            'schtasks /Delete /TN "OrbitGateway" /F',
+        ),
+        note="Windows 服务需要 service wrapper（NSSM/WinSW）；Orbit 只生成计划任务脚本，不安装。",
+    )
+
+
+# ── 中继注册（MATRIX 12.10 的 enroll 一侧）──────────────────────────────────
+
+
+@dataclass(frozen=True)
+class EnrollRequirement:
+    """中继注册的**一条**可执行要求：要什么、怎么满足。"""
+
+    id: str
+    requirement: str
+    how: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "requirement": self.requirement, "how": self.how}
+
+
+@dataclass(frozen=True)
+class EnrollPlan:
+    """``gateway enroll`` 的**诚实交付物**：不是"注册成功"，是"注册需要什么"。"""
+
+    ok: bool = False
+    reason: str = ""
+    requirements: tuple[EnrollRequirement, ...] = ()
+    steps: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "implemented": False,
+            "reason": self.reason,
+            "requirements": [item.as_dict() for item in self.requirements],
+            "steps": list(self.steps),
+        }
+
+
+def enroll_requirements(
+    *, connector_url: str = "", gateway_id: str = "", wake_url: str = ""
+) -> EnrollPlan:
+    """``gateway enroll`` 的清单：relay 地址格式 / wake URL 契约 / 需要哪些凭证。
+
+    为什么"未实现"也要产出这么多字：Hermes 的 enroll 是 relay/connector 注册 +
+    反向唤醒（wake URL），Orbit 没有 connector 服务、也没有入站 HTTP 服务。
+    但**要什么**是确定的、可执行的——把它写清楚，用户/下一个实现者就不用去翻
+    Hermes 的源码猜协议；只丢一句"未实现"等于让人从零开始。
+
+    三个字段的**形状**是本函数的输出，也是下一轮实现的验收标准：
+    ``connector_url`` / ``gateway_id`` / ``wake_url``。
+    """
+    connector = str(connector_url or "").strip() or "https://<connector-host>"
+    gateway = str(gateway_id or "").strip() or "<gateway-id>"
+    wake = str(wake_url or "").strip() or "https://<公网可达主机>/peer/wake"
+    requirements = (
+        EnrollRequirement(
+            id="connector-url",
+            requirement="中继地址必须是 HTTPS 的注册端点，且路径里带网关 id",
+            how=(
+                f"形如 {connector.rstrip('/')}/v1/gateways/{gateway}/register；"
+                "末尾不带斜杠（拼出 // 会被多数反代判 404），证书必须是公信 CA 签的"
+            ),
+        ),
+        EnrollRequirement(
+            id="wake-url",
+            requirement="对端要能反向唤醒本机网关（wake URL）",
+            how=(
+                f"形如 {wake}：POST，body 为 "
+                '{"gateway_id": …, "run_id": …, "nonce": …}；'
+                "带 X-Orbit-Signature: sha256=<hex>（HMAC-SHA256，密钥是 ORBIT_WAKE_SECRET）；"
+                "5 秒内回 2xx；同一 nonce 只能生效一次（幂等）"
+            ),
+        ),
+        EnrollRequirement(
+            id="credentials",
+            requirement="三样凭证，缺一不可",
+            how=(
+                "ORBIT_PEER_TOKEN（connector 签发的一次性注册令牌）、"
+                "ORBIT_PEER_KEY（注册成功后换发的长期密钥，用于对端 API 的 Bearer）、"
+                "ORBIT_WAKE_SECRET（wake 请求的 HMAC 共享密钥）"
+            ),
+        ),
+        EnrollRequirement(
+            id="rotation",
+            requirement="令牌轮换与吊销协议",
+            how=(
+                "注册响应里给 expires_at；到期前用旧密钥签名调 "
+                f"{connector.rstrip('/')}/v1/gateways/{gateway}/rotate 换新；"
+                "对端吊销后本机必须在一次心跳内停止接单（否则消息会投进黑洞）"
+            ),
+        ),
+        EnrollRequirement(
+            id="inbound",
+            requirement="本机要有一个**入站** HTTP 服务来接 wake 与 dm",
+            how=(
+                "Orbit 本轮没有入站服务（平台适配器只做出站、gateway 不监听端口），"
+                "所以即使注册成功，对端也唤不醒这台机器——这是 enroll 未实现的根本原因"
+            ),
+        ),
+    )
+    steps = (
+        f"1) 确认 {connector.rstrip('/')} 可达（curl -sSf <url>/health）",
+        "2) 准备 ORBIT_PEER_TOKEN / ORBIT_WAKE_SECRET（放进环境变量，不要写进配置文件）",
+        f"3) 让 {wake} 对外可达（反代 + TLS），并实现签名校验与幂等",
+        "4) 实现本机入站服务（接 wake → 起一轮 run → 回 2xx），否则注册没有意义",
+        "5) 再跑 `orbit gateway enroll --connector-url … --gateway-id … --wake-url …`",
+    )
+    return EnrollPlan(
+        ok=False,
+        reason=(
+            "gateway enroll 未实现：中继注册要 ① 可达的 connector 服务端与它签发的一次性令牌，"
+            "② 公网可达的 wake URL（对端要能反向唤醒本机网关），③ 网关身份/令牌轮换协议。"
+            "本机无网络、也没有 connector 服务，三样都无法验证；照抄一个「看起来像注册成功」的"
+            "假实现只会让对端以为这台机器在线。"
+        ),
+        requirements=requirements,
+        steps=steps,
+    )
+
+
 # ── 模块级便捷入口 ──────────────────────────────────────────────────────────
 
 
@@ -1595,10 +2133,15 @@ __all__ = [
     "DELIVERIES_FILENAME",
     "DeliveryResult",
     "DispatcherLock",
+    "EnrollPlan",
+    "EnrollRequirement",
     "GATEWAY_DIRNAME",
+    "GatewayInstance",
     "GatewayPaths",
     "GatewayService",
     "HealthReport",
+    "INSTANCES_FILENAME",
+    "InstanceRegistry",
     "LOCK_FILENAME",
     "LockOutcome",
     "PAUSED_FILENAME",
@@ -1607,8 +2150,10 @@ __all__ = [
     "PairingStore",
     "PeerRegistry",
     "ProcessRegistry",
+    "SERVICE_KINDS",
     "SPAWN_LEDGER_FILENAME",
     "STARTS_FILENAME",
+    "ServiceUnit",
     "SpawnLedger",
     "StartOutcome",
     "WEBHOOKS_FILENAME",
@@ -1616,11 +2161,14 @@ __all__ = [
     "WebhookSubscription",
     "deliver",
     "detect_crash_loop",
+    "enroll_requirements",
     "identity",
+    "instance_rows",
     "now_iso",
     "pid_alive",
     "process_start_time",
     "read_start_stamps",
+    "render_service_unit",
     "route",
     "service",
     "write_json",

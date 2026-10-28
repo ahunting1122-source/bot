@@ -182,14 +182,17 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser",
         "后退到上一页",
         status="unavailable",
-        reason="需要页面历史栈；Orbit 的浏览器层只暴露观察/点击/填写，且本机没有 chromium 可验证。",
+        reason="Orbit 的浏览器层只暴露观察/点击/填写/按键/滚动，没有页面历史栈的接口"
+        "（app/browser.py 不在本轮可改范围）。**原因不是「没装 chromium」**——chromium 装好了，"
+        "是本机无网络、页面加载不出来，历史栈无从验证。",
     ),
     _t(
         "browser_get_images",
         "browser",
         "列出页面图片 URL + alt（喂给视觉模型）",
         status="unavailable",
-        reason="产出的东西只有视觉模型能用，本机没有可用的多模态调用链。",
+        reason="产出的东西只有视觉模型能用，本机没有可用的多模态调用链；且无网络，"
+        "拿不到真实页面来验证提取逻辑。",
     ),
     _t(
         "browser_vision",
@@ -203,7 +206,8 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser",
         "读 console 输出与 JS 未捕获错误",
         status="unavailable",
-        reason="需要订阅页面 console 事件；本机没有 chromium，无法自证实现正确。",
+        reason="需要订阅页面 console 事件；chromium 装了，但本机无网络、加载不出页面，"
+        "订阅逻辑无法自证。",
     ),
     _t(
         "browser_cdp",
@@ -217,7 +221,8 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser",
         "响应原生 JS 对话框（alert/confirm/prompt/beforeunload）",
         status="unavailable",
-        reason="需要页面级 dialog 事件处理；本机没有 chromium，无法自证实现正确。",
+        reason="需要页面级 dialog 事件处理；chromium 装了，但本机无网络、加载不出页面，"
+        "处理逻辑无法自证。",
     ),
     _t(
         "browser_exec",
@@ -347,9 +352,10 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "cronjob",
         "cron",
         "管理定时任务：从 prompt 和/或 skills 建任务、list 查看",
-        status="todo",
-        reason="app/cron.py 已有 create_job / CronStore / CronRunner，做得到；本轮没接工具层——"
-        "投递目标（deliver）要先跟平台配置对账，否则会出现「建了但没人跑」的假象。",
+        ("cron_job",),
+        reason="cron_job 只做建 / 列 / 停 / 删（复用 app/cron.py 的 CronStore、"
+        "parse_schedule、validate_deliver）；**执行仍归 `orbit cron` 守护进程**，"
+        "工具不会自己把任务跑起来。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     # ── 桌面与窗口（16）────────────────────────────────────────────────────
     _t("desktop_preview", "desktop", "预览面板（open/read/close 复合动作）", status="unavailable", reason="需要桌面客户端运行时（预览面板），Orbit 是本地服务 + CLI。"),
@@ -358,8 +364,23 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("close_preview", "desktop", "关闭预览面板或其中一个标签页", status="unavailable", reason="同上。"),
     _t("drive_preview", "desktop", "驱动预览面板里的网页（登录/填表/点击）", status="unavailable", reason="同上；Orbit 的等价能力在 browser_* 里，不在预览面板上。"),
     _t("annotate_preview", "desktop", "在预览页留持久标记", status="unavailable", reason="同上。"),
-    _t("read_terminal", "desktop", "读聊天旁终端面板", status="unavailable", reason="同上；Orbit 用 process poll 读后台进程日志，没有终端面板。"),
-    _t("close_terminal", "desktop", "关闭某个后台进程的只读终端标签页", status="unavailable", reason="同上；等价动作是 process kill。"),
+    _t(
+        "read_terminal",
+        "desktop",
+        "读聊天旁终端面板",
+        ("process",),
+        reason="**面板 UI 没有**，但「读一个后台进程的输出」这件事由 process poll 覆盖"
+        "（日志落在 <data>/processes/<id>.log，退出码也一并给出）。这是能力覆盖，"
+        "不是界面覆盖：Orbit 没有桌面终端面板。",
+    ),
+    _t(
+        "close_terminal",
+        "desktop",
+        "关闭某个后台进程的只读终端标签页",
+        status="unavailable",
+        reason="Orbit 没有只读终端标签页。最接近的动作是 process kill，但那是**终止进程**"
+        "（比关一个视图重得多），拿它当覆盖会把「看一眼就关掉」变成「把任务杀掉」。",
+    ),
     _t("read_window_below", "desktop", "识别 Hermes 窗口正后方的应用窗口", status="unavailable", reason="需要窗口枚举与桌面权限，Orbit 没有这层。"),
     _t("focus_pane", "desktop", "聚焦某个桌面面板", status="unavailable", reason="同上。"),
     _t("apply_layout", "desktop", "应用保存的布局预设", status="unavailable", reason="同上。"),
@@ -402,22 +423,27 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "meta",
         "查当前上下文占用",
         status="unavailable",
-        reason="上下文占用只有运行时知道；工具层算不出来，算出来也是假的。",
+        reason="**这一层拿不到那份数据**：ToolRegistry.execute 只把 messages 传给"
+        "本地分发链（app/tools.py 的 local()，本轮禁改），外部执行器只收到 "
+        "(name, args, task_id, operation_id)。算出来的只能是假数。",
     ),
     _t("tool_search", "meta", "桥接工具：按自然语言/BM25 检索被延迟的工具", ("tool_search",), reason="Orbit 是关键词打分（名字 > 描述 > toolset），不是 BM25 词干检索。"),
     _t(
         "tool_describe",
         "meta",
         "桥接工具：取被延迟工具的完整 schema",
-        status="unavailable",
-        reason="Orbit 把全部工具 schema 一次暴露，没有「被延迟的工具」可描述；注册它只会诱导模型绕一层。",
+        ("tool_describe",),
+        reason="配合 toolsets.defer_specs 的延迟披露（MATRIX 5.11）：Tier 2 在首屏只给"
+        "「名字 + 一句描述」，参数表由它取。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     _t(
         "tool_call",
         "meta",
         "桥接工具：调用被延迟的工具",
-        status="unavailable",
-        reason="同上：没有延迟工具可调，多一层桥只会多一层失败点。",
+        status="todo",
+        reason="做得到（按名分发到 registry.execute），但**这一轮刻意不做**：被延迟的工具"
+        "仍在清单里，模型拿到参数表后可以直接按名调用；多一层桥会绕过确认门禁"
+        "（memory_save 那类 confirmation=True 的工具），换来的只是多一层失败点。",
     ),
     _t(
         "message_agent",
@@ -430,14 +456,17 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
 
 
 def orbit_pool() -> tuple[str, ...]:
-    """Orbit 当前**真实注册**的内置工具名（排序）。
+    """Orbit 当前**真实实现**的内置工具名（排序）。
 
-    两个来源，缺一不可：
+    三个来源，缺一不可：
 
-    * ``app.tools.LOCAL_TOOLS``——工具层自己的表（本轮改动的主要对象）；
+    * ``app.tools.LOCAL_TOOLS``——工具层自己的表（默认注册表就是它）；
     * ``app.toolsets.TOOL_TOOLSET`` 里的非 MCP 名字——浏览器 / 联网 / 连接器这些
       由别的模块注册的内置工具（``browser_*`` / ``web_*`` / ``notion_*`` /
-      ``github_*`` / ``vault_login``）与运行时特殊处理的 ``ask_user``。
+      ``github_*`` / ``vault_login``）与运行时特殊处理的 ``ask_user``；
+    * ``app.tool_extra_impl.EXTRA_TOOLS``——**本轮新实现的两个工具**
+      （``tool_describe`` / ``cron_job``）。它们有真实实现、真实 schema、真实分发，
+      但要装配层调一次 ``register_extra_tools(registry)`` 才会进默认注册表。
 
     为什么用声明表而不是 import ``app.browser`` / ``app.web`` 再读它们的 ``*_TOOLS``：
     那些模块会拖进 playwright / httpx，而这张对照表要被 CLI 与测试零成本导入。
@@ -445,12 +474,39 @@ def orbit_pool() -> tuple[str, ...]:
 
     注意：这里回答的是"**有没有这个能力**"，不回答"此刻能不能用"（playwright 没装、
     token 没配时 ``browser_*`` 仍然在表里，但 ``toolsets.probe`` 会把它摘掉）。
+    "能力存在但还没接线"这件事由 :func:`report` 单独列出来，不混进覆盖率里——否则
+    "写了代码"会被读成"模型能用"。
     """
     from app.tools import LOCAL_TOOLS
 
     names = {tool.name for tool in LOCAL_TOOLS}
     names |= {name for name in toolsets.TOOL_TOOLSET if not name.startswith("mcp__")}
+    names |= set(extra_tool_names())
     return tuple(sorted(names))
+
+
+def extra_tool_names() -> tuple[str, ...]:
+    """``app/tool_extra_impl.EXTRA_TOOLS`` 的名字（**本轮新实现的工具**）。
+
+    单独一个函数是因为有两处要问同一个问题：``orbit_pool()``（算覆盖）与
+    ``report()``（说清"实现了但还没接线"）。两处各写一份 import 迟早会漂。
+    """
+    try:
+        from app.tool_extra_impl import EXTRA_TOOLS
+    except Exception:  # noqa: BLE001 - 可选依赖缺失不该让覆盖表整个不可用
+        return ()
+    return tuple(tool.name for tool in EXTRA_TOOLS)
+
+
+def registered_extra_tools() -> tuple[str, ...]:
+    """其中**已经进了默认注册表**（``LOCAL_TOOLS``）的那些。目前恒为空。
+
+    这个函数存在的意义就是让 ``report()`` 能如实说"实现了几个、接了几个"。
+    """
+    from app.tools import LOCAL_TOOLS
+
+    local = {tool.name for tool in LOCAL_TOOLS}
+    return tuple(name for name in extra_tool_names() if name in local)
 
 
 @dataclass(frozen=True)
@@ -585,6 +641,24 @@ def report(coverage: Coverage | None = None) -> str:
     lines.append("")
     if data.orbit_only:
         lines.append("Orbit 独有（Hermes 无对应物，不算缺口）：" + "、".join(data.orbit_only))
+    # "实现了" 与 "接上了" 是两件事，必须分开报：把写了代码算成模型能用，是这类
+    # 覆盖表最常见的一种谎（模型调不动，用户却在报表里看到"已覆盖"）。
+    extra = extra_tool_names()
+    if extra:
+        wired = registered_extra_tools()
+        pending = tuple(name for name in extra if name not in wired)
+        lines.append("")
+        lines.append(
+            f"本轮新实现 {len(extra)} 个工具（app/tool_extra_impl.py）："
+            + "、".join(extra)
+        )
+        if pending:
+            lines.append(
+                "  其中**还没进默认注册表**（需装配层调一次 "
+                "`register_extra_tools(registry)`）：" + "、".join(pending)
+            )
+        if wired:
+            lines.append("  已进默认注册表：" + "、".join(wired))
     return "\n".join(lines)
 
 
@@ -595,7 +669,9 @@ __all__ = [
     "Coverage",
     "DomainCoverage",
     "HermesTool",
+    "extra_tool_names",
     "orbit_coverage",
     "orbit_pool",
+    "registered_extra_tools",
     "report",
 ]

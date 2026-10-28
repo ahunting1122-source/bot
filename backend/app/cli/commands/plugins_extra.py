@@ -568,7 +568,74 @@ def run_pages(context: Context, args) -> int:
 
 # ── 命令树 ──────────────────────────────────────────────────────────────────
 
+def run_host(context: Context, args) -> int:
+    """`orbit plugins host`：插件宿主此刻的状态（接上了什么、还差哪一行）。"""
+    from app.hooks import DEFAULT_HOOKS
+    from app.plugin_host import PluginHost
+
+    host = PluginHost.from_settings(
+        context.settings, tool_sink=None, hook_sink=DEFAULT_HOOKS
+    )
+    info = host.describe()
+    if getattr(args, "json", False):
+        context.emit(info)
+        return 0
+    context.out(f"插件宿主：{info.get('loaded', 0)} 个插件，{info.get('tools', 0)} 个工具，"
+                f"{info.get('hooks', 0)} 个钩子")
+    context.out(f"宿主就绪：{'是' if info.get('host_ready') else '否'}；"
+                f"接进 main.py：{'是' if info.get('wired_into_main') else '否'}")
+    if not info.get("wired_into_main"):
+        # 把缺的那一行**原样打出来**，让人能直接粘贴——只说"未接线"等于没说。
+        for line in info.get("missing_code") or []:
+            context.out(f"  缺：{line}")
+    skipped = info.get("skipped") or {}
+    if skipped:
+        context.out()
+        context.out("跳过的插件：")
+        for name, reason in skipped.items():
+            context.out(f"  {name}：{reason}")
+    return 0
+
+
+def run_routes(context: Context, args) -> int:
+    """`orbit plugins routes`：dashboard 插件路由的挂载情况。"""
+    from app import plugin_dashboard
+
+    info = plugin_dashboard.MOUNTS.as_dict() if hasattr(plugin_dashboard, "MOUNTS") else {}
+    if getattr(args, "json", False):
+        context.emit(info)
+        return 0
+    mounted = info.get("mounted") or []
+    skipped = info.get("skipped") or {}
+    context.out(f"已挂载 {len(mounted)} 个插件的路由；跳过 {len(skipped)} 个。")
+    for item in mounted:
+        context.out(f"  {item.get('name', '?')}：{item.get('routes', 0)} 条 → /api/plugins/…")
+    for name, reason in skipped.items():
+        context.out(f"  跳过 {name}：{reason}")
+    if not mounted and not skipped:
+        context.out("（还没有插件声明 dashboard 页面）")
+    return 0
+
+
 EXTRA_SUBCOMMANDS: tuple[Command, ...] = (
+    Command(
+        name="host",
+        help="插件宿主状态：接上了哪些工具/钩子、还差哪一行接进 main.py",
+        handler=run_host,
+        group="ext",
+        state="done",
+        needs_settings=True,
+        options=[Option(("--json",), "以 JSON 输出", action="store_true")],
+    ),
+    Command(
+        name="routes",
+        help="dashboard 插件路由的挂载情况（挂了几个、跳过谁、为什么）",
+        handler=run_routes,
+        group="ext",
+        state="done",
+        needs_settings=True,
+        options=[Option(("--json",), "以 JSON 输出", action="store_true")],
+    ),
     Command(
         name="info",
         help="一个插件的完整画像（门禁 + import 时机 + 能力状态 + 依赖 + 页面）",

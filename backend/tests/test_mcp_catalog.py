@@ -259,3 +259,33 @@ def test_cli_install_missing_name_exits_1(tmp_path, capsys):
     code, captured = _run_cli(tmp_path, capsys, "mcp", "install", "nope")
     assert code == 1
     assert "目录里没有" in captured.err
+
+
+# ── 矩阵 8.8 收尾：mcp 不再有"登记了但没实现"的子命令 ──────────────────────
+
+
+def test_no_mcp_subcommand_is_left_todo():
+    """`mcp` 的每一条子命令都必须有真实现（`todo` = 只有占位 handler）。
+
+    这条用例是矩阵 8.8 的判据：`picker` / `catalog` / `install` 曾经是表里剩下的三条
+    `todo`，现在都接到了 `mcp_extra.py`（三条各有自己的 CLI 用例在上面）。
+    """
+    import app.cli.commands.mcp  # noqa: F401 - 导入即接线
+    import app.cli.commands.mcp_extra  # noqa: F401
+    from app.cli.spec import REGISTRY
+
+    node = REGISTRY.get("mcp")
+    assert node is not None
+    leftover = [
+        sub.name for sub in node.subcommands if sub.state != "done" and not sub.subcommands
+    ]
+    assert leftover == [], f"这些 mcp 子命令还没实现：{leftover}"
+    # 三条曾经 todo 的路径现在真的指向各自的实现（不是占位 handler）
+    from app.cli.commands import mcp_extra
+
+    assert node.child("catalog").handler is mcp_extra.run_catalog
+    assert node.child("picker").handler is mcp_extra.run_picker
+    assert node.child("install").handler is mcp_extra.run_install
+    # `mcp test` 有意**不读** schema 缓存：体检要看真实结果，不能拿缓存糊弄
+    assert "mcp test" not in mcp_extra.UNBOUND_SUBCOMMANDS
+

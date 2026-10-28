@@ -37,6 +37,23 @@ Hermes 的流程是 `quarantine_bundle → scan_skill → install_from_quarantin
 dangerous 才 block，caution 只提示。`release()` **不能绕过 critical**（重扫一次，
 仍 critical 就仍然拒绝），与 Hermes「`--force` 不能覆盖 dangerous 判决」同一立场。
 
+## `publish()`：把技能**打包进**本地 hub（矩阵 7.13 的最后一条）
+
+`hermes skills publish --to github|clawhub` 是"发到社区注册表"，本机没有网络、
+也没有注册表账号，所以 :meth:`SkillHub.publish` 只做**另一半**：把技能打包成一份
+自洽的发布物（`SKILL.md` + `manifest.json`），落在 `<data_dir>/skills-hub/<名字>/`。
+
+三条硬规矩：
+
+1. **`to` 只接受本地路径**。远程目标（`github` / `clawhub` / `https://…`）如实抛
+   「未实现 + 需要网络 + 社区索引」，不写一个永远超时的 HTTP 壳——那会让用户以为
+   已经发出去了。
+2. **默认 dry_run**。先打印"会发布什么、内容 hash 是多少、写到哪"，`--apply` 才落盘。
+   发布是**对外可见**的动作，默认就该是先看后做。
+3. **发布前必过 linter 零 ERROR**（复用 `app/skill_lint.py`，只读它）。安装侧的
+   `scan_dir` 对 lint 只记 `caution` 不阻断（那是"装到自己机器上"），而发布是把
+   内容推给别人，门槛必须更严：别人没有机会在你的隔离区里复查。
+
 ## lock / audit 为什么不在 hub 目录里
 
 Hermes 把 `lock.json` / `audit.log` 放在 `~/.hermes/skills/.hub/` 下。本实现把它们
@@ -49,6 +66,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -82,6 +100,17 @@ INSTALL_DIRNAME = "skills"
 QUARANTINE_META_FILENAME = ".quarantine.json"
 #: 技能正文文件名。
 SKILL_FILENAME = "SKILL.md"
+#: 发布清单文件名（`publish()` 的产物）。**只放在包顶层**，见 `dir_hash`。
+MANIFEST_FILENAME = "manifest.json"
+#: 计算内容指纹时忽略的顶层文件。为什么忽略 `manifest.json`：它是**发布元数据**
+#: （谁在什么时候、以什么 hash 发的），不是技能内容。算进去会让
+#: `dir_hash(hub 包) != dir_hash(已安装副本)`（隔离报告那条老坑的同一形状），
+#: 于是 `skills update` 对每个从 hub 装的技能都永久显示「有更新」。
+HASH_SKIP: frozenset[str] = frozenset({MANIFEST_FILENAME})
+#: 远程发布目标的写法（`--to github` / `--to clawhub` / URL）。命中即如实报未实现。
+REMOTE_TARGETS: frozenset[str] = frozenset(
+    {"github", "gitlab", "clawhub", "clawhub.ai", "registry", "hub", "remote"}
+)
 #: 只有这个级别的威胁会拦住安装。
 GUARD_CRITICAL = "critical"
 #: 扫描时顺带看的支撑文件后缀（二进制/图片不扫）。
@@ -108,24 +137,56 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def dir_hash(root: Path) -> str:
+def dir_hash(root: Path, *, skip: frozenset[str] = HASH_SKIP) -> str:
     """目录内容指纹：``sha256(排序后的 相对路径 + 文件 sha256)``。
 
     用整包而不是只算 SKILL.md：一个技能的 ``references/`` 被换掉，正文却一字未改，
     只比正文会让 `skills update` 认为「没变化」。排序是为了让指纹与文件系统遍历
     顺序无关（Windows 上 `rglob` 的顺序不保证稳定）。
+
+    ``skip`` 是**顶层**要忽略的文件名（默认只有 ``manifest.json``，理由见常量注释）。
+    只匹配顶层：技能正文里出现一个 ``references/manifest.json`` 是内容，不是元数据。
     """
     if not root.is_dir():
         return ""
     digest = hashlib.sha256()
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative = path.relative_to(root).as_posix()
+        if relative in skip:
+            continue
         try:
             body = path.read_bytes()
         except OSError:
             continue
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(relative.encode("utf-8"))
         digest.update(hashlib.sha256(body).digest())
     return digest.hexdigest()
+
+
+def is_remote_target(to: str | Path | None) -> bool:
+    """``--to`` 是不是一个**远程**发布目标（`github` / `clawhub` / URL / `注册表/仓库`）。
+
+    抽成模块级函数是因为两处要用同一套判定：`SkillHub._publish_root`（拒绝）与 CLI
+    （把拒绝翻成"未实现"的退出码 3）。判定规则写两遍，迟早在某一边漏掉一种写法。
+
+    只看形状，不做出网探测——本机没有网络，探测本身就会超时。
+    """
+    if to is None:
+        return False
+    text = str(to).strip()
+    if not text:
+        return False
+    lowered = text.lower().rstrip("/")
+    # 三种形状：带协议头（`https://…` / `git@…`）、名字就是某个注册表（`github`）、
+    # 或 `注册表/仓库` 形式（`github/me/skill`）。相对路径 `mlops/eval-harness` 因此
+    # 不会被误判——它的第一段不是注册表名。
+    head = lowered.replace("\\", "/").split("/")[0]
+    return bool(
+        "://" in text
+        or lowered.startswith(("git@", "ssh:"))
+        or lowered in REMOTE_TARGETS
+        or (head in REMOTE_TARGETS and "\\" not in text and not Path(text).is_absolute())
+    )
 
 
 @dataclass(frozen=True)
@@ -570,6 +631,211 @@ class SkillHub:
         self.index.invalidate()
         return {"ok": True, "name": clean, "removed": removed, "path": str(target)}
 
+    # —— 发布（打包进本地 hub）——
+
+    def publish(
+        self,
+        name: str,
+        *,
+        to: str | Path | None = None,
+        dry_run: bool = True,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """把技能打包成发布物，落到本地 hub 目录（默认 ``<data>/skills-hub/<名字>/``）。
+
+        参数：
+
+        - ``name``：目录路径、已安装技能名，或 hub 里的 identifier（三种都认，见
+          :meth:`_publish_source`）。
+        - ``to``：**只接受本地路径**。``None`` = 本地 hub 根。``github`` / ``clawhub`` /
+          URL 一律抛「未实现」，理由见模块 docstring 与 :meth:`_publish_root`。
+        - ``dry_run``：默认 ``True``（只报告，不写盘）。``False`` 才真的复制 + 写
+          ``manifest.json``。
+
+        **门禁**：``SKILL.md`` 必须先过 `skill_lint` 零 ERROR。这是发布与安装的
+        关键差异——安装时 lint 只记 `caution`（装到自己机器上，隔离区还能复查），
+        发布是把内容推给别人，别人没有这个机会。
+
+        返回报告（``ok`` / ``dry_run`` / ``wrote`` / ``target`` / ``content_hash`` /
+        ``manifest`` / ``lint``）。失败一律抛 :class:`SkillHubError`：发布是显式动作，
+        静默返回 ``ok=False`` 会被脚本当成成功。
+        """
+        source, _ = self._publish_source(name)
+        # 发布物的**身份**是 frontmatter 里的 name，不是源目录名：用户可能把技能放在
+        # 任意名字的目录里（`my-work/demo/SKILL.md`）。用目录名会在 hub 里造出一个
+        # `my-work` 包，而 `install demo` 要的是 `demo`——同一个技能两个名字。
+        skill_name = self._publish_name(source)
+        destination = self._publish_root(to)
+        target = destination / skill_name
+        skill_md = source / SKILL_FILENAME
+        try:
+            text = skill_md.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise SkillHubError(f"读不出技能正文：{skill_md}（{exc}）") from exc
+        findings = lint(skill_name, text, path=skill_md)
+        if has_errors(findings):
+            detail = "；".join(
+                f"{item.code}(第 {item.line} 行)" if item.line else item.code
+                for item in findings
+                if item.severity == "error"
+            )
+            raise SkillHubError(
+                f"拒绝发布 {skill_name}：lint 有 ERROR（{detail}）。"
+                "发布物会被别人直接安装，所以门槛是零 ERROR；先 `orbit skills lint` 修干净"
+            )
+        content_hash = dir_hash(source)
+        if not content_hash:
+            raise SkillHubError(f"技能目录是空的或读不出文件：{source}")
+        report = validate_frontmatter(text)
+        meta = dict(report.data) if report.ok else {}
+        manifest = self._manifest(
+            skill_name, source=source, content_hash=content_hash, meta=meta, now=now
+        )
+        existed = (target / SKILL_FILENAME).is_file()
+        previous = dir_hash(target) if existed else ""
+        payload: dict[str, Any] = {
+            "ok": True,
+            "name": skill_name,
+            "dry_run": bool(dry_run),
+            "wrote": False,
+            "source": str(source),
+            "target": str(target),
+            "content_hash": content_hash,
+            "overwrites": existed,
+            "changed": existed and previous != content_hash,
+            "manifest": manifest,
+            "lint": {
+                "errors": sum(1 for item in findings if item.severity == "error"),
+                "warnings": sum(1 for item in findings if item.severity != "error"),
+                "findings": [item.as_dict() for item in findings],
+            },
+        }
+        if dry_run:
+            return payload
+        self._write_package(source, target)
+        (target / MANIFEST_FILENAME).write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        payload["wrote"] = True
+        payload["files"] = len([item for item in target.rglob("*") if item.is_file()])
+        self._append_audit(
+            "PUBLISH", skill_name, target=str(target), content_hash=content_hash
+        )
+        return payload
+
+    def _publish_name(self, directory: Path) -> str:
+        """发布物在 hub 里的目录名：优先 frontmatter 的 ``name``，非法则退回目录名。
+
+        **必须校验**：frontmatter 是技能内容的一部分，`name: ../../evil` 会让
+        ``destination / name`` 落到 hub 目录之外——发布是写盘动作，路径穿越在这里
+        比在任何地方都危险。校验口径与 `app/skills.py::_validate_name` 一致（只允许
+        字母数字与 `_-`），不合法就退回目录名（那已经是一个真实存在的目录名）。
+        """
+        candidate = self._name_of(directory)
+        if re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$", candidate or ""):
+            return candidate
+        return directory.name
+
+    def _publish_source(self, name: str) -> tuple[Path, str]:
+        """把 ``publish`` 的入参解析成 ``(源目录, 技能名)``。
+
+        三种写法都认，顺序是**从最具体到最笼统**：
+
+        1. 一个真的目录路径（含 ``SKILL.md``）——发布自己手写的技能；
+        2. 已安装的技能名（``<data>/skills/<名字>``）；
+        3. hub 里的 identifier（类目/名字）——把 hub 里现有的包重新打包（换目标目录时用）。
+
+        第 1 种必须排在最前：用户明确给了一个路径，就该以那个路径为准，而不是猜他
+        指的是同名的已安装技能。
+        """
+        raw = str(name or "").strip()
+        if not raw:
+            raise SkillHubError("需要一个技能：目录路径，或已安装的技能名")
+        candidate = Path(raw).expanduser()
+        if candidate.is_dir() and (candidate / SKILL_FILENAME).is_file():
+            return candidate, candidate.name
+        installed = self.install_root / raw
+        if (installed / SKILL_FILENAME).is_file():
+            return installed, raw
+        directory, resolved = self.resolve(raw)  # 找不到会抛带 hub 路径的 SkillHubError
+        return directory, resolved
+
+    def _publish_root(self, to: str | Path | None) -> Path:
+        """发布目标目录。**远程目标在这里被明确拒绝**。
+
+        为什么不做"远程发布"：`hermes skills publish --to github` 要做的是
+        （1）出网（2）用账号 token 往别人的社区索引里写一条。本机两条都不具备。
+        写一个 HTTP 壳只会得到"永远超时"，而超时看起来像网络故障、不像"没实现"——
+        用户会反复重试。所以这里直接说清楚，并给出本机能做的替代。
+        """
+        if to is None:
+            return self.hub_root
+        text = str(to).strip()
+        if not text:
+            return self.hub_root
+        if is_remote_target(text):
+            raise SkillHubError(
+                f"远程发布未实现：{text!r}。发布到社区索引需要网络 + 注册表账号 + 社区索引协议，"
+                "本机都没有。本地做法：`orbit skills publish <技能> --to <本地目录> --apply`，"
+                f"产物是一份 SKILL.md + manifest.json（默认落到 {self.hub_root}）"
+            )
+        return Path(text).expanduser()
+
+    def _manifest(
+        self,
+        name: str,
+        *,
+        source: Path,
+        content_hash: str,
+        meta: dict[str, Any],
+        now: datetime | None,
+    ) -> dict[str, Any]:
+        """生成 `manifest.json` 的内容。
+
+        字段只放**能从技能本身读到的东西**，读不到就留空/留默认，不编：
+
+        - ``name`` / ``version`` / ``description``：frontmatter（没有 version 记 1）；
+        - ``content_hash``：整包指纹（= `dir_hash`，不含本文件）；
+        - ``dependencies`` / ``author``：frontmatter 里的同名字段（Hermes 的技能包会在
+          这里声明"要先装什么"和"谁写的"）。Orbit 的 `save_skill` 不写这两个字段，
+          所以手写技能通常拿到 ``[]`` 与 ``""``——这是事实，不是缺漏。
+        """
+        moment = now if now is not None else self.now()
+        dependencies = meta.get("dependencies") or []
+        if isinstance(dependencies, str):
+            dependencies = [item.strip() for item in dependencies.split(",") if item.strip()]
+        version = meta.get("version")
+        try:
+            version_number = int(str(version).strip())
+        except (TypeError, ValueError):
+            version_number = 1
+        return {
+            "name": str(meta.get("name") or name),
+            "version": version_number,
+            "content_hash": content_hash,
+            "dependencies": [str(item) for item in dependencies],
+            "author": str(meta.get("author") or ""),
+            "description": str(meta.get("description") or ""),
+            "scope": str(meta.get("scope") or "global"),
+            "triggers": [str(item) for item in meta.get("triggers") or []],
+            "files": len([item for item in source.rglob("*") if item.is_file()]),
+            "published_at": _iso(moment),
+            "publisher": "orbit",
+            "format": 1,
+        }
+
+    def _write_package(self, source: Path, target: Path) -> None:
+        """把技能目录整份复制到发布目标（覆盖旧内容，但不留旧残骸）。
+
+        为什么先删再复制：`copytree(dirs_exist_ok=True)` 会把**上一版有、这一版没有**
+        的文件留在目标里，于是发布物的内容 hash 与源目录对不上——而 hash 正是
+        "发出去的是哪一份"的唯一凭据。
+        """
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, target)
+
     # —— 远端（明确未实现）——
 
     def install_remote(self, identifier: str) -> None:
@@ -638,15 +904,19 @@ class SkillHub:
 __all__ = [
     "AUDIT_FILENAME",
     "GUARD_CRITICAL",
+    "HASH_SKIP",
     "HUB_DIRNAME",
     "INSTALL_DIRNAME",
     "LOCK_FILENAME",
+    "MANIFEST_FILENAME",
     "MAX_FILES",
     "QUARANTINE_DIRNAME",
     "QUARANTINE_META_FILENAME",
+    "REMOTE_TARGETS",
     "SKILL_FILENAME",
     "ScanReport",
     "SkillHub",
     "SkillHubError",
     "dir_hash",
+    "is_remote_target",
 ]

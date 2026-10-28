@@ -292,13 +292,16 @@ CAPABILITIES: tuple[Capability, ...] = (
         orbit_status=EXPOSED,
         orbit_landing=(
             "登记进 PluginContext.capability_ledger（键 = action_id，值 = 回调），并可由宿主"
-            "注入的 sink 直接收下；**缺**入站派发层（公网 webhook 入口 + 签名校验 + "
-            "action_id 路由表，三样都没有）"
+            "注入的 sink 直接收下；**缺**入站派发：app/dashboard_api.py 的 "
+            "`POST /api/webhooks/{id}` 已经提供了入站入口 + x-orbit-secret 校验，但它只把"
+            "载荷落进收件箱（jsonl），没有 action_id 路由表，也没有任何代码把 Block Kit 动作"
+            "翻译成插件回调的调用"
         ),
         reason=(
-            "缺入站派发层：Block Kit 动作回调需要 ①公网 webhook 入口 ②请求签名校验 "
-            "③action_id 路由表，三样在 Orbit 里都没有（app/gateway.py 只有出站投递），"
-            "所以登记了也没有任何代码会来取它"
+            "缺的是「收件箱 → action_id 路由表 → 插件回调」这最后一段：入站入口与签名校验"
+            "（app/dashboard_api.py）已经有了，但没人解析 payload 里的 actions[].action_id，"
+            "所以登记了也没有任何代码会来取它。要推成 wired，得在 webhook 收件路径上加一张"
+            "action_id → callback 表并真的调用（那是 dashboard_api.py 的活，本轮不动它）"
         ),
         hermes_name="register_slack_action_handler",
         hermes_signature="register_slack_action_handler(action_id, cb)",
@@ -337,12 +340,15 @@ CAPABILITIES: tuple[Capability, ...] = (
         "register_memory_provider",
         orbit_status=EXPOSED,
         orbit_landing=(
-            "PluginContext.capability_ledger + 宿主可注入 sink；**缺** app/retrieval.py 的"
-            "可注入 provider 注册表"
+            "PluginContext.capability_ledger + 宿主可注入 sink；**缺**装配处那一步："
+            "app/memory_providers.py 其实有 provider 表（PROVIDER_TYPES / build_provider / "
+            "build_router(providers=...)），但构造 MemoryRouter 的调用方不读插件登记的 provider"
+            "——缺的是「把插件 provider 塞进 build_router」这一行，不是整张表"
         ),
         reason=(
-            "Orbit 的记忆是本地 SQLite + FTS/向量（app/retrieval.py 的 build_retriever "
-            "直接选实现），没有可替换的 memory provider 注册表，所以登记完没有消费者"
+            "登记完没有消费者：app/memory_providers.py::build_router 收 `providers=` 参数，"
+            "可 CLI/装配层（app/cli/commands/memory_extra.py、app/agent.py）调它时只传内置的 "
+            "default_providers()。要推成 wired，得让那几处把 ctx 里的 provider 一并传进去"
         ),
         hermes_name="register_memory_provider",
         hermes_signature="register_memory_provider(provider)",
@@ -351,19 +357,27 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     _cap(
         "register_web_provider",
-        orbit_status=EXPOSED,
+        orbit_status=WIRED,
         orbit_landing=(
-            "PluginContext.capability_ledger + 宿主可注入 sink；**缺** app/web_providers.py "
-            "的可注入 provider 表"
+            "app/web_providers.py::EXTRA_PROVIDERS（模块级可变表）→ build_providers() 把它插在"
+            "兜底的 ddgs 之前 → app/web.py::WebTools 构造时读 build_providers，"
+            "select_provider()/available_providers() 也读它——注册后下一次搜索就会走到它"
         ),
         reason=(
-            "app/web_providers.py 的工厂表写在 build_providers() 函数体里（四个类字面量），"
-            "往 PROVIDER_ORDER 加名字会直接 KeyError——宿主没有可注入的注册表"
+            "真实落点（本轮补上）：上一轮 build_providers() 的工厂字典写在函数体里，插件 provider "
+            "无处可读，所以只能算 exposed。现在宿主表 + register_provider() 契约校验都在，"
+            "缺 available()/search() 的 provider 当场报错而不是静默躺进表里。"
+            "**边界**：有 key 的内置 provider 仍优先（它们是操作员显式配的），插件 provider 排在"
+            "ddgs 兜底之前——不这么排就永远选不到（ddgs.available() 恒真）"
         ),
         hermes_name="register_web_search_provider",
         hermes_signature="register_web_search_provider(p)",
         hermes_calls=10,
-        wired_by=("app/plugin_capabilities.py::expose_web_provider",),
+        wired_by=(
+            "app/plugin_capabilities.py::expose_web_provider",
+            "app/web_providers.py::register_provider",
+            "app/web_providers.py::EXTRA_PROVIDERS",
+        ),
     ),
     _cap(
         "register_cron_provider",
@@ -495,17 +509,21 @@ CAPABILITIES: tuple[Capability, ...] = (
         "register_slash_command",
         orbit_status=EXPOSED,
         orbit_landing=(
-            "app/plugin_capabilities.py::expose_slash_command 登记 + parse_slash_command() "
-            "解析入口；**缺** app/tui.py / chat 的斜杠分发循环"
+            "登记（本模块 expose_slash_command）+ 解析（parse_slash_command）+ 分发入口"
+            "（resolve_slash_command / app/plugin_host.py::PluginHost.dispatch_slash，"
+            "已单测覆盖）都就位；**缺**输入循环里的那一行：app/cli/commands/chat.py 的 "
+            "`line = input(\"> \")` 之后加 `outcome = host.dispatch_slash(text)`"
         ),
         reason=(
-            "登记与解析都就位（`/name 参数` → (name, 参数)），但没有宿主循环去读它：Orbit "
-            "的 TUI/chat 只把输入当消息发，没有「以 / 开头先查命令表」这一步"
+            "缺的是一行调用，不是一层能力：Orbit 只有 `orbit chat` 有输入循环，而该文件本轮"
+            "正被另一个 agent 改写（git status 显示 M），两边同时改会互相覆盖，所以本轮不动它。"
+            "接线方式已写死在 HOST_SURFACES['slash_dispatcher'] 与 wired_by 里，加一行即 wired"
         ),
         hermes_signature="（Hermes 无独立方法：斜杠命令就是 register_command）",
         wired_by=(
             "app/plugin_capabilities.py::expose_slash_command",
-            "app/plugin_capabilities.py::parse_slash_command",
+            "app/plugin_capabilities.py::resolve_slash_command",
+            "app/plugin_host.py::PluginHost.dispatch_slash",
         ),
     ),
 )
@@ -595,13 +613,25 @@ HOST_SURFACES: dict[str, str] = {
     "skills_root": "app/skills.py::catalog()/load_skill()（每次直接读盘）",
     "providers_table": "app/providers.py::PROVIDERS → orbit model / resolve_provider",
     "page_registry": "app/plugin_dashboard.py::PAGES → orbit plugins pages",
+    "plugin_routes": (
+        "app/plugin_dashboard.py::mount()/mount_into_app() → fastapi include_router；"
+        "宿主 app/main.py 还没调它（禁改区），但入口与逐条隔离都已就位"
+    ),
+    "slash_dispatcher": (
+        "（入口就位、调用方缺）app/plugin_host.py::PluginHost.dispatch_slash 已能分发并被单测"
+        "覆盖，但 app/cli/commands/chat.py 的输入循环还没调它（该文件本轮正被另一个 agent 改写）"
+    ),
     # 下面这些**不存在**，所以对应的能力最多到 exposed：
-    "memory_provider_registry": "（不存在）app/retrieval.py 直接选实现",
-    "web_provider_registry": "（不存在）app/web_providers.py 工厂硬编码",
-    "slash_dispatcher": "（不存在）TUI/chat 没有「以 / 开头先查命令表」这一步",
-    "inbound_webhook": "（不存在）Orbit 的适配器只做出站文本",
+    "memory_provider_registry": (
+        "（不存在）app/memory_providers.py 有 provider 表，但构造 MemoryRouter 的调用方不传插件 provider"
+    ),
+    "web_provider_registry": "（不存在）app/web_providers.py::build_providers 工厂硬编码在函数体里",
+    "inbound_webhook": (
+        "（部分存在）app/dashboard_api.py::receive_webhook 只落盘；缺 action_id 路由表与派发"
+    ),
     "middleware_chain": "（不存在）app/graph/nodes.py 直接 await，没有可插入的链",
 }
+
 
 
 # ── 落点函数：wired / exposed 两种 ──────────────────────────────────────────
@@ -678,11 +708,24 @@ def expose_memory_provider(
 def expose_web_provider(
     ctx: PluginContext, provider: Any = None, *, provider_id: str = "", sink: Any = None
 ) -> str:
-    """登记一个 web 搜索/抽取 provider（**exposed**：工厂表硬编码）。"""
-    key = _require_text(provider_id or getattr(provider, "id", ""), what="web provider")
+    """登记一个 web 搜索/抽取 provider——**真实落点是宿主表** ``web_providers.EXTRA_PROVIDERS``。
+
+    这一条本轮从 ``exposed`` 升到 ``wired``：``app/web_providers.py::build_providers`` 现在会
+    带上这张表，而 ``app/web.py::WebTools`` 构造时就会调它——所以"注册完没有消费者"不再成立。
+    ``sink`` 仍可覆盖落点（测试 / 多实例隔离）；不传就是宿主那张进程级表。
+    """
+    key = _require_text(provider_id or getattr(provider, "name", ""), what="web provider")
+    # 契约检查（available/search）在宿主表那边做：缺方法的 provider 放进去只会变成
+    # "注册成功、永远不被调用"——那正是 exposed 档最典型的故障形态。
+    from app import web_providers
+
+    web_providers.register_provider(key, provider)
+    target = sink if sink is not None else web_providers.EXTRA_PROVIDERS
+    if target is not web_providers.EXTRA_PROVIDERS:
+        _push(target, key, provider)
     ctx.record_capability(
         "register_web_provider",
-        {"id": key, "provider": provider, "injected": _push(sink, key, provider)},
+        {"id": key, "provider": provider, "injected": True},
     )
     return key
 
@@ -734,8 +777,7 @@ def expose_slash_command(
 def parse_slash_command(ctx: PluginContext, text: str) -> tuple[str, str] | None:
     """把 ``/name 其余`` 解析成 ``(name, 其余)``；不是已登记的命令就返回 ``None``。
 
-    这是 exposed 面的「解析入口」——登记与解析都在，缺的只是「谁来调」（TUI/chat 循环）。
-    提前写好它的价值：接线时只需要在输入循环里加一行 ``parse_slash_command(ctx, line)``。
+    这是解析层：只回答"这行输入指的是哪个命令、参数是什么"，不负责调用。
     """
     body = str(text or "").strip()
     if not body.startswith("/"):
@@ -749,6 +791,33 @@ def parse_slash_command(ctx: PluginContext, text: str) -> tuple[str, str] | None
     if key not in known:
         return None
     return key, rest.strip()
+
+
+def resolve_slash_command(
+    ctx: PluginContext, text: str
+) -> tuple[str, Callable[..., Any], str] | None:
+    """``/name 其余`` → ``(name, handler, 其余)``；不是已登记的命令就返回 ``None``。
+
+    **与 :func:`parse_slash_command` 的分工**：那个只解析，这个把 handler 一并取出来——
+    因为 ``register_slash_command`` 从 ``exposed`` 升到 ``wired`` 靠的就是"有人真的去调
+    handler"。消费方是 ``app/plugin_host.py::PluginHost.dispatch_slash``（``orbit chat``
+    的输入循环），所以"注册了但没人调"这件事现在有了唯一的判定点。
+
+    查不到就返回 ``None``（**不抛**）：chat 要把这行当普通消息发给 agent，不能因为用户
+    敲了个没注册的 ``/foo`` 就中断对话。
+    """
+    parsed = parse_slash_command(ctx, text)
+    if parsed is None:
+        return None
+    key, rest = parsed
+    for item in ctx.capability_ledger.get("register_slash_command", []):
+        if str(item.get("name", "")) != key:
+            continue
+        handler = item.get("handler")
+        if not callable(handler):
+            return None
+        return key, handler, rest
+    return None
 
 
 def attach_observability_exporter(
@@ -1007,6 +1076,7 @@ __all__ = [
     "normalize_signature",
     "parse_slash_command",
     "render_table",
+    "resolve_slash_command",
     "status_of",
     "summary",
     "wire_dashboard_page",

@@ -479,8 +479,11 @@ _PARTIAL_PATHS: tuple[str, ...] = (
 )
 
 _bind("peer dm", run_peer_dm)
-_bind("peer run", run_peer_run, state="partial")
-_bind("peer stop", run_peer_stop, state="partial")
+# `peer run` / `peer stop` **不在这里占位**：`app/peer_client.py` 与 `peer_extra.py`
+# 已有真实现。占位的作用是「在真实现出现之前如实报未实现」，真实现出现了就该让位——
+# 否则 `register_handler` 的重复登记门禁会让真实现永远接管不了，而用户看到的
+# 永远是「未实现」。`run_peer_run` / `run_peer_stop` 两个函数保留，供 peer_extra
+# 在对端不支持时复用同一套措辞。
 _bind("gateway run", run_gateway_run)
 # `list` / `migrate-legacy` 是"能做一半"：单实例列表与遗留扫描可用，多 profile 枚举与
 # 自动删除未实现——标 done 会让矩阵以为 Hermes 的多实例语义也齐了。

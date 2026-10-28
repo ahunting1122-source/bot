@@ -525,11 +525,54 @@ class DuckDuckGoProvider(HttpSearchProvider):
 #: 3) ddgs —— 无 key 兜底，最容易被 DuckDuckGo 限流，所以永远排最后。
 PROVIDER_ORDER = ("searxng", "brave", "tavily", "ddgs")
 
+#: 无 key 兜底 provider 的名字。插件注册的 provider 插在**它前面**（见
+#: :data:`EXTRA_PROVIDERS`）：排在它后面等于永远选不到，因为它的 ``available()`` 恒为真。
+FALLBACK_PROVIDER = "ddgs"
+
+#: 插件注册的额外搜索 provider（MATRIX 13.4 的 ``ctx.register_web_provider`` 落点）。
+#:
+#: **为什么必须是模块级可变表**：上一轮的 ``build_providers()`` 把四个工厂写成函数体里的
+#: 字面量，插件注册的 provider 没有任何地方能读到——于是 ``register_web_provider`` 只能
+#: 停在 "exposed"（能登记、没有消费方）。这张表补的就是那个缺口：写进这里，``build_providers``
+#: 下一轮就会带上它，而 ``app/web.py::WebTools`` 在构造时就会调 ``build_providers``。
+#:
+#: 位置规则写在 :func:`build_providers` 里：**排在 ``ddgs`` 兜底之前**、内置三家之后。
+#: 这么排的理由：插件 provider 是用户显式装的（有 key 的内置 provider 仍然优先），而 ddgs
+#: 只是"什么都没配"时的兜底，不该压过用户装的东西。
+EXTRA_PROVIDERS: dict[str, Any] = {}
+
+
+def register_provider(name: str, provider: Any) -> str:
+    """登记一个插件 provider（宿主表）。返回登记用的名字。
+
+    校验只有两条，但都是"少了就永远不生效"的那种：``available(settings)`` 与
+    ``search(query, count=…, freshness=…)``。不做 duck-typing 的更严格检查——真契约由
+    ``WebTools`` 在使用时暴露（少一个方法就当场 AttributeError，比"注册成功但永远不被调用"好查）。
+    """
+    key = str(name or getattr(provider, "name", "") or "").strip()
+    if not key:
+        raise ValueError("web provider 需要一个非空名字")
+    for method in ("available", "search"):
+        if not callable(getattr(provider, method, None)):
+            raise ValueError(f"web provider {key} 缺少 {method}()：它不满足 SearchProvider 契约")
+    EXTRA_PROVIDERS[key] = provider
+    return key
+
+
+def unregister_provider(name: str) -> bool:
+    """摘掉一个插件 provider（插件被禁用 / 测试隔离用）。返回是否真的摘掉了。"""
+    return EXTRA_PROVIDERS.pop(str(name or ""), None) is not None
+
 
 def build_providers(
     settings: Any, client: httpx.AsyncClient | None = None
 ) -> list[SearchProvider]:
-    """按 `PROVIDER_ORDER` 构造全部 provider（共享同一个 httpx 客户端）。"""
+    """按 `PROVIDER_ORDER` 构造全部 provider（共享同一个 httpx 客户端）。
+
+    插件注册的 provider（:data:`EXTRA_PROVIDERS`）插在兜底的 ``ddgs`` **之前**：内置里
+    有 key 的那几家仍然优先（它们是操作员显式配的 key），但"什么都没配"时不会再有东西
+    压过用户装进来的 provider。
+    """
     factories: dict[str, type[HttpSearchProvider]] = {
         "searxng": SearxngProvider,
         "brave": BraveProvider,
@@ -538,7 +581,11 @@ def build_providers(
     }
     providers: list[SearchProvider] = []
     for name in PROVIDER_ORDER:
+        if name == FALLBACK_PROVIDER:
+            providers.extend(EXTRA_PROVIDERS.values())
         providers.append(factories[name](settings, client))
+    if FALLBACK_PROVIDER not in PROVIDER_ORDER:  # 兜底被删掉时也别把插件的丢掉
+        providers.extend(EXTRA_PROVIDERS.values())
     return providers
 
 

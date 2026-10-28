@@ -1545,10 +1545,15 @@ class PluginRuntime:
             "wired": False,
             "wired_reason": (
                 "宿主接线（app/main.py / app/agent.py）是禁改区：接入方式是在启动处调用 "
-                "PluginRuntime(manifests).warmup()，在取工具清单处调用 .tools()"
+                "PluginRuntime(manifests).warmup()，在取工具清单处调用 .tools()。"
+                "**已经可以一行做到**：app/plugin_host.py::PluginHost 把 warmup + 工具/hook "
+                "接线包成一个动作，并且被 tests/test_plugin_host.py 完整演练过"
             ),
             # 缺哪一行接线——逐条写具体位置与具体调用，不留"以后接上"这种话。
             "wired_missing": [
+                "app/main.py（插件宿主，一行）：`from app.plugin_host import PluginHost; "
+                "PluginHost.from_settings(app.state.settings, tool_sink=app.state.registry)"
+                ".attach_to_app(app)` —— 内部完成 warmup + 工具/hook 接线 + dashboard 路由挂载",
                 "app/main.py（启动窗口）：`runtime = plugins.PluginRuntime("
                 "plugins.discover(settings=settings).manifests, hooks=app.hooks.DEFAULT_HOOKS, "
                 "state=plugins.load_state(settings)); runtime.warmup()`",
@@ -1557,7 +1562,8 @@ class PluginRuntime:
                 "app/graph/nodes.py（工具派发前后）：`app.hooks.emit('pre_tool_call', ...)` / "
                 "`emit('post_tool_call', ...)`，否则 register_hook 注册的事件永远不会触发",
                 "app/main.py（dashboard 路由）：`include_router(router, prefix='/api/plugins/"
-                "<name>')`，否则 plugin_dashboard.PAGES 里的页面挂不上去",
+                "<name>')`，否则 plugin_dashboard.PAGES 里的页面挂不上去"
+                "（入口已就位：plugin_dashboard.mount_into_app(app)）",
             ],
         }
 

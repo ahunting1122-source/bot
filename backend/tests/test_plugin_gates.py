@@ -418,7 +418,7 @@ def test_cli_plugins_info(tmp_path, capsys):
     assert "p-info" in out
     assert "import 时机：lazy" in out
     assert "register_tool" in out and "wired" in out
-    assert "register_web_provider" in out and "exposed" in out
+    assert "register_web_provider" in out and "wired" in out
     assert "demo-sdk" in out and "不装" in out
 
 
@@ -645,17 +645,17 @@ def test_extra_subcommands_are_attached_to_the_plugins_command():
     command = REGISTRY.get("plugins")
     assert command is not None
     names = {sub.name for sub in command.subcommands}
-    assert {"info", "validate", "reload", "deps", "override", "pages"} <= names
+    assert {"info", "validate", "reload", "deps", "override", "pages", "host", "routes"} <= names
     # 每条新命令都要有 handler 与非空 help（否则 --help 里是一行空白）
     for sub in command.subcommands:
-        if sub.name in {"info", "validate", "reload", "deps", "override", "pages"}:
+        if sub.name in {"info", "validate", "reload", "deps", "override", "pages", "host", "routes"}:
             assert sub.handler is not None, sub.name
             assert sub.help.strip(), sub.name
     # 幂等
     assert plugins_extra.attach() == []
     # detach 还原到 11 条（并还原被让出的 info 别名）
     removed = plugins_extra.detach()
-    assert set(removed) == {"info", "validate", "reload", "deps", "override", "pages"}
+    assert set(removed) == {"info", "validate", "reload", "deps", "override", "pages", "host", "routes"}
     assert len(command.subcommands) == 11
     show = next(sub for sub in command.subcommands if sub.name == "show")
     assert "info" in show.aliases

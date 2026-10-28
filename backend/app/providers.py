@@ -30,8 +30,13 @@ profile"（区域 / 协议 / 计费拆分，调研里 6 个目录就是这种）
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
-from collections.abc import AsyncIterator, Callable, Sequence
+import os
+import re
+import urllib.parse
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,16 +69,32 @@ TRANSPORT_CLIENTS: dict[str, str] = {
 #: 未实现的线协议 → 原因。**必须写清"为什么不行"**，否则用户只会看到一句
 #: "不支持"，然后去猜是不是配置错了。
 #:
-#: `bedrock_converse` 这一轮**复核过能不能纯本地实现**（调研 06 §3.1 #12）：
-#: Bedrock Runtime 有 REST 面，但每个请求都要 SigV4 签名，签名又依赖完整的 AWS
-#: 凭据链（env / shared config / SSO / IMDS / AssumeRole）。手工用 stdlib 的
-#: `hmac` 签一个固定凭据的请求在技术上可行，但**凭据链拿不到就没法验证**——本机
-#: 无网络、无 AWS 账号，写出来的东西只能靠"看起来对"。所以保持明确抛错。
+#: `bedrock_converse` 这一轮**重新评估过**（MATRIX 4.2）。结论分两半，都要说清：
+#:
+#: **已做到（本文件里可查、可离线验证）**：SigV4 签名本身是纯标准库能实现的
+#: （HMAC-SHA256 + canonical request），见 :func:`sign_sigv4`——它用 AWS 官方文档与
+#: 官方测试套件的向量逐字段验证过（canonical request / string to sign / signature
+#: 三段都对得上）。基于它，:class:`BedrockConverseClient` 能构造**已签名的**
+#: Converse 请求并用 httpx 发出，`bedrock_available()` 检查
+#: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`。
+#:
+#: **仍做不到（如实说）**：**凭据链发现**——shared config、SSO、IMDS/ECS 角色、
+#: AssumeRole。那是 boto3 的 `botocore.session` 在做的事，本机没装 boto3 也不能装；
+#: 只认环境变量意味着"在 EC2/ECS/SSO 登录的机器上要手工导三把值"。
+#:
+#: **所以为什么还挂在 UNSUPPORTED 里**：`build_chat_model` 一旦放行这条 transport，
+#: 就等于对全部调用点宣布"Bedrock 可用"——而本机没有 AWS 账号，端到端（真发一次
+#: Converse、把 toolConfig 走通）**一次都没验证过**。这条线协议本轮只到"签名正确 +
+#: 请求形状正确 + 客户端可被 MockTransport 驱动"，没到"跑通过"。把没跑通的东西标成
+#: supported，比留一句"未实现"更贵：用户会照它去配 Bedrock，然后在第一轮对话里撞墙。
 UNSUPPORTED_TRANSPORTS: dict[str, str] = {
     "bedrock_converse": (
-        "AWS Bedrock Converse 只能走 boto3 SDK（SigV4 签名），没有 REST /v1 面；"
-        "本机禁止安装依赖（boto3 未装），也不能把 AWS 凭据链硬塞进 httpx。"
-        "要接 Bedrock 需先允许 boto3，届时再补 transport。"
+        "AWS Bedrock Converse 的 SigV4 签名已用纯标准库实现（providers.sign_sigv4，"
+        "按 AWS 官方向量逐字段验证），BedrockConverseClient 也能构造已签名请求并用 httpx "
+        "发出；但凭据链发现（shared config / SSO / IMDS / AssumeRole）依赖 boto3，"
+        "本机未装且禁止安装，只认 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION "
+        "三个环境变量。**且没有 AWS 账号，端到端一次都没跑通过**，所以这条 transport 仍"
+        "明确报未实现，而不是标成 supported 让用户照着去配。"
     ),
 }
 
@@ -1054,8 +1075,6 @@ def resolve_api_key(profile: ProviderProfile, settings: ModelSettings) -> str:
     key = _secret_value(getattr(settings, "model_api_key", None))
     if key:
         return key
-    import os
-
     for name in profile.key_env_names:
         value = os.environ.get(name, "").strip()
         if value:
@@ -1224,6 +1243,475 @@ def _build_openai_chat(
     if extra:
         kwargs["extra_body"] = extra
     return ChatOpenAI(**kwargs)
+
+
+# ── AWS SigV4 签名（MATRIX 4.2）────────────────────────────────────────────
+#
+# ## 为什么这一层值得单独写出来
+#
+# 上一轮的结论是"`bedrock_converse` 做不到，因为 SigV4 要 boto3"。那个结论把两件事
+# 混成了一件：
+#
+# 1. **签名算法**——HMAC-SHA256 + 一份规范化的 canonical request。它**不含任何 I/O**，
+#    纯标准库（`hmac` / `hashlib` / `urllib.parse`）就能算，而且**可以用官方测试向量
+#    离线验证**：算错了立刻对不上，算对了 256 位十六进制逐字相同，没有"看起来对"的余地；
+# 2. **凭据链发现**——shared config / SSO / IMDS / AssumeRole。这个才真的需要 boto3，
+#    本机没装也不能装。
+#
+# 所以本模块把第 1 件做掉（:func:`sign_sigv4`，:class:`BedrockConverseClient` 用它
+# 构造已签名请求），第 2 件如实留给"未实现"（见 :data:`UNSUPPORTED_TRANSPORTS`）。
+#
+# ## 验证用的向量（都是 AWS 官方材料，不是我编的）
+#
+# * `AWS 文档「Signature Version 4 signing process」的 IAM ListUsers 示例`
+#   （GET https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08，
+#   AKIDEXAMPLE / wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY，us-east-1 / iam，
+#   20150830T123600Z）：canonical request 的 sha256 是
+#   `f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59`，
+#   最终签名是 `5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7`；
+# * `aws/aws-sig-v4-test-suite` 的 `get-vanilla` 用例（GET https://example.amazonaws.com/，
+#   同一把凭据与同一时刻，region=us-east-1 / service=service）：签名是
+#   `5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31`。
+#
+# 两条都写进了 `tests/test_proxy_stream.py`（那里同时断言 canonical request、
+# string to sign、signature 三段），逐字段比对，不是"整体看起来一样"。
+
+#: 算法名。AWS 只认这一个字符串，写进 Authorization 头的开头。
+SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
+
+#: `x-amz-date` 的格式（固定 UTC、无毫秒）。写错会让签名对但请求被拒（时钟漂移）。
+AMZ_DATE_FORMAT = "%Y%m%dT%H%M%SZ"
+
+#: RFC3986 的 unreserved 字符集。**比 `urllib.parse.quote` 的默认集合更窄**：
+#: quote 默认不转义 `/`，而 canonical URI 里每一段都必须转义（保留 `/` 只作为分隔符）。
+_UNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+
+def _sha256_hex(data: bytes) -> str:
+    """sha256 十六进制。SigV4 里出现三次（payload / canonical request / 摘要）。"""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _hmac_sha256(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+
+
+def uri_encode(text: str, *, encode_slash: bool = True) -> str:
+    """按 RFC3986 转义（SigV4 的 canonical URI / query 唯一合法写法）。
+
+    三个容易写错的点：
+    * **只转义 unreserved**：`~` 不转义（`quote` 在 Python 里默认也不转，但要显式钉住）；
+    * **按 UTF-8 字节转义**，不是按字符——中文 key 的签名错就错在这里；
+    * **大写十六进制**（`%E4%B8%AD`），小写会被判签名不符。
+    """
+    out: list[str] = []
+    for char in text:
+        if char in _UNRESERVED:
+            out.append(char)
+        elif char == "/" and not encode_slash:
+            out.append(char)
+        else:
+            out.extend(f"%{byte:02X}" for byte in char.encode("utf-8"))
+    return "".join(out)
+
+
+def canonical_query_string(query: str) -> str:
+    """query 的规范化形式：先解码、再逐个转义、再按 (key, value) 排序。
+
+    为什么要"先解码"：调用方给的 query 可能已经是 `%20` 或 `+` 形式，直接二次转义会
+    变成 `%2520`——签名能算出来，但和 AWS 算的不是同一个东西。
+    """
+    pairs: list[tuple[str, str]] = []
+    for item in query.split("&"):
+        if not item:
+            continue
+        key, _, value = item.partition("=")
+        pairs.append(
+            (
+                uri_encode(urllib.parse.unquote(key)),
+                uri_encode(urllib.parse.unquote(value)),
+            )
+        )
+    pairs.sort()
+    return "&".join(f"{key}={value}" for key, value in pairs)
+
+
+def _canonical_headers(headers: Mapping[str, str]) -> tuple[str, str]:
+    """头规范化：名字小写、值去首尾空白、内部连续空白压成一个空格、按名字排序。
+
+    返回 ``(canonical_headers 块, SignedHeaders 串)``。**必须与真正发出去的头一致**：
+    多签一个没发的头、或少签一个发了的头，AWS 都判 SignatureDoesNotMatch。
+    """
+    normalized: dict[str, str] = {}
+    for name, value in headers.items():
+        key = str(name).strip().lower()
+        if not key:
+            continue
+        normalized[key] = re.sub(r"\s+", " ", str(value).strip())
+    names = sorted(normalized)
+    block = "".join(f"{name}:{normalized[name]}\n" for name in names)
+    return block, ";".join(names)
+
+
+def sigv4_scope(date_stamp: str, region: str, service: str) -> str:
+    """凭据作用域：``<yyyymmdd>/<region>/<service>/aws4_request``。"""
+    return f"{date_stamp}/{region}/{service}/aws4_request"
+
+
+def sigv4_canonical_request(
+    method: str,
+    url: str,
+    headers: Mapping[str, str],
+    body: bytes | str = b"",
+    *,
+    session_token: str = "",
+) -> tuple[str, str]:
+    """构造 canonical request，返回 ``(文本, SignedHeaders)``。
+
+    **这是 SigV4 唯一真正容易错的一步**：六个部分用 `\\n` 连接、最后一行是 payload 的
+    sha256、头块与 SignedHeaders 之间有一个空行。少一个换行，签名就是另一个值，
+    而 AWS 只会回一句 SignatureDoesNotMatch。
+    """
+    parts = urllib.parse.urlsplit(url)
+    payload = body if isinstance(body, bytes) else body.encode("utf-8")
+    merged = {str(name).strip().lower(): str(value) for name, value in headers.items()}
+    # `host` 必须参与签名：AWS 用它把请求钉到某个端点，缺了直接 403。
+    merged.setdefault("host", parts.netloc)
+    if session_token:
+        merged["x-amz-security-token"] = session_token
+    block, signed = _canonical_headers(merged)
+    canonical_uri = uri_encode(urllib.parse.unquote(parts.path) or "/", encode_slash=False)
+    canonical = "\n".join(
+        [
+            method.upper(),
+            canonical_uri,
+            canonical_query_string(parts.query),
+            block,
+            signed,
+            _sha256_hex(payload),
+        ]
+    )
+    return canonical, signed
+
+
+def sigv4_string_to_sign(amz_date: str, scope: str, canonical_request: str) -> str:
+    """string to sign：算法名 / 时间戳 / 作用域 / canonical request 的 sha256，四行。"""
+    return "\n".join(
+        [SIGV4_ALGORITHM, amz_date, scope, _sha256_hex(canonical_request.encode("utf-8"))]
+    )
+
+
+def sigv4_signature(
+    secret_key: str, date_stamp: str, region: str, service: str, string_to_sign: str
+) -> str:
+    """派生签名密钥（四次 HMAC）再签 string to sign。
+
+    **为什么不是"用 secret_key 直接 HMAC"**：AWS 的密钥派生把日期/区域/服务串进密钥，
+    这样同一把 secret 在不同区域签出的签名不可互换——这是它的设计，不是可选优化。
+    """
+    key = _hmac_sha256(f"AWS4{secret_key}".encode(), date_stamp)
+    key = _hmac_sha256(key, region)
+    key = _hmac_sha256(key, service)
+    key = _hmac_sha256(key, "aws4_request")
+    return hmac.new(key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+@dataclass(frozen=True)
+class SigV4Result:
+    """一次签名的**全部中间产物**。
+
+    为什么把三段都留着：签名出错时，"最终签名不对"这句话没有任何诊断价值；能分别看到
+    canonical request / string to sign / signature，才能定位是哪一步规范化错了。
+    测试也靠它逐字段断言（而不是只比最终签名）。
+    """
+
+    headers: dict[str, str]
+    amz_date: str
+    scope: str
+    signed_headers: str
+    canonical_request: str
+    string_to_sign: str
+    signature: str
+
+
+def sigv4_headers(
+    method: str,
+    url: str,
+    headers: Mapping[str, str] | None = None,
+    body: bytes | str = b"",
+    *,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    service: str,
+    now: datetime | None = None,
+    session_token: str = "",
+) -> SigV4Result:
+    """完整签一遍，返回 :class:`SigV4Result`（含要发的头与三段中间产物）。
+
+    ``now`` 可注入：签名与时间强相关，测试必须能钉住时刻，否则官方向量永远对不上。
+    """
+    if not access_key or not secret_key:
+        raise MissingCredential("SigV4 需要 access_key 与 secret_key（本函数不读环境变量）")
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:  # 裸 datetime 按 UTC 处理，而不是当本地时间
+        moment = moment.replace(tzinfo=UTC)
+    amz_date = moment.strftime(AMZ_DATE_FORMAT)
+    date_stamp = amz_date[:8]
+    merged = {str(name).strip().lower(): str(value) for name, value in (headers or {}).items()}
+    merged["x-amz-date"] = amz_date
+    canonical, signed = sigv4_canonical_request(
+        method, url, merged, body, session_token=session_token
+    )
+    # 上面那次调用会补 `host`，但返回的是规范化后的块；这里把 host 补进真正要发的头里。
+    merged.setdefault("host", urllib.parse.urlsplit(url).netloc)
+    if session_token:
+        merged["x-amz-security-token"] = session_token
+    scope = sigv4_scope(date_stamp, region, service)
+    string_to_sign = sigv4_string_to_sign(amz_date, scope, canonical)
+    signature = sigv4_signature(secret_key, date_stamp, region, service, string_to_sign)
+    merged["authorization"] = (
+        f"{SIGV4_ALGORITHM} Credential={access_key}/{scope}, "
+        f"SignedHeaders={signed}, Signature={signature}"
+    )
+    return SigV4Result(
+        headers=merged,
+        amz_date=amz_date,
+        scope=scope,
+        signed_headers=signed,
+        canonical_request=canonical,
+        string_to_sign=string_to_sign,
+        signature=signature,
+    )
+
+
+def sign_sigv4(
+    method: str,
+    url: str,
+    headers: Mapping[str, str] | None = None,
+    body: bytes | str = b"",
+    *,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    service: str,
+    now: datetime | None = None,
+    session_token: str = "",
+) -> dict[str, str]:
+    """**纯函数**：返回"该发出去的完整请求头"（含 `authorization`）。
+
+    不含任何 I/O：同样的入参（含 ``now``）永远得到同样的头。这正是它可被官方向量
+    逐字节验证的原因，也是 :class:`BedrockConverseClient` 能离线测的原因。
+    """
+    return sigv4_headers(
+        method,
+        url,
+        headers,
+        body,
+        access_key=access_key,
+        secret_key=secret_key,
+        region=region,
+        service=service,
+        now=now,
+        session_token=session_token,
+    ).headers
+
+
+# ── Bedrock Converse（MATRIX 4.2）──────────────────────────────────────────
+
+#: Bedrock 的三个必需环境变量。**只认这三个**：shared config / SSO / IMDS 都不读，
+#: 那是 boto3 的凭据链，本机没有 boto3（见 :data:`UNSUPPORTED_TRANSPORTS`）。
+BEDROCK_ENV_KEYS: tuple[str, ...] = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION")
+
+
+def bedrock_available(env: Mapping[str, str] | None = None) -> tuple[bool, str]:
+    """Bedrock 现在能不能用：三个环境变量齐不齐。返回 ``(可用?, 不可用原因)``。
+
+    纯函数、可注入 ``env``：探针与测试都不该去改进程环境。``AWS_REGION`` 兼容
+    ``AWS_DEFAULT_REGION``（AWS 自己的 SDK 也认这个别名）。
+    """
+    source = os.environ if env is None else env
+    missing = [name for name in BEDROCK_ENV_KEYS if not str(source.get(name, "")).strip()]
+    if missing and "AWS_REGION" in missing and str(source.get("AWS_DEFAULT_REGION", "")).strip():
+        missing.remove("AWS_REGION")
+    if missing:
+        return False, (
+            f"缺 {'、'.join(missing)}。Bedrock 走 SigV4（不需要 boto3），但需要这三把值；"
+            "**不做凭据链发现**（shared config / SSO / IMDS / AssumeRole 都不读）。"
+        )
+    return True, ""
+
+
+class BedrockConverseClient:
+    """Bedrock Runtime Converse 的轻量实现（`POST {base}/model/{modelId}/converse`）。
+
+    与另外两个客户端同一套接口子集（`ainvoke` / `bind_tools`），差别只在鉴权：
+    **每个请求都现签一次 SigV4**（`:func:`sign_sigv4`），而 Anthropic / Gemini 是
+    静态头。为什么必须现签：签名里含时间戳，签早了会过期（AWS 允许 5 分钟漂移）。
+
+    **没做**：`converse-stream`（它的响应是 `vnd.amazon.eventstream` 二进制帧，不是
+    SSE，本轮没实现——`astream` 会明确抛错而不是返回空）；`toolConfig`（Converse 的
+    工具形状与 OpenAI 的 `function` 不同，转换没做，`bind_tools` 抛错）。
+    """
+
+    #: Bedrock Runtime 的 SigV4 service 名。写错的话签名对、但请求 403。
+    SERVICE = "bedrock"
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        region: str,
+        access_key: str,
+        secret_key: str,
+        session_token: str = "",
+        timeout: float = 60.0,
+        max_tokens: int = 4096,
+        transport: httpx.AsyncBaseTransport | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.region = region
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+        self._access_key = access_key
+        self._secret_key = secret_key
+        self._session_token = session_token
+        self._transport = transport
+        #: 时钟注入点：签名带时间戳，测试要能钉住"现在"。
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:  # 绝不把凭据放进 repr：它会被日志和异常栈吃掉
+        return f"BedrockConverseClient(model={self.model!r}, region={self.region!r})"
+
+    def endpoint(self) -> str:
+        return f"{self.base_url}/model/{self.model}/converse"
+
+    def payload(self, messages: Sequence[Any]) -> dict[str, Any]:
+        """OpenAI 风格的 messages → Converse 的 `{messages, system, inferenceConfig}`。
+
+        Converse 的 system 是**顶层列表**（与 Anthropic 同思路），content 是块列表
+        （`[{"text": ...}]`），角色只有 `user` / `assistant`。
+        """
+        wire = _wire_messages(messages)
+        system = "\n\n".join(item["content"] for item in wire if item["role"] == "system")
+        body: dict[str, Any] = {
+            "messages": [
+                {"role": item["role"], "content": [{"text": item["content"]}]}
+                for item in wire
+                if item["role"] != "system"
+            ],
+            "inferenceConfig": {"maxTokens": self.max_tokens},
+        }
+        if system:
+            body["system"] = [{"text": system}]
+        return body
+
+    def headers(self, body: bytes) -> dict[str, str]:
+        """现签一次。返回的头里已经含 `authorization` / `x-amz-date` / `host`。"""
+        return sign_sigv4(
+            "POST",
+            self.endpoint(),
+            {"content-type": "application/json"},
+            body,
+            access_key=self._access_key,
+            secret_key=self._secret_key,
+            region=self.region,
+            service=self.SERVICE,
+            now=self._clock(),
+            session_token=self._session_token,
+        )
+
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=self._transport, timeout=self.timeout)
+
+    @staticmethod
+    def _text_from_response(data: dict[str, Any]) -> str:
+        output = data.get("output")
+        message = output.get("message") if isinstance(output, dict) else None
+        blocks = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(blocks, list):
+            raise ProviderError(f"Bedrock 返回里没有 output.message.content：{str(data)[:200]}")
+        return "".join(
+            str(block.get("text", ""))
+            for block in blocks
+            if isinstance(block, dict) and "text" in block
+        )
+
+    async def ainvoke(self, messages: Sequence[Any], **kwargs: Any) -> Any:
+        from langchain_core.messages import AIMessage
+
+        body = self.payload(messages)
+        raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        async with self._client() as client:
+            response = await client.post(
+                self.endpoint(),
+                headers=self.headers(raw),
+                content=raw,
+            )
+            response.raise_for_status()
+            data = response.json()
+        usage = data.get("usage") or {}
+        return AIMessage(
+            content=self._text_from_response(data),
+            response_metadata={
+                "provider": "bedrock_converse",
+                "model": self.model,
+                "stop_reason": data.get("stopReason", ""),
+                "usage": usage,
+            },
+        )
+
+    async def astream(self, messages: Sequence[Any], **kwargs: Any) -> AsyncIterator[Any]:
+        """**未实现**：`converse-stream` 回的是 `vnd.amazon.eventstream` 二进制帧。
+
+        诚实做法是抛错：它既不是 SSE 也不是 JSON 行，硬按 SSE 解析只会得到一串空事件，
+        调用方会以为"模型没说话"。
+        """
+        raise NotImplementedError(
+            "Bedrock 的 converse-stream 用 vnd.amazon.eventstream 二进制帧（不是 SSE），"
+            "本轮未实现解码。要流式请改用 chat_completions / anthropic / gemini 类 provider。"
+        )
+        yield  # pragma: no cover - 让本方法保持异步生成器签名
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> Any:
+        raise NotImplementedError(
+            "Converse 的工具形状是 `toolConfig.tools[].toolSpec.inputSchema.json`，与 OpenAI 的 "
+            "`function` 结构不同，本轮未实现转换。**不做假实现**：转错结构会让工具调用静默失效。"
+        )
+
+
+def bedrock_client(
+    *,
+    model: str,
+    region: str = "",
+    base_url: str = "",
+    transport: httpx.AsyncBaseTransport | None = None,
+    env: Mapping[str, str] | None = None,
+    now: Callable[[], datetime] | None = None,
+) -> BedrockConverseClient:
+    """按环境变量造一个 Converse 客户端（**不读凭据文件**，见 :func:`bedrock_available`）。
+
+    ``base_url`` 留空 = 按 region 推官方端点（私有链接 / VPC 端点由调用方显式给）。
+    """
+    source = os.environ if env is None else env
+    ok, reason = bedrock_available(source)
+    if not ok:
+        raise MissingCredential(f"Bedrock 不可用：{reason}")
+    target_region = (region or str(source.get("AWS_REGION", "")) or str(source.get("AWS_DEFAULT_REGION", ""))).strip()
+    endpoint = base_url.strip() or f"https://bedrock-runtime.{target_region}.amazonaws.com"
+    return BedrockConverseClient(
+        base_url=endpoint,
+        model=model,
+        region=target_region,
+        access_key=str(source.get("AWS_ACCESS_KEY_ID", "")).strip(),
+        secret_key=str(source.get("AWS_SECRET_ACCESS_KEY", "")).strip(),
+        session_token=str(source.get("AWS_SESSION_TOKEN", "")).strip(),
+        transport=transport,
+        clock=now,
+    )
 
 
 # ── 轻量客户端（anthropic_messages / gemini）────────────────────────────────
@@ -1576,15 +2064,19 @@ class GeminiClient:
 
 
 __all__ = [
+    "AMZ_DATE_FORMAT",
+    "BEDROCK_ENV_KEYS",
     "CAPABILITY_FIELDS",
     "FACTORY_CAPABILITY",
     "PROVIDERS",
     "PROVIDER_HOOKS",
+    "SIGV4_ALGORITHM",
     "SUPPORTED_TRANSPORTS",
     "THINKING_BUDGETS",
     "TRANSPORT_CLIENTS",
     "UNSUPPORTED_TRANSPORTS",
     "AnthropicMessagesClient",
+    "BedrockConverseClient",
     "BuildExtraBodyHook",
     "FetchModelsHook",
     "GeminiClient",
@@ -1593,11 +2085,15 @@ __all__ = [
     "ProviderError",
     "ProviderHooks",
     "ProviderProfile",
+    "SigV4Result",
     "UnknownProvider",
     "UnsupportedTransport",
     "apply_build_extra_body",
+    "bedrock_available",
+    "bedrock_client",
     "build_chat_model",
     "cache_path",
+    "canonical_query_string",
     "capabilities",
     "capability",
     "capability_with_source",
@@ -1610,5 +2106,12 @@ __all__ = [
     "resolve_api_key",
     "resolve_provider",
     "save_cache",
+    "sigv4_canonical_request",
+    "sigv4_headers",
+    "sigv4_scope",
+    "sigv4_signature",
+    "sigv4_string_to_sign",
+    "sign_sigv4",
+    "uri_encode",
     "with_hooks",
 ]

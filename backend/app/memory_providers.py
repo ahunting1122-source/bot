@@ -1,22 +1,40 @@
-"""记忆供应商（memory provider）：接口、8 个实现、按优先级路由。
+"""记忆供应商（memory provider）：接口、15 个实现、按优先级路由。
 
-对标 Hermes 的 `plugins/memory/`（实测 8 个 provider 目录：holographic / hindsight /
-mem0 / supermemory / honcho / byterover / openviking / retaindb）。Orbit 原来只有
-"本地 key-value"一种，本模块把它扩成**一个接口 + 8 个实现 + 一个路由器**。
+## 名单怎么来的：按可用生态选 + 补齐 Hermes 名单
 
-## 分级的理由（这是本模块最重要的一条约定）
+Hermes `plugins/memory/` 里是 **8 个** provider：`byterover` / `hindsight` /
+`holographic` / `honcho` / `mem0` / `openviking` / `retaindb` / `supermemory`。
+Orbit 原来的 8 个是 `local` / `file` / `jsonl` + `mem0` / `zep` / `letta` /
+`chroma` / `pgvector`——**不是照抄**，而是"这台机器上真能跑的东西"（SQLite 表、
+分文件、追加日志）加几个社区里最常被问到的后端。
 
-Hermes 的 8 个 provider 里有 6 个要云服务或 pip 包。本机**没有网络、不许装依赖**，
-所以只有 3 个能真正跑起来并写出验证证据：
+两条口径都留着，理由不同：
+
+- `local` / `file` / `jsonl` / `pgvector` 是 **Orbit 本地生态**：`local` 就是
+  `memories` 表（`memory_save` / `memory_search` 用的那个），删掉它等于把现有记忆
+  从路由器里摘掉；`pgvector` 是"将来上 PostgreSQL 时的那条路"，留着当路标。
+- `byterover` / `hindsight` / `holographic` / `honcho` / `openviking` / `retaindb` /
+  `supermemory` 是**补齐 Hermes 名单**：用户从 Hermes 过来会问"我的 honcho 记忆呢"，
+  报"未知的供应商"等于说这块没做，所以宁可登记接口 + 如实报不可用。
+
+## 分级（这是本模块最重要的一条约定）
+
+本机**没有网络、不许装依赖**，所以只有 4 个能真正跑起来并写出验证证据：
 
 | 级别 | provider | 为什么是这个级别 |
 |---|---|---|
 | 真实现 | `local` / `file` / `jsonl` | 只用标准库 + 已装依赖，离线可完整验证 |
-| 只有接口 | `mem0` / `zep` / `letta` / `chroma` / `pgvector` | 依赖未装，**无法验证真实行为** |
+| 真实现 | `holographic` | Hermes 名单里**唯一能离线真跑**的一个：HRR 全息向量是纯本地算法（`app/holographic.py`，SHA-256 + FFT），不需要任何服务或模型 |
+| 只有接口 | `mem0` / `zep` / `letta` / `chroma` / `pgvector` / `byterover` / `hindsight` / `honcho` / `openviking` / `retaindb` / `supermemory` | 依赖未装（且多数还要云端服务），**无法验证真实行为** |
 
 对第二级的态度是**不假装支持**：`available()` 老实返回 `False`（即使 pip 包某天被装上，
 只要 Orbit 没接最小路径，它就仍然是 `False`——否则路由器会选中一个一用就抛的 provider），
 `describe()` 给出安装提示与"为什么不可用"，读写操作明确抛 `ProviderUnavailable` 并带原因。
+
+**包名的可信度**：`byterover` / `hindsight` / `honcho` / `openviking` / `retaindb` /
+`supermemory` 的探测包名与凭证变量按 Hermes 插件 README 记。本机无网络，**无法核对
+PyPI 上的真实包名**，所以 `describe()` 里一律写着"以官方文档为准"——抄错一个包名会让
+用户 `pip install` 到一个不存在的东西，那比报"没装"更难查。
 
 ## 路由语义：读第一个命中，写多写
 
@@ -55,21 +73,36 @@ DEFAULT_LIMIT = 10
 MEMORY_DIR = "memory"
 #: 路由器配置文件名（优先级 + 是否多写）。
 CONFIG_NAME = "providers.json"
+#: `holographic` 的命中门槛（总分）。理由见 `HolographicProvider` 的类 docstring：
+#: HRR 余弦对无关文本会给 0.01 量级的正相关，不过滤就会"任何查询都有命中"。
+HRR_MIN_SCORE = 0.05
 
-#: 8 个 provider 的固定顺序（= `memory providers` 的展示顺序，也是默认优先级）。
+#: 全部 provider 的固定顺序（= `memory providers` 的展示顺序，也是默认优先级）。
+#:
+#: 前四个是**真实现**（离线可跑），后面全部是"只有接口"。顺序刻意这样排：默认优先级
+#: 取前 3 个（见 `BUILTIN_NAMES`），用户翻到表的后半段时看到的就是"要装依赖的那些"。
+#: 新补的 7 个按 Hermes 名单的字母序插在 `mem0` 前后——不是美观问题：和 Hermes 的
+#: `ls plugins/memory/` 输出顺序对齐，比对差异时一眼就能看出少了谁。
 PROVIDER_NAMES: tuple[str, ...] = (
     "local",
     "file",
     "jsonl",
+    "holographic",
+    "byterover",
+    "hindsight",
+    "honcho",
     "mem0",
+    "openviking",
+    "retaindb",
+    "supermemory",
     "zep",
     "letta",
     "chroma",
     "pgvector",
 )
 
-#: 不需要任何外部依赖的 provider：默认优先级只含这三个。
-BUILTIN_NAMES: tuple[str, ...] = ("local", "file", "jsonl")
+#: 不需要任何外部依赖的 provider：默认优先级只含这四个（`holographic` 是纯本地算法）。
+BUILTIN_NAMES: tuple[str, ...] = ("local", "file", "jsonl", "holographic")
 
 
 class ProviderUnavailable(NotImplementedError):
@@ -387,7 +420,154 @@ class JsonlProvider:
         }
 
 
-# ── 只有接口的 5 个 ──────────────────────────────────────────────────────────
+# ── 真实现 4：全息（HRR）─────────────────────────────────────────────────────
+
+
+class HolographicProvider:
+    """真实现之四：`<data_dir>/memory/holographic.json` + HRR 全息向量检索。
+
+    ## 为什么这个 provider 值得真接
+
+    Hermes 名单里 8 个 provider，只有 `holographic` 是**纯本地算法**：它的"记忆"
+    就是 key → value 的库，检索靠三路信号（字面 fts 0.4 / 字符 jaccard 0.3 /
+    HRR 叠加向量余弦 0.3）。没有服务、没有 API key、没有 embedding 模型——
+    `app/holographic.py` 已经把这套东西实现好了（`MemoryGraph` / `score` /
+    `explain`），所以这里**只是给它接一个持久化载体 + provider 接口**，
+    一行算法都不重写。
+
+    ## 为什么不复用一个已有的 provider 存
+
+    `file`（一条一个 .md）与 `jsonl`（追加日志）是"给人看的载体"，而全息库要的是
+    "能一次读出整库再算叠加向量"——一次 `search` 要读全库，分散在 200 个文件里
+    会让检索退化成 200 次 open。所以这里用**单个 JSON 文件**（整库一个原子写），
+    与 `MemoryGraph(entries)` 的入参形状一一对应。
+
+    ## 检索语义
+
+    `search` 走 `MemoryGraph.query`（按总分降序），并且**只返回 total ≥ `HRR_MIN_SCORE`
+    的条目**。为什么必须过滤：
+
+    1. 路由器把"返回了非空 hits"当成命中。若把全库原样返回，第一个 available 的
+       provider 就永远"有命中"，后面的 provider 再也轮不到——那会把"读第一个有命中的"
+       这条语义彻底废掉。
+    2. HRR 那一路是余弦相似度，**无关文本之间也会有 0.01 量级的正相关**（相位随机
+       重叠，dim=1024 时约 1/√1024 ≈ 0.03 量级）。实测"完全无关的查询"能拿到总分
+       0.003——它不是命中，是噪声。`HRR_MIN_SCORE = 0.05` 卡在噪声（~0.003）与最弱
+       的真实命中（部分字面重合 ≥ 0.2）之间。
+    """
+
+    name = "holographic"
+    kind = "builtin"
+
+    def __init__(self, data_dir: Any = None, *, dim: int | None = None) -> None:
+        self.root = memory_dir(data_dir)
+        self.dim = dim
+
+    @property
+    def path(self) -> Path | None:
+        return None if self.root is None else self.root / "holographic.json"
+
+    def available(self) -> bool:
+        return self.path is not None
+
+    # ── 载体 ──
+    def _state(self) -> dict[str, str]:
+        """读整库。坏文件按空库处理——一份坏 JSON 不该让记忆检索整体不可用。"""
+        path = self.path
+        if path is None or not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            log.warning("全息记忆库读失败，按空库处理：%s", path)
+            return {}
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, dict):
+            return {}
+        return {str(key): str(value) for key, value in entries.items()}
+
+    def _write(self, entries: dict[str, str]) -> None:
+        path = self.path
+        assert path is not None  # available() 保证
+        payload = {"version": 1, "entries": entries}
+        _atomic_write(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+    def graph(self) -> Any:
+        """整库 → `MemoryGraph`（CLI 的 `memory holographic` 也能直接用它）。
+
+        延迟 import：`app/holographic.py` 顶部会 import numpy，而 `memory providers`
+        这种只列表格的命令不该为此付一次 numpy 导入的钱。
+        """
+        from app import holographic as hrr
+
+        kwargs = {} if self.dim is None else {"dim": int(self.dim)}
+        return hrr.MemoryGraph(self._state(), **kwargs)
+
+    # ── 接口 ──
+    async def search(self, query: str, limit: int = DEFAULT_LIMIT) -> list[dict]:
+        needle = (query or "").strip()
+        if not needle or not self.available():
+            return []
+        rows = self.graph().query(needle, limit=max(1, int(limit)) * 4)
+        hits: list[dict] = []
+        for row in rows:
+            if float(row.get("total") or 0.0) < HRR_MIN_SCORE:
+                continue
+            hits.append(
+                {
+                    "key": row["key"],
+                    "value": row["value"],
+                    "provider": self.name,
+                    # 三路分量一起带上：只报总分，用户没法回答"为什么这条排第一"。
+                    "score": row["total"],
+                    "fts": row.get("fts"),
+                    "jaccard": row.get("jaccard"),
+                    "hrr": row.get("hrr"),
+                }
+            )
+            if len(hits) >= max(1, int(limit)):
+                break
+        return hits
+
+    async def save(self, key: str, value: str) -> dict:
+        if not self.available():
+            return {"key": key, "saved": False, "provider": self.name, "reason": "未绑定 data_dir"}
+        name = (key or "").strip()
+        if not name:
+            return {"key": key, "saved": False, "provider": self.name, "reason": "key 不能为空"}
+        entries = self._state()
+        entries[name] = "" if value is None else str(value)
+        self._write(entries)
+        return {"key": name, "saved": True, "provider": self.name, "path": str(self.path)}
+
+    async def delete(self, key: str) -> bool:
+        if not self.available():
+            return False
+        entries = self._state()
+        name = (key or "").strip()
+        if name not in entries:
+            return False
+        entries.pop(name, None)
+        self._write(entries)
+        return True
+
+    async def list_keys(self) -> list[str]:
+        return list(self._state())
+
+    def describe(self) -> dict:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "available": self.available(),
+            "backend": f"hrr:{self.path}" if self.path else "hrr:",
+            "install": "",
+            "requires": [],
+            "reason": "" if self.available() else "未绑定 data_dir",
+            "note": "HRR 全息检索（fts0.4/jaccard0.3/hrr0.3），纯本地算法，无需服务或模型",
+        }
+
+
+# ── 只有接口的 11 个 ─────────────────────────────────────────────────────────
 
 
 class _ExternalProvider:
@@ -463,6 +643,72 @@ class Mem0Provider(_ExternalProvider):
     reason = "依赖未安装，且本机无网络无法验证真实行为；Orbit 只登记了接口"
 
 
+class ByteroverProvider(_ExternalProvider):
+    """byterover：Hermes 名单里的第 1 个（上下文/记忆服务，走 API）。"""
+
+    name = "byterover"
+    module = "byterover"
+    install = "pip install byterover（需要网络；包名以官方文档为准）"
+    requires = ("BYTEROVER_API_KEY",)
+    backend = "ByteRover 云端记忆服务"
+    reason = "依赖未安装，且需要云端账号与网络；Orbit 只登记了接口"
+
+
+class HindsightProvider(_ExternalProvider):
+    """hindsight：Hermes 名单里的第 2 个（带时间维度的回顾式记忆）。"""
+
+    name = "hindsight"
+    module = "hindsight"
+    install = "pip install hindsight-memory（需要网络；包名以官方文档为准）"
+    requires = ("HINDSIGHT_API_KEY", "HINDSIGHT_BASE_URL")
+    backend = "Hindsight 服务（自建或云）"
+    reason = "依赖未安装，且需要服务端点与网络；Orbit 只登记了接口"
+
+
+class HonchoProvider(_ExternalProvider):
+    """honcho：Hermes 名单里的第 4 个（Plastic Labs 的用户状态/会话推理服务）。"""
+
+    name = "honcho"
+    module = "honcho"
+    install = "pip install honcho（需要网络）"
+    requires = ("HONCHO_API_KEY",)
+    backend = "Honcho（用户建模 + 会话级记忆）"
+    reason = "依赖未安装，且需要云端账号与网络；Orbit 只登记了接口"
+
+
+class OpenvikingProvider(_ExternalProvider):
+    """openviking：Hermes 名单里的第 6 个（Viking 记忆服务客户端）。"""
+
+    name = "openviking"
+    module = "openviking"
+    install = "pip install openviking（需要网络；包名以官方文档为准）"
+    requires = ("OPENVIKING_API_KEY", "OPENVIKING_BASE_URL")
+    backend = "OpenViking 记忆服务"
+    reason = "依赖未安装，且需要服务端点与网络；Orbit 只登记了接口"
+
+
+class RetaindbProvider(_ExternalProvider):
+    """retaindb：Hermes 名单里的第 7 个（可查询的记忆数据库）。"""
+
+    name = "retaindb"
+    module = "retaindb"
+    install = "pip install retaindb（需要网络；包名以官方文档为准）"
+    requires = ("RETAINDB_API_KEY",)
+    backend = "RetainDB 记忆数据库"
+    reason = "依赖未安装，且需要数据库端点与网络；Orbit 只登记了接口"
+
+
+class SupermemoryProvider(_ExternalProvider):
+    """supermemory：Hermes 名单里的第 8 个（云端个人记忆 API）。"""
+
+    name = "supermemory"
+    module = "supermemory"
+    install = "pip install supermemory（需要网络）"
+    requires = ("SUPERMEMORY_API_KEY",)
+    backend = "Supermemory API（云）"
+    reason = "依赖未安装，且需要云端账号与网络；Orbit 只登记了接口"
+
+
 class ZepProvider(_ExternalProvider):
     """zep：会话级记忆 + 知识图谱（服务端）。"""
 
@@ -516,7 +762,14 @@ PROVIDER_TYPES: dict[str, type] = {
     "local": LocalProvider,
     "file": FileProvider,
     "jsonl": JsonlProvider,
+    "holographic": HolographicProvider,
+    "byterover": ByteroverProvider,
+    "hindsight": HindsightProvider,
+    "honcho": HonchoProvider,
     "mem0": Mem0Provider,
+    "openviking": OpenvikingProvider,
+    "retaindb": RetaindbProvider,
+    "supermemory": SupermemoryProvider,
     "zep": ZepProvider,
     "letta": LettaProvider,
     "chroma": ChromaProvider,
@@ -525,7 +778,7 @@ PROVIDER_TYPES: dict[str, type] = {
 
 
 def build_provider(name: str, *, store: Any = None, data_dir: Any = None) -> MemoryProvider:
-    """按名字造一个 provider。`local` 需要 store，`file`/`jsonl` 需要 data_dir。"""
+    """按名字造一个 provider。`local` 需要 store，其余（含 `holographic`）需要 data_dir。"""
     kind = PROVIDER_TYPES.get(name)
     if kind is None:
         raise ValueError(f"未知的记忆供应商：{name}（可选：{', '.join(PROVIDER_NAMES)}）")
@@ -535,7 +788,7 @@ def build_provider(name: str, *, store: Any = None, data_dir: Any = None) -> Mem
 
 
 def default_providers(*, store: Any = None, data_dir: Any = None) -> list[MemoryProvider]:
-    """8 个 provider 的默认实例（顺序 = `PROVIDER_NAMES`）。"""
+    """全部 provider 的默认实例（顺序 = `PROVIDER_NAMES`）。"""
     return [build_provider(name, store=store, data_dir=data_dir) for name in PROVIDER_NAMES]
 
 

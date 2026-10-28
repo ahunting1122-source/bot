@@ -257,30 +257,57 @@ def test_dashboard_page_lands_in_the_page_registry():
 
 
 def test_exposed_capabilities_register_but_admit_no_consumer():
-    """exposed 的四种：能登记（查得到），但状态明确写着宿主没有消费方。"""
+    """exposed 的三种：能登记（查得到），但状态明确写着宿主没有消费方。
+
+    ``register_web_provider`` 本轮已经升到 wired（宿主表 ``EXTRA_PROVIDERS`` 真的被
+    ``build_providers`` 读到），所以它不在这一组里——证据见
+    ``tests/test_plugin_host.py::test_web_provider_lands_in_the_host_table_and_is_actually_used``。
+    """
     ctx = context()
 
     class Provider:
         id = "demo-provider"
 
     assert caps.expose_memory_provider(ctx, Provider()) == "demo-provider"
-    assert caps.expose_web_provider(ctx, Provider()) == "demo-provider"
     assert caps.expose_slack_action_handler(ctx, "btn_ok", lambda payload: None) == "btn_ok"
     assert caps.expose_slash_command(ctx, "/Demo Cmd", lambda args: None) == "demo-cmd"
 
     ledger = ctx.capabilities()["ledger"]
     assert ledger["register_memory_provider"] == 1
-    assert ledger["register_web_provider"] == 1
     assert ledger["register_slack_action_handler"] == 1
     assert ledger["register_slash_command"] == 1
     for name in (
         "register_memory_provider",
-        "register_web_provider",
         "register_slack_action_handler",
         "register_slash_command",
     ):
         assert caps.status_of(name) == caps.EXPOSED, name
         assert "缺" in caps.landing_of(name), name
+
+
+def test_web_provider_graduated_to_wired_with_a_real_host_table():
+    """``register_web_provider`` 从 exposed 升到 wired：落点是宿主的模块级 provider 表。"""
+    from app import web_providers
+
+    class Provider:
+        name = "demo-web"
+        requires_key = False
+
+        def available(self, settings=None) -> bool:
+            return True
+
+        async def search(self, query, *, count=5, freshness=None):
+            return []
+
+    ctx = context()
+    try:
+        assert caps.expose_web_provider(ctx, Provider()) == "demo-web"
+        assert caps.status_of("register_web_provider") == caps.WIRED
+        assert "EXTRA_PROVIDERS" in caps.landing_of("register_web_provider")
+        # 宿主真的会读它（这就是"wired"的判据，不是"API 存在"）
+        assert "demo-web" in [item.name for item in web_providers.build_providers(None)]
+    finally:
+        web_providers.unregister_provider("demo-web")
 
 
 def test_slash_command_parsing_entry_works():
@@ -338,7 +365,7 @@ def test_declared_status_translates_manifest_capabilities():
     )
     by_name = {row["name"]: row for row in rows}
     assert by_name["register_tool"]["status"] == caps.WIRED
-    assert by_name["register_web_provider"]["status"] == caps.EXPOSED
+    assert by_name["register_web_provider"]["status"] == caps.WIRED  # 本轮升上来的
     assert by_name["register_browser_provider"]["status"] == caps.UNSUPPORTED
     assert by_name["register_nope"]["status"] == "unknown"
     assert "不在 Orbit 的能力面里" in by_name["register_nope"]["landing"]
@@ -349,7 +376,17 @@ def test_host_surfaces_name_the_consumer():
     assert caps.HOST_SURFACES
     for key, detail in caps.HOST_SURFACES.items():
         assert detail.strip(), key
-    for key in ("tool_sink", "hook_registry", "platform_sink", "cli_registry", "page_registry"):
+    for key in (
+        "tool_sink",
+        "hook_registry",
+        "platform_sink",
+        "cli_registry",
+        "page_registry",
+        "plugin_routes",
+    ):
         assert not caps.HOST_SURFACES[key].startswith("（不存在）"), key
-    for key in ("memory_provider_registry", "web_provider_registry", "slash_dispatcher"):
+    # 这几处确实还没有消费方：表里必须自陈，不许含糊
+    for key in ("memory_provider_registry", "web_provider_registry"):
         assert caps.HOST_SURFACES[key].startswith("（不存在）"), key
+    # 斜杠命令：入口就位、调用方缺——必须写成"缺"，不能写成已接线
+    assert caps.HOST_SURFACES["slash_dispatcher"].startswith("（入口就位、调用方缺）")

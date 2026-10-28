@@ -961,6 +961,9 @@ def test_plugins_command_is_registered_with_all_subcommands():
         "deps",
         "override",
         "pages",
+        # 本轮新增：PluginHost 与 dashboard 挂载的 CLI 出口
+        "host",
+        "routes",
     }
     assert command.state == "partial", "install/search/pack/update 有未实现部分，不能标 done"
     for sub in command.subcommands:

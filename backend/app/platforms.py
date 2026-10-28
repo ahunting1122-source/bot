@@ -1,4 +1,4 @@
-"""多平台适配层：22 个平台枚举、适配器基类契约、17 个可离线验证的适配器。
+"""多平台适配层：22 个平台枚举、适配器基类契约、19 个可离线验证的适配器。
 
 为什么单独一层（而不是把"发消息"塞进 tools 或 cron）：
 
@@ -12,8 +12,7 @@
 
 本轮的诚实边界（不要被下面的类名骗了）：
 
-- **17 个平台真的能发消息**（22 里的 17），分三组，全部由 :class:`WebhookAdapter`
-  覆盖，可离线用 ``httpx.MockTransport`` 全链路验证 URL 与 body：
+- **19 个平台真的能发消息**（22 里的 19），分四组：
   1. 简单 HTTP POST：``ntfy`` / ``raft`` / ``a2a``（各自的 body 形状写在工厂里）；
   2. 8 个 webhook 平台：``slack`` / ``discord`` / ``google_chat`` / ``teams`` /
      ``dingtalk`` / ``wecom`` / ``feishu`` / ``telegram``（形状在 `WEBHOOK_PLATFORMS`）；
@@ -21,7 +20,13 @@
      （Twilio）/ ``homeassistant`` / ``matrix``——它们比纯 webhook 多三样东西：
      **Bearer/Basic 认证**、**URL 路径里带资源 id**（Matrix 的 room + txn）、
      **form-encoded body**（Twilio）。见 `REST_PLATFORMS`。
-  剩下 5 个（``buzz`` / ``email`` / ``irc`` / ``photon`` / ``simplex``）只有声明
+  前 17 个都由 :class:`WebhookAdapter` 覆盖，可离线用 ``httpx.MockTransport``
+  全链路验证 URL 与 body。
+  4. 2 个**标准库协议**平台（``email`` / ``irc``）：它们不是 HTTP，所以既不是
+     webhook 也不是 REST，各自一个类（:class:`EmailAdapter` / :class:`IrcAdapter`），
+     把"连服务器"这一步做成**可注入**（``smtp_factory`` / ``connector``），
+     于是构造 MIME、连接、发信三步在无网络环境下都能断言。见 `STDLIB_PLATFORMS`。
+  剩下 3 个（``buzz`` / ``photon`` / ``simplex``）只有声明
   （``implemented=False``），一发送就抛 :class:`PlatformNotImplemented` 并说清缺什么
   凭证。**不假装支持**。
 - ``ConsoleAdapter`` / ``FileAdapter`` 是**开发旁路**（stdout / ``outbox.jsonl``），
@@ -35,11 +40,15 @@ from __future__ import annotations
 
 import json
 import os
+import smtplib
+import socket
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -148,8 +157,12 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.EMAIL,
         label="邮件",
         description="轮询：IMAP 收信 + SMTP 发信，邮件线程当会话线程",
-        credentials=("EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_SMTP_HOST"),
-        reason="IMAP/SMTP 都是真实网络协议，需要邮箱账号密码与服务器地址；离线只能伪造，等于没实现",
+        credentials=("EMAIL_SMTP_HOST", "EMAIL_ADDRESS", "EMAIL_PASSWORD"),
+        implemented=True,
+        adapter="email",
+        scope="仅出站文本（stdlib smtplib + email.message 构造 MIME 后 send_message；"
+        "channel 传收件人地址）；无 IMAP 收信与轮询、无 HTML 正文与附件、"
+        "无邮件线程（In-Reply-To / References）与退信处理",
     ),
     Platform.FEISHU: PlatformSpec(
         platform=Platform.FEISHU,
@@ -183,8 +196,12 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         platform=Platform.IRC,
         label="IRC",
         description="长连接：stdlib asyncio 裸 IRC 协议，零外部依赖",
-        credentials=("IRC_SERVER", "IRC_CHANNEL", "IRC_NICKNAME"),
-        reason="协议是纯 stdlib 可写的，但必须有真实 IRC 服务器才能验证收发；本机无网络",
+        credentials=("IRC_HOST", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL"),
+        implemented=True,
+        adapter="irc",
+        scope="仅出站文本（stdlib socket 裸协议：NICK / USER / JOIN + PRIVMSG，"
+        "长文本按 512 字节上限分片，channel 传 #频道 或昵称）；"
+        "无入站长连接（PING/PONG 保活与消息接收未做）、无 SASL / TLS、无 CTCP ACTION",
     ),
     Platform.LINE: PlatformSpec(
         platform=Platform.LINE,
@@ -310,7 +327,7 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     ),
 }
 
-#: 真的能发消息的平台（其余 5 个一发送就抛 :class:`PlatformNotImplemented`）。
+#: 真的能发消息的平台（其余 3 个一发送就抛 :class:`PlatformNotImplemented`）。
 IMPLEMENTED_PLATFORMS: tuple[Platform, ...] = tuple(
     platform for platform, spec in PLATFORMS.items() if spec.implemented
 )
@@ -826,7 +843,7 @@ class FileAdapter(PlatformAdapter):
 
 
 class WebhookAdapter(PlatformAdapter):
-    """出站 HTTP 请求。**17 个已实现平台的出站全部是它**。
+    """出站 HTTP 请求。**17 个 HTTP 平台的出站全部是它**（另 2 个走标准库协议）。
 
     **httpx transport 必须可注入**（``transport=``）：本机无网络，测试用
     ``httpx.MockTransport`` 造成功 / 5xx / 超时三种响应。可注入不是为了"方便测试"，
@@ -1065,6 +1082,420 @@ class WebhookAdapter(PlatformAdapter):
                 }
             }
         return {"json": {"text": text, "channel": channel}}
+
+
+class EmailAdapter(PlatformAdapter):
+    """邮件出站：``smtplib`` + ``email.message``（**标准库，零外部依赖**）。
+
+    为什么这条能真做而 ``buzz`` / ``photon`` / ``simplex`` 不能：SMTP 是**纯文本协议
+    加标准库客户端**，三段（构造 MIME → 连服务器 → 发信）都能用一个假 ``SMTP`` 对象
+    逐步断言；后三个要么要第三方 CLI/daemon，要么要设备登录 token，本机无网络时
+    连"哪一步坏了"都分不清。
+
+    ``smtp_factory`` 必须可注入（默认 ``smtplib.SMTP``）：测试传一个记录调用的假对象，
+    就能在完全离线、不碰任何真实 socket 的前提下验证：
+
+    - 构造出来的 MIME 对不对（``Subject`` / ``To`` / ``From`` / 正文 / ``Message-ID``）；
+    - 有没有真的去连服务器（host / port / timeout）；
+    - ``starttls`` 与 ``login`` 的调用顺序（先加密再交密码——反了就是把明文密码
+      发到公网上）。
+
+    覆盖范围**只到出站文本**：IMAP 收信、HTML 正文、附件、邮件线程（``In-Reply-To``）
+    都没做，见 :data:`PLATFORMS` 里 ``email`` 的 ``scope``。
+    """
+
+    name = "email"
+    platform = Platform.EMAIL
+
+    #: 这个适配器读哪些环境变量。**名字必须与 `PLATFORMS[EMAIL].credentials` 一致**，
+    #: 否则报错会让人去改一个不存在的配置。
+    ENV_NAMES: tuple[str, ...] = ("EMAIL_SMTP_HOST", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+    #: 缺省的提交端口（587 = STARTTLS 提交；465 是隐式 TLS，本适配器不处理）。
+    DEFAULT_PORT = 587
+
+    def __init__(
+        self,
+        *,
+        smtp_host: str = "",
+        smtp_port: int | str | None = None,
+        username: str = "",
+        password: str = "",
+        from_addr: str = "",
+        default_to: str = "",
+        use_tls: bool = True,
+        timeout: float = 10.0,
+        smtp_factory: Callable[..., Any] | None = None,
+        name: str = "email",
+    ) -> None:
+        super().__init__(name=name)
+        self.smtp_host = str(smtp_host or "")
+        self.smtp_port = _as_port(smtp_port, self.DEFAULT_PORT)
+        self.username = str(username or "")
+        self.password = str(password or "")
+        #: 发件人地址；留空则退回账号名（多数邮箱账号名就是地址）。
+        self.from_addr = str(from_addr or self.username)
+        #: ``channel`` 为空时的默认收件人（``--to email`` 不带地址时用）。
+        self.default_to = str(default_to or "")
+        self.use_tls = bool(use_tls)
+        self.timeout = float(timeout)
+        #: 可注入的 SMTP 构造器（测试传假对象；生产用 ``smtplib.SMTP``）。
+        self.smtp_factory = smtp_factory
+
+    # ── 配置 ──
+    def start(self) -> None:
+        """没有入站（IMAP 轮询未实现），起停都是空操作。"""
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def missing_env(self) -> tuple[str, ...]:
+        """哪些凭证没配（只看有没有值，不判断值对不对）。"""
+        values = {
+            "EMAIL_SMTP_HOST": self.smtp_host,
+            "EMAIL_ADDRESS": self.username,
+            "EMAIL_PASSWORD": self.password,
+        }
+        return tuple(name for name in self.ENV_NAMES if not values[name])
+
+    def available(self) -> bool:
+        """三项凭证齐了才算可用。**未配置 ≠ 故障**（见 :meth:`health`）。"""
+        return not self.missing_env()
+
+    # ── 发送 ──
+    def build_message(self, recipient: str, text: str, *, subject: str = "") -> EmailMessage:
+        """构造一封纯文本 MIME 邮件。**纯函数**（不碰网络），因此可以单独断言。"""
+        to_addr = str(recipient or self.default_to).strip()
+        if not to_addr:
+            raise ValueError("email 需要收件人：`--to email:someone@example.com`")
+        if not self.from_addr:
+            raise ValueError("email 需要发件人地址（EMAIL_ADDRESS）")
+        message = EmailMessage()
+        message["From"] = self.from_addr
+        message["To"] = to_addr
+        message["Subject"] = subject or _subject_from(text)
+        message["Date"] = formatdate(localtime=True)
+        # Message-ID 自己生成：smtplib 不会替你加，而不少反垃圾网关会因此直接丢信。
+        message["Message-ID"] = make_msgid(domain=_domain_of(self.from_addr))
+        message.set_content(str(text), subtype="plain", charset="utf-8")
+        return message
+
+    def send_text(self, channel: str, text: str) -> SendResult:
+        recipient = str(channel or "").strip() or self.default_to
+        missing = self.missing_env()
+        if missing:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=recipient,
+                error=self._unconfigured_message(missing),
+            )
+        try:
+            message = self.build_message(recipient, text)
+        except ValueError as exc:
+            return SendResult(ok=False, platform=self.name, channel=recipient, error=str(exc))
+        try:
+            server = self._connect()
+        except (OSError, smtplib.SMTPException) as exc:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=recipient,
+                error=f"连不上 SMTP 服务器 {self.smtp_host}:{self.smtp_port}：{exc!r}",
+            )
+        try:
+            # 顺序不能反：先 STARTTLS 再 login。反了就是把密码明文发到公网上。
+            if self.use_tls:
+                server.starttls()
+            if self.username and self.password:
+                server.login(self.username, self.password)
+            server.send_message(message)
+        except smtplib.SMTPException as exc:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=recipient,
+                error=f"SMTP 发信失败（{type(exc).__name__}）：{exc}",
+            )
+        finally:
+            try:
+                server.quit()
+            except Exception:  # noqa: BLE001 - quit 失败不该掩盖上面的真实结果
+                pass
+        return SendResult(
+            ok=True,
+            platform=self.name,
+            channel=recipient,
+            message_id=str(message["Message-ID"] or ""),
+            detail={"smtp_host": self.smtp_host, "smtp_port": self.smtp_port, "tls": self.use_tls},
+        )
+
+    def send_media(self, channel: str, path: str, *, caption: str = "") -> SendOutcome:
+        # 附件要 multipart 编码 + 大小上限判断，本轮不做；如实说不支持，
+        # 而不是把路径当正文发出去（用户会以为附件到了）。
+        return self._not_supported("send_media", "邮件适配器只发纯文本正文，附件未实现")
+
+    def health(self) -> AdapterHealth:
+        missing = self.missing_env()
+        if missing:
+            # 这里**故意** ok=False（与 WebhookAdapter 的"未配置=未启用"不同）：
+            # 邮件平台的全部意义就是发信，三项凭证缺一项就一条也发不出去，
+            # 报成"健康"等于让 `doctor` 永远绿灯。网关侧把 configured=False
+            # 当作"未启用"跳过，所以不会让整个 doctor 变红。
+            return AdapterHealth(
+                ok=False,
+                platform=self.name,
+                detail=self._unconfigured_message(missing),
+                extra={"configured": False, "env": list(self.ENV_NAMES),
+                       "missing_env": list(missing)},
+            )
+        return AdapterHealth(
+            ok=True,
+            platform=self.name,
+            detail=f"SMTP {self.smtp_host}:{self.smtp_port}（STARTTLS={self.use_tls}）"
+            f" 发件人 {self.from_addr}",
+            extra={"configured": True, "env": list(self.ENV_NAMES), "missing_env": []},
+        )
+
+    def standalone_sender_fn(self) -> StandaloneSender:
+        return self.send_text
+
+    # ── 内部 ──
+    def _connect(self) -> Any:
+        """连 SMTP 服务器。**唯一碰网络的一步**，所以单独一个方法便于替换/断言。"""
+        factory = self.smtp_factory or smtplib.SMTP
+        return factory(self.smtp_host, self.smtp_port, timeout=self.timeout)
+
+    def _unconfigured_message(self, missing: tuple[str, ...]) -> str:
+        return (
+            f"未配置 email 的凭证：设置环境变量 {'、'.join(missing)} 后重试"
+            f"（该适配器读：{'、'.join(self.ENV_NAMES)}）"
+        )
+
+
+class IrcAdapter(PlatformAdapter):
+    """IRC 出站：**裸 socket 手写协议**（``NICK`` / ``USER`` / ``JOIN`` / ``PRIVMSG``）。
+
+    为什么用裸 socket 而不是某个 IRC 库：协议只有四行长文本，标准库足够；
+    而本机无网络装不了任何新依赖（铁律一）。
+
+    ``connector`` 必须可注入（默认 ``socket.create_connection``）：测试传一个**假
+    socket**（只记 ``sendall`` 的字节），于是"连接 → 注册 → 发消息"三步在离线环境下
+    可逐步断言，**一个真实连接都不会开**。这正是本条能算"真实现"而不是"声明"的理由。
+
+    覆盖范围**只到出站文本**：没有 PING/PONG 保活、没有入站消息接收、没有 SASL/TLS，
+    见 :data:`PLATFORMS` 里 ``irc`` 的 ``scope``。
+    """
+
+    name = "irc"
+    platform = Platform.IRC
+
+    ENV_NAMES: tuple[str, ...] = ("IRC_HOST", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL")
+    DEFAULT_PORT = 6667
+    #: 单行 PRIVMSG 的正文上限（字节）。IRC 行上限是 512 字节，其中
+    #: ``PRIVMSG <target> :`` 与 CRLF 要占掉几十字节，留 400 是保守值。
+    MAX_TEXT_BYTES = 400
+
+    def __init__(
+        self,
+        *,
+        host: str = "",
+        port: int | str | None = None,
+        nickname: str = "orbit",
+        channel: str = "",
+        realname: str = "Orbit Gateway",
+        timeout: float = 10.0,
+        connector: Callable[..., Any] | None = None,
+        name: str = "irc",
+    ) -> None:
+        super().__init__(name=name)
+        self.host = str(host or "")
+        self.port = _as_port(port, self.DEFAULT_PORT)
+        self.nickname = str(nickname or "orbit")
+        #: ``channel`` 为空时的默认投递目标（``#频道`` 或对方昵称）。
+        self.channel = str(channel or "")
+        self.realname = str(realname or "Orbit Gateway")
+        self.timeout = float(timeout)
+        #: 可注入的连接器（测试传假 socket 工厂；生产用 ``socket.create_connection``）。
+        self.connector = connector
+
+    # ── 配置 ──
+    def start(self) -> None:
+        """没有入站长连接（PING/PONG 保活与消息接收未实现），起停都是空操作。"""
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def missing_env(self) -> tuple[str, ...]:
+        """``available()`` 只要求 ``IRC_HOST``（+ 昵称）；频道可以每次在 ``--to`` 里给。"""
+        missing: list[str] = []
+        if not self.host:
+            missing.append("IRC_HOST")
+        if not self.nickname:
+            missing.append("IRC_NICKNAME")
+        return tuple(missing)
+
+    def available(self) -> bool:
+        """只在配了 ``IRC_HOST``（与昵称）时为 True。"""
+        return not self.missing_env()
+
+    # ── 协议行（纯函数，可单独断言） ──
+    def render_lines(self, target: str, text: str) -> list[str]:
+        """把"注册 + 发消息"渲染成**完整的 wire 行**（每行带 ``\\r\\n``）。
+
+        纯函数：给定 target 与正文就产出确定的字节，测试不需要任何 socket。
+        行序也是协议的一部分——``NICK`` / ``USER`` 必须在 ``JOIN`` 之前，
+        ``JOIN`` 必须在 ``PRIVMSG`` 之前，否则服务器会以 "You have not registered"
+        拒掉消息（这类错误在真机上极难和"网络问题"区分）。
+        """
+        place = str(target or "").strip()
+        if not place:
+            raise ValueError("irc 需要投递目标：`--to irc:#channel`（或设置 IRC_CHANNEL）")
+        lines = [
+            f"NICK {self.nickname}",
+            f"USER {self.nickname} 0 * :{self.realname}",
+            f"JOIN {place}",
+        ]
+        for chunk in self.split_text(text):
+            lines.append(f"PRIVMSG {place} :{chunk}")
+        return [line + "\r\n" for line in lines]
+
+    def split_text(self, text: str) -> list[str]:
+        """按 **UTF-8 字节数**分片（不是字符数：一个汉字 3 字节，按字符切会超限）。
+
+        换行先压成空格：IRC 的 ``PRIVMSG`` 是单行协议，正文里带 ``\\r\\n``
+        等于把一条消息拆成两条**协议行**，后半截会被服务器当成命令。
+        """
+        flat = str(text or "").replace("\r", " ").replace("\n", " ").strip()
+        if not flat:
+            return [""]
+        chunks: list[str] = []
+        current = ""
+        for char in flat:
+            candidate = current + char
+            if len(candidate.encode("utf-8")) > self.MAX_TEXT_BYTES and current:
+                chunks.append(current)
+                current = char
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        return chunks
+
+    # ── 发送 ──
+    def send_text(self, channel: str, text: str) -> SendResult:
+        target = str(channel or "").strip() or self.channel
+        missing = self.missing_env()
+        if missing:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=target,
+                error=self._unconfigured_message(missing),
+            )
+        try:
+            lines = self.render_lines(target, text)
+        except ValueError as exc:
+            return SendResult(ok=False, platform=self.name, channel=target, error=str(exc))
+        try:
+            connection = self._connect()
+        except OSError as exc:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=target,
+                error=f"连不上 IRC 服务器 {self.host}:{self.port}：{exc!r}",
+            )
+        try:
+            for line in lines:
+                connection.sendall(line.encode("utf-8"))
+        except OSError as exc:
+            return SendResult(
+                ok=False,
+                platform=self.name,
+                channel=target,
+                error=f"IRC 发送失败：{exc!r}",
+            )
+        finally:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - close 失败不该掩盖发送结果
+                pass
+        return SendResult(
+            ok=True,
+            platform=self.name,
+            channel=target,
+            message_id=f"{target}#{len(lines)}",
+            detail={"lines": len(lines), "host": self.host, "port": self.port},
+        )
+
+    def send_media(self, channel: str, path: str, *, caption: str = "") -> SendOutcome:
+        # IRC 没有附件概念（只能贴 URL），所以如实说不支持。
+        return self._not_supported("send_media", "IRC 协议没有附件，只能贴链接")
+
+    def health(self) -> AdapterHealth:
+        missing = self.missing_env()
+        if missing:
+            return AdapterHealth(
+                ok=False,
+                platform=self.name,
+                detail=self._unconfigured_message(missing),
+                extra={"configured": False, "env": list(self.ENV_NAMES),
+                       "missing_env": list(missing)},
+            )
+        return AdapterHealth(
+            ok=True,
+            platform=self.name,
+            detail=f"IRC {self.host}:{self.port} 昵称 {self.nickname}"
+            f"（默认频道 {self.channel or '（未设）'}）",
+            extra={"configured": True, "env": list(self.ENV_NAMES), "missing_env": []},
+        )
+
+    def standalone_sender_fn(self) -> StandaloneSender:
+        return self.send_text
+
+    # ── 内部 ──
+    def _connect(self) -> Any:
+        """开一条 TCP 连接。**唯一碰网络的一步**。"""
+        connector = self.connector or socket.create_connection
+        return connector((self.host, self.port), self.timeout)
+
+    def _unconfigured_message(self, missing: tuple[str, ...]) -> str:
+        return (
+            f"未配置 irc 的凭证：设置环境变量 {'、'.join(missing)} 后重试"
+            f"（该适配器读：{'、'.join(self.ENV_NAMES)}）"
+        )
+
+
+def _as_port(value: int | str | None, default: int) -> int:
+    """端口解析：坏值退回默认端口（不抛——端口写错不该让整层建不起来）。"""
+    if value is None or str(value).strip() == "":
+        return int(default)
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return int(default)
+
+
+def _domain_of(address: str) -> str | None:
+    """取邮件地址的域名，给 ``Message-ID`` 用（``None`` = 让标准库自己挑）。"""
+    text = str(address or "")
+    _, _, domain = text.rpartition("@")
+    return domain or None
+
+
+def _subject_from(text: str) -> str:
+    """没有显式主题时，用正文首行前 60 字当主题。
+
+    为什么要有兜底：主题为空是**很多反垃圾网关直接丢信**的理由，而
+    "必须显式给主题"会让 ``orbit send --to email:... "hi"`` 这种最自然的用法失败。
+    """
+    first = str(text or "").strip().splitlines()
+    head = first[0].strip() if first else ""
+    if not head:
+        return "(无主题)"
+    return head if len(head) <= 60 else head[:59] + "…"
 
 
 class UnimplementedAdapter(PlatformAdapter):
@@ -1491,6 +1922,65 @@ def matrix_adapter(
     )
 
 
+#: 2 个**标准库协议**平台的出站契约。和 `REST_PLATFORMS` 一样是"可核对的事实表"：
+#: 它们不是 HTTP，所以拼不进 webhook/REST 两族，单独列在这里，逐条能对着 RFC 核。
+STDLIB_PLATFORMS: dict[Platform, str] = {
+    Platform.EMAIL: "SMTP 提交（默认 587）· STARTTLS → AUTH → send_message(EmailMessage) · "
+    "channel = 收件人地址 · 环境变量 EMAIL_SMTP_HOST / EMAIL_ADDRESS / EMAIL_PASSWORD",
+    Platform.IRC: "裸 TCP（默认 6667）· NICK → USER → JOIN → PRIVMSG <target> :<text> · "
+    "正文按 512 字节行上限分片 · 环境变量 IRC_HOST / IRC_PORT / IRC_NICKNAME / IRC_CHANNEL",
+}
+
+
+def email_adapter(
+    *,
+    smtp_host: str | None = None,
+    smtp_port: int | str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    from_addr: str | None = None,
+    use_tls: bool = True,
+    smtp_factory: Callable[..., Any] | None = None,
+) -> EmailAdapter:
+    """邮件：SMTP 出站。凭证全从环境变量取，**一个都不写死**。
+
+    ``EMAIL_SMTP_PORT`` 单独一个变量（而不是从 host 里拆端口）：写
+    ``smtp.example.com:587`` 这种"地址带端口"的配置在各家文档里都出现过，
+    拆一次就得猜一次；分开写没有歧义。
+    """
+    return EmailAdapter(
+        smtp_host=smtp_host if smtp_host is not None else os.environ.get("EMAIL_SMTP_HOST", ""),
+        smtp_port=smtp_port if smtp_port is not None else os.environ.get("EMAIL_SMTP_PORT", ""),
+        username=username if username is not None else os.environ.get("EMAIL_ADDRESS", ""),
+        password=password if password is not None else os.environ.get("EMAIL_PASSWORD", ""),
+        from_addr=(
+            from_addr
+            if from_addr is not None
+            else os.environ.get("EMAIL_FROM", "")
+        ),
+        use_tls=use_tls,
+        smtp_factory=smtp_factory,
+    )
+
+
+def irc_adapter(
+    *,
+    host: str | None = None,
+    port: int | str | None = None,
+    nickname: str | None = None,
+    channel: str | None = None,
+    connector: Callable[..., Any] | None = None,
+) -> IrcAdapter:
+    """IRC：裸 socket 出站。没配 ``IRC_HOST`` 时 :meth:`IrcAdapter.available` 为 False。"""
+    return IrcAdapter(
+        host=host if host is not None else os.environ.get("IRC_HOST", ""),
+        port=port if port is not None else os.environ.get("IRC_PORT", ""),
+        nickname=nickname if nickname is not None else os.environ.get("IRC_NICKNAME", "orbit"),
+        channel=channel if channel is not None else os.environ.get("IRC_CHANNEL", ""),
+        connector=connector,
+    )
+
+
 #: 6 个 REST 平台的工厂表（`default_adapters` 遍历它，顺序即展示顺序）。
 REST_ADAPTER_FACTORIES: dict[Platform, Any] = {
     Platform.MATTERMOST: mattermost_adapter,
@@ -1505,17 +1995,19 @@ REST_ADAPTER_FACTORIES: dict[Platform, Any] = {
 def default_adapters(
     data_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None
 ) -> dict[str, PlatformAdapter]:
-    """默认适配器集合：**17 个已实现平台** + 2 个开发旁路（console / file）。
+    """默认适配器集合：**19 个已实现平台** + 2 个开发旁路（console / file）。
 
-    17 个真实平台分三组：
+    19 个真实平台分四组：
     - 简单 HTTP POST：`ntfy` / `raft` / `a2a`（各自的 body 形状写在工厂里）
     - webhook 平台：`slack` / `discord` / `google_chat` / `teams` / `dingtalk` /
       `wecom` / `feishu` / `telegram`（形状在 `WEBHOOK_PLATFORMS`，逐条可对照官方文档）
     - REST 平台：`mattermost` / `line` / `whatsapp_cloud` / `sms` / `homeassistant` /
       `matrix`（形状在 `REST_PLATFORMS`；比 webhook 多 Bearer/Basic 认证、
       路径里的资源 id 与 form-encoded body）
+    - 标准库协议平台：`email`（SMTP）/ `irc`（裸 socket）——形状在
+      `STDLIB_PLATFORMS`，连接那一步可注入，所以离线也能验证
 
-    其余 5 个平台（`buzz` / `email` / `irc` / `photon` / `simplex`）仍然没有适配器，
+    其余 3 个平台（`buzz` / `photon` / `simplex`）仍然没有适配器，
     `resolve_adapter` 会返回 `UnimplementedAdapter`，发送时抛
     `PlatformNotImplemented` 并给出所需凭证与 SDK。**没有假装支持。**
     """
@@ -1536,6 +2028,9 @@ def default_adapters(
         pool[adapter.name] = adapter
         if adapter.name != platform.value:
             pool[platform.value] = adapter
+    # 两个标准库协议平台：注册名与平台枚举值同名，不需要上面那种双键处理。
+    pool["email"] = email_adapter()
+    pool["irc"] = irc_adapter()
     return pool
 
 
@@ -1594,7 +2089,219 @@ def parse_target(raw: str) -> SendTarget:
     return SendTarget(platform=platform, channel=channel, thread=thread)
 
 
-#: 22 个平台里已实现的 17 个（给 ``gateway status`` 直接引用，避免各处再算一遍）。
+# ── 澄清选择（clarify）的渲染与发送 ─────────────────────────────────────────
+
+#: 一条消息里最多放几个按钮。超过就降级为编号文本。
+#:
+#: 为什么是 5：``clarify`` 允许 2-6 个选项，而 6 个按钮在手机 / 手表 / 窄终端上
+#: 会挤成一团——标签被截断，用户点错比不点更糟。第 6 个选项留在正文的编号列表里
+#: 一样能选（回复序号），所以"少一个按钮"不会丢功能。
+MAX_CLARIFY_BUTTONS = 5
+
+
+@dataclass(frozen=True)
+class RenderedChoices:
+    """``clarify`` 的一次渲染结果：**文本 + 按钮列表**（纯数据，不含任何适配器）。
+
+    为什么把渲染和发送拆开（:func:`render_choices` / :func:`send_clarify`）：
+    渲染是纯函数，能逐条断言"编号对不对、超限有没有降级、回调 id 长什么样"；
+    发送要碰适配器，才有"有没有 ``send_buttons``"这个分支。混在一起的话，
+    "降级规则"这件事就只能靠 mock 适配器间接验证。
+    """
+
+    #: 任何前端都能显示的正文（含编号列表，所以按钮被降级时用户照样能选）。
+    text: str
+    #: ``(标签, 回调 id)``；空元组 = 这个平台/这次渲染没有按钮。
+    buttons: tuple[tuple[str, str], ...] = ()
+    #: True = 按钮被降级成了编号文本（选项太多，或平台没有按钮）。
+    degraded: bool = False
+    #: 降级的**原因**（给日志与 ``--json`` 看，不是给用户看的）。
+    reason: str = ""
+    #: 规范化后的选项标签（原顺序）。
+    options: tuple[str, ...] = ()
+    allow_free_text: bool = True
+
+    @property
+    def mode(self) -> str:
+        """``buttons`` 或 ``text``：这次到底走了哪条呈现。"""
+        return "buttons" if self.buttons else "text"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "buttons": [{"label": label, "callback": callback} for label, callback in self.buttons],
+            "degraded": self.degraded,
+            "reason": self.reason,
+            "options": list(self.options),
+            "allow_free_text": self.allow_free_text,
+            "mode": self.mode,
+        }
+
+
+@dataclass(frozen=True)
+class ClarifyDelivery:
+    """``send_clarify`` 的结果：真发出去没有、走的是按钮还是文本。"""
+
+    ok: bool
+    used: str = "text"
+    platform: str = ""
+    channel: str = ""
+    message_id: str = ""
+    error: str = ""
+    rendered: RenderedChoices | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "used": self.used,
+            "platform": self.platform,
+            "channel": self.channel,
+            "message_id": self.message_id,
+            "error": self.error,
+            "rendered": self.rendered.as_dict() if self.rendered else {},
+        }
+
+
+def _callback_ident(raw: str) -> str:
+    """回调 id 的 ``ident`` 段：非空、**不含冒号**。
+
+    ``build_callback_id`` 靠 ``split(":")`` 解析，多一个冒号就整体错位；
+    而 ``clarify_id`` 常常是会话键（``telegram:-100123`` 里就有冒号），
+    所以这里把它换成 ``-``，而不是等发送时抛异常。
+    """
+    text = str(raw or "").strip().replace(":", "-").replace(" ", "-")
+    return text or "0"
+
+
+def render_choices(
+    question: str,
+    options: Sequence[str],
+    *,
+    clarify_id: str = "",
+    allow_free_text: bool = True,
+    max_buttons: int = MAX_CLARIFY_BUTTONS,
+) -> RenderedChoices:
+    """把 ``clarify`` 的问题与选项渲染成「文本 + 按钮」。**纯函数**。
+
+    两条规则（都是"为什么"级别的取舍）：
+
+    1. **文本永远含编号列表**。按钮是增强，不是唯一通路：客户端可能只渲染文本、
+       用户可能在终端里看、按钮也可能被降级。编号列表让这三条路都走得通，
+       格式与 ``app/tools.py::clarify_payload`` 的 ``1) 标签`` 完全一致，
+       免得同一个问题在 CLI 和网关里长得不一样。
+    2. **超过 ``max_buttons`` 个就一个按钮都不给**，而不是"只放前 5 个"。
+       只放前 5 个会让用户以为第 6 个选项不存在（它明明在正文里），
+       这种"看起来能点、其实点不到"比纯文本更让人困惑。
+    """
+    labels = tuple(str(item).strip() for item in options if str(item).strip())
+    ident = _callback_ident(clarify_id)
+    head = f"需要你决定：{str(question or '').strip()}"
+    lines = [head, "", "选项："]
+    for index, label in enumerate(labels, start=1):
+        lines.append(f"{index}) {label}")
+    lines.append("")
+    lines.append(
+        "回复序号即可；也可以直接用自己的话说明。"
+        if allow_free_text
+        else f"**只能从上面选一个**：请回复序号（1-{len(labels)}），不接受其它回答。"
+    )
+    text = "\n".join(lines)
+
+    if not labels:
+        return RenderedChoices(
+            text=text,
+            degraded=True,
+            reason="没有可选项：clarify 至少要 2 个选项（只有一个说明这不是选择题）",
+            options=labels,
+            allow_free_text=allow_free_text,
+        )
+    if len(labels) > max(1, int(max_buttons)):
+        return RenderedChoices(
+            text=text,
+            degraded=True,
+            reason=(
+                f"选项 {len(labels)} 个超过按钮上限 {max(1, int(max_buttons))} 个："
+                "太多按钮在窄屏上会挤成一团、标签被截断，已降级为编号文本"
+            ),
+            options=labels,
+            allow_free_text=allow_free_text,
+        )
+    buttons = tuple(
+        (label, build_callback_id(CALLBACK_CLARIFY, ident, str(index)))
+        for index, label in enumerate(labels, start=1)
+    )
+    return RenderedChoices(
+        text=text,
+        buttons=buttons,
+        options=labels,
+        allow_free_text=allow_free_text,
+    )
+
+
+def send_clarify(
+    adapter: PlatformAdapter,
+    channel: str,
+    question: str,
+    options: Sequence[str],
+    *,
+    clarify_id: str = "",
+    allow_free_text: bool = True,
+    max_buttons: int = MAX_CLARIFY_BUTTONS,
+) -> ClarifyDelivery:
+    """把 ``clarify`` 发出去：**有 ``send_buttons`` 就用按钮，没有就退回编号文本**。
+
+    为什么不直接调 ``adapter.send_clarify``：基类那个方法默认返回
+    :class:`NotSupported`，而各平台"有没有按钮"的差别体现在 ``send_buttons`` 上。
+    这里走 ``send_buttons`` + ``send_text`` 两条**已经实现了的**路径，于是：
+
+    - 有按钮的平台：按钮消息 + 同一份编号文本（用户点也行、打字也行）；
+    - 没有按钮的平台：``send_buttons`` 返回 :class:`NotSupported` → 自动退回纯文本，
+      **消息一定发得出去**（降级永远不丢正文）。
+
+    ``PlatformNotImplemented`` 会照常抛出：那是"这个平台根本没实现"，
+    与"没有按钮"是两件事，不该被降级掩盖。
+    """
+    rendered = render_choices(
+        question,
+        options,
+        clarify_id=clarify_id,
+        allow_free_text=allow_free_text,
+        max_buttons=max_buttons,
+    )
+    if rendered.buttons:
+        outcome = adapter.send_buttons(channel, rendered.text, rendered.buttons)
+        if not isinstance(outcome, NotSupported):
+            return ClarifyDelivery(
+                ok=outcome.ok,
+                used="buttons",
+                platform=adapter.name,
+                channel=channel,
+                message_id=outcome.message_id,
+                error=outcome.error,
+                rendered=rendered,
+            )
+        # 平台说没有按钮：退回纯文本，并把"为什么降级"留在 reason 里。
+        rendered = RenderedChoices(
+            text=rendered.text,
+            buttons=(),
+            degraded=True,
+            reason=f"{adapter.name} 没有按钮（{outcome.hint}），已降级为编号文本",
+            options=rendered.options,
+            allow_free_text=rendered.allow_free_text,
+        )
+    text_outcome = adapter.send_text(channel, rendered.text)
+    return ClarifyDelivery(
+        ok=text_outcome.ok,
+        used="text",
+        platform=adapter.name,
+        channel=channel,
+        message_id=text_outcome.message_id,
+        error=text_outcome.error,
+        rendered=rendered,
+    )
+
+
+#: 22 个平台里已实现的 19 个（给 ``gateway status`` 直接引用，避免各处再算一遍）。
 __all__ = [
     "ALL_PLATFORMS",
     "APPROVAL_CHOICES",
@@ -1604,9 +2311,13 @@ __all__ = [
     "CALLBACK_CLARIFY",
     "CALLBACK_SLASH",
     "CallbackRef",
+    "ClarifyDelivery",
     "ConsoleAdapter",
+    "EmailAdapter",
     "FileAdapter",
     "IMPLEMENTED_PLATFORMS",
+    "IrcAdapter",
+    "MAX_CLARIFY_BUTTONS",
     "NotSupported",
     "PLATFORMS",
     "Platform",
@@ -1615,7 +2326,9 @@ __all__ = [
     "PlatformSpec",
     "REST_ADAPTER_FACTORIES",
     "REST_PLATFORMS",
+    "RenderedChoices",
     "SLASH_CHOICES",
+    "STDLIB_PLATFORMS",
     "SendOutcome",
     "SendResult",
     "SendTarget",
@@ -1628,7 +2341,9 @@ __all__ = [
     "a2a_adapter",
     "build_callback_id",
     "default_adapters",
+    "email_adapter",
     "homeassistant_adapter",
+    "irc_adapter",
     "line_adapter",
     "mattermost_adapter",
     "matrix_adapter",
@@ -1636,7 +2351,9 @@ __all__ = [
     "parse_callback_id",
     "parse_target",
     "raft_adapter",
+    "render_choices",
     "resolve_adapter",
+    "send_clarify",
     "sms_adapter",
     "spec_for",
     "whatsapp_cloud_adapter",

@@ -91,11 +91,11 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
     """已实现的平台集合 = `IMPLEMENTED_PLATFORMS`，且每个都必须说清**覆盖范围**。
 
     这条从「只有 3 个」改成「集合自洽」：数量本身不是契约，**声明与实现一致**才是。
-    17 个已实现全是「仅出站」，`scope` 必须写清没有入站、没有媒体、没有按钮——
+    19 个已实现全是「仅出站」，`scope` 必须写清没有入站、没有媒体、没有按钮——
     否则会被读成和 Hermes 一样全功能。
     """
     implemented = [platform for platform in ALL_PLATFORMS if PLATFORMS[platform].implemented]
-    assert len(implemented) == len(IMPLEMENTED_PLATFORMS) == 17
+    assert len(implemented) == len(IMPLEMENTED_PLATFORMS) == 19
     assert set(implemented) == set(IMPLEMENTED_PLATFORMS)
     assert {platform.value for platform in implemented} == {
         "ntfy",
@@ -116,6 +116,9 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
         "sms",
         "homeassistant",
         "matrix",
+        # 2 个标准库协议平台（SMTP / 裸 socket，连接那一步可注入所以离线可验）
+        "email",
+        "irc",
     }
     for platform in implemented:
         spec = PLATFORMS[platform]
@@ -125,13 +128,11 @@ def test_implemented_platforms_are_exactly_those_with_adapters():
 
 
 def test_unimplemented_platforms_explain_reason_and_credentials():
-    """未实现的 5 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
+    """未实现的 3 个必须说清"为什么"与"缺什么凭证"——只说"未实现"等于没说。"""
     pending = [platform for platform in ALL_PLATFORMS if not PLATFORMS[platform].implemented]
-    assert len(pending) == 5
+    assert len(pending) == 3
     assert {platform.value for platform in pending} == {
         "buzz",
-        "email",
-        "irc",
         "photon",
         "simplex",
     }
@@ -455,7 +456,7 @@ def test_resolve_adapter_rejects_unknown_platform_name():
 
 
 def test_default_adapters_cover_every_implemented_platform_plus_dev_sinks(tmp_path):
-    """默认适配器池 = 2 个开发旁路 + **全部 17 个已实现平台**，不多不少。
+    """默认适配器池 = 2 个开发旁路 + **全部 19 个已实现平台**，不多不少。
 
     唯一的例外是 `whatsapp_cloud`：WhatsApp 的平台枚举名是 `whatsapp`，而适配器自己的
     注册名是 `whatsapp_cloud`（Meta Cloud API）。两个键指向**同一个适配器对象**，

@@ -81,7 +81,7 @@ TOOLSETS: dict[str, str] = {
     "vision": "视觉与视频理解（域内无工具：多模态由模型自带，不需要工具桥）",
     "tts": "语音合成（域内无工具：走 app/voice.py 与平台通道，不经模型工具）",
     "kanban": "看板（域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端）",
-    "cron": "定时任务（域内无工具：定时由 app/cron.py + `orbit cron` 承担）",
+    "cron": "定时任务（cron_job：建 / 列 / 停 / 删；真正执行由 `orbit cron` 守护进程负责）",
     "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
     "home": "智能家居（域内无工具：要 Home Assistant 之类的网关与设备凭证）",
 }
@@ -155,6 +155,12 @@ TOOL_TOOLSET: dict[str, str] = {
     # web
     "web_search": "web",
     "web_extract": "web",
+    # 延迟披露的桥（MATRIX 5.11 / 5.14）。归 core：它是「取被延迟工具正文」的唯一出口，
+    # 一旦它自己被延迟，整个分级披露就没人能解套（同 `tool_search` 的理由）。
+    "tool_describe": "core",
+    # 定时任务（MATRIX 5.14）。执行仍归 `orbit cron` 的守护进程；模型侧这条只做
+    # 建 / 列 / 停 / 删——**它不该也不能自己把任务跑起来**（那是调度器的职责）。
+    "cron_job": "cron",
 }
 
 #: 前缀 → toolset。这是"新增工具自动归类"的兜底：按仓库既有命名习惯（``local_`` /
@@ -248,7 +254,11 @@ EMPTY_TOOLSETS: dict[str, str] = {
     "vision": "视觉理解由多模态模型自带（providers.py 的 supports_vision），不需要工具桥。",
     "tts": "语音合成走 app/voice.py 与平台通道，是「输出方式」而不是「模型动作」。",
     "kanban": "Orbit 用 todo 工具 + 前端面板表达任务状态，没有独立看板后端可接。",
-    "cron": "定时任务由 app/cron.py 与 `orbit cron` 承担；模型侧没有「给自己排期」的工具。",
+    "cron": (
+        "定时任务的**执行**由 app/cron.py 与 `orbit cron` 守护进程承担；模型侧只有 "
+        "`cron_job`（建/列/停/删，实现见 app/tool_extra_impl.py，需装配层注册），"
+        "它不会自己跑任务，所以这个域在「真实工具表」视图里仍然是空的。"
+    ),
     "desktop": "桌面 / 窗口控制要 pyautogui 之类的桌面运行时，本机未安装且不允许安装。",
     "home": "智能家居要 Home Assistant 之类的网关与设备凭证，本机没有。",
 }
@@ -333,7 +343,10 @@ TOOL_TIERS: dict[str, int] = {}
 #: * ``clarify``（clarify）—— 结构化澄清：缺了它只能靠散文提问；
 #: * ``ask_user``（ask_user）—— 人工介入的唯一出口（图节点注册的工具）；
 #: * ``tool_search``（tool_search）—— **元工具**：它被延迟就等于"找不到工具的工具
-#:   自己也找不到"，整个分级披露当场失效。
+#:   自己也找不到"，整个分级披露当场失效；
+#: * ``tool_describe``（tool_describe）—— **延迟披露的另一半**：Tier 2 工具被压成
+#:   "名字 + 一句描述"之后，参数表只能从它这里取。它被延迟，被延迟的工具就再也拿不到
+#:   参数表（见 :func:`defer_specs`）。
 #:
 #: GUI 侧（`browser_*`）刻意**不在**这里：浏览器一族要 playwright + chromium，
 #: 装了才有意义，属于"按需披露"的典型，而不是"每轮必备"。
@@ -347,6 +360,7 @@ ALWAYS_EAGER: frozenset[str] = frozenset(
         "clarify",
         "ask_user",
         "tool_search",
+        "tool_describe",
     }
 )
 
@@ -389,6 +403,92 @@ def estimate_tokens(payload: Any) -> int:
     else:
         text = json.dumps(payload, ensure_ascii=False, default=str)
     return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+# ── 延迟披露（MATRIX 5.11 的"出路"）─────────────────────────────────────────
+#
+# 4,000 token 的**描述预算**在真实工具集上压不下去：参数 schema 是调用契约，删不得，
+# 而 38 个内置工具的 schema 地板本身就在 4,300 token 以上（见
+# ``app/tools.py::ToolRegistry.specs`` 的 docstring 与 `_trim_specs`）。
+#
+# 所以真正的出路不是继续压描述，而是**让 Tier 2 的工具根本不进首屏**：首屏只给
+# "名字 + 一句描述"，参数表等模型真的要调它时再取（`tool_describe`）。这不是省字，
+# 而是把"披露"从一个固定成本变成按需成本。
+#
+# 两条边界必须写死，否则延迟就是"悄悄摘工具"：
+# 1. **一个工具都不删**：被延迟的工具仍在清单里（名字 + 一句描述），模型看得见它存在；
+# 2. **Tier 0 永不延迟**（:data:`ALWAYS_EAGER`），尤其是 `tool_search` 与
+#    `tool_describe` —— 它们被延迟，"取回被延迟工具"这件事就没人能做了。
+
+#: 描述压成一句时的字符上限。与 ``app/tools.py::TRIMMED_DESCRIPTION_CHARS`` 同一个值，
+#: 但**不能 import 那个常量**：``app/tools.py`` 在模块顶层 ``from app import toolsets``，
+#: 反向 import 会成环。两边由测试钉住不许漂。
+TRIMMED_DESCRIPTION_CHARS = 80
+
+#: 被延迟的工具在描述后面挂的提示。**写在描述里而不是加自定义字段**：供应商对 tool
+#: 对象做严格校验，多一个 `x_orbit_deferred` 之类的键会被 400 拒掉；而描述本来就是
+#: 给人（模型）看的，多一句"参数怎么取"正是它该说的话。
+DEFERRED_HINT = "（参数用 tool_describe 取）"
+
+
+def one_line(description: str, limit: int = TRIMMED_DESCRIPTION_CHARS) -> str:
+    """把一段多句描述压成"第一句 + 省略号"。
+
+    取第一句而不是截前 N 个字符：Orbit 的工具描述都是"先一句是什么，再若干句什么时候
+    用"，截断正好砍在"什么时候用"上，留下半句没有主语的话。
+    """
+    text = " ".join(str(description or "").split())
+    if len(text) <= limit:
+        return text
+    for mark in ("。", "；", ". ", "！", "？"):
+        index = text.find(mark)
+        if 0 < index < limit:
+            return text[: index + len(mark)]
+    return text[: limit - 1] + "…"
+
+
+def defer_specs(
+    specs: Sequence[Mapping[str, Any]], *, tiers: Sequence[int] = (2,)
+) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """把指定 tier 的工具压成"名字 + 一句描述 + 空参数表"，返回 ``(新 specs, 被延迟的名字)``。
+
+    ``tiers`` 默认只延迟 Tier 2。**可以放宽到 ``(1, 2)``**：全量工具面（含 browser /
+    web / github）只延迟 Tier 2 仍可能超预算，那时再延迟 Tier 1 是唯一还能动的维度
+    （Tier 0 永不延迟，参数 schema 永不删）。
+
+    **不改入参**（返回新的 dict），因为调用方常常把同一份清单复用于"量预算"与"发请求"，
+    原地改会让日志里出现一份没发出去的清单。
+
+    参数表换成 ``{"type": "object", "properties": {}}`` 而不是删掉：OpenAI 系要求
+    `parameters.type == "object"`，删掉或给 `null` 会被判畸形 schema
+    （``app/tools.py::schema_problems`` 会拦）。空对象是唯一既合法、又"什么都没承诺"的
+    形状——模型看到它就知道"参数得另取"。
+    """
+    targets = {int(item) for item in tiers}
+    out: list[dict[str, Any]] = []
+    deferred: list[str] = []
+    for spec in specs:
+        body = spec.get("function")
+        name = str(body.get("name") or "") if isinstance(body, Mapping) else ""
+        if not isinstance(body, Mapping) or tier_of(name) not in targets:
+            out.append(dict(spec))
+            continue
+        description = str(body.get("description") or "")
+        short = one_line(description)
+        if DEFERRED_HINT not in short:
+            short = f"{short}{DEFERRED_HINT}"
+        out.append(
+            {
+                **spec,
+                "function": {
+                    **body,
+                    "description": short,
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        )
+        deferred.append(name)
+    return out, tuple(deferred)
 
 
 # ── 归属判定 ────────────────────────────────────────────────────────────────

@@ -163,6 +163,27 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         registry.register(WEB_TOOLS, app.state.web.execute)
         registry.browser = app.state.browser
         app.state.registry = registry
+        # 插件宿主（MATRIX 13.3）：把插件的工具与钩子真的接进宿主。
+        #
+        # 为什么必须在这里而不是更早：`PluginHost.start()` 要把工具推进 `ToolRegistry`、
+        # 钩子推进 `HookRegistry`，两者都得先存在。放在 registry 建好之后一行就够。
+        # 插件加载失败不该让整个服务起不来——`from_settings` 内部按插件隔离，
+        # 坏插件只进 `skipped`，所以这里不包 try。
+        # 钩子注册表是**进程级单例** `app.hooks.DEFAULT_HOOKS`：插件注册到 A、
+        # 节点发射到 B 的话，钩子会静默不生效（hooks.py 的注释已为这件事留过话）。
+        from app.hooks import DEFAULT_HOOKS
+        from app.plugin_host import PluginHost
+
+        app.state.plugin_host = PluginHost.from_settings(
+            settings, tool_sink=registry, hook_sink=DEFAULT_HOOKS
+        )
+        app.state.plugin_host.attach_to_app(app)
+        # 工具层额外的真实现（MATRIX 5.14）：`tool_describe` / `cron_job` 写在
+        # `app/tool_extra_impl.py`，而 `LOCAL_TOOLS` 是禁改区。不在这里注册的话，
+        # 覆盖率报告会说"覆盖了"，但模型看不见——**那种不一致比没做更糟**。
+        from app.tool_extra_impl import register_extra_tools
+
+        app.state.extra_tools = register_extra_tools(registry, data_dir=settings.data_dir)
         # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。
         from app.indexing import build_indexer
 

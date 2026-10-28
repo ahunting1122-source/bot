@@ -29,19 +29,41 @@ Orbit 的 dashboard 是 **React 前端 + FastAPI**（``app/main.py``），而 ``
    登记表让"插件注册了哪些页面、要挂在哪、还缺什么"变成可枚举、可断言的事实
    （``orbit plugins pages`` 就是它的消费者）。
 
-**真正挂载未实现**，:func:`describe` 里 ``state`` 恒为 ``partial``、``mounted`` 恒为
-``False``，并把"要挂上去还缺什么"逐条写出来。不假装能挂：一个"挂上了但 404"的
-dashboard 插件比一个"明确说没挂"的更难查。
+5. **真挂载**（:func:`build_router` / :func:`mount` / :func:`mount_into_app`，MATRIX 13.8
+   本轮补上）：把插件的 ``router`` 真正 include 进一个 ``fastapi.APIRouter``。
+
+## "不 import 插件代码"这条限制变了吗？没有，只是划了边界
+
+发现 / 校验 / 路由描述（1–4）**一律不 import 插件代码**：它们是报告路径，必须在"没有
+dashboard 依赖、也没有网络"的环境里跑得动，也不能因为一次 ``orbit plugins list`` 就
+执行第三方代码。**挂载**（5）则必须 import 才能拿到 ``router``——所以它被关在一个显式
+的、可审计的入口里（:func:`mount`），docstring 与日志都写明"这一步会执行第三方代码"。
+两条纪律并存的方式是：**默认路径永不 import，挂载只能从 mount() 进**。
+
+## 挂上之后仍然缺什么（都不隐瞒）
+
+- 挂载入口是给宿主用的（``main.py`` 一行 ``plugin_dashboard.mount_into_app(app)``），而
+  ``app/main.py`` 是禁改区，所以**仓库里目前没有任何地方调用它**：:func:`describe` 对
+  "没被挂过的插件"仍然报 ``mounted=False`` / ``state=partial``。
+- 前端侧边栏（React）还没有插件页注册表，``tab.position`` 目前只被报告、不被渲染。
+- ``/api/plugins/*`` 与核心 API 一样没有鉴权（本机单用户 loopback），插件路由不自带例外。
 """
 
 from __future__ import annotations
 
+import functools
+import importlib.util
+import inspect
 import json
+import logging
 import re
+import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("orbit.plugin_dashboard")
 
 #: 插件名正则（与 ``app/plugins.py::_NAME_RE`` 一致）：名字会变成 URL 前缀与目录名，
 #: 所以必须挡住分隔符与 ``..``。
@@ -579,31 +601,62 @@ def routes_for(plugin: DashboardManifest, *, source: str | None = None) -> tuple
 def describe(plugin: DashboardManifest) -> dict[str, Any]:
     """给 ``orbit dashboard`` / ``plugins show`` 用的一份**诚实**描述。
 
-    ``state`` 恒为 ``partial``、``mounted`` 恒为 ``False``：Orbit 没有插件路由挂载点。
-    这不是保守，是事实——``app/main.py`` 里没有 ``include_router`` 的插件分支。
+    ``mounted`` 不是常量，而是**查出来的**：:data:`MOUNTS` 记着哪些插件真的被
+    :func:`mount` 挂过、挂了几条路由。没挂过的插件报 ``state=partial`` /
+    ``mounted=False``，并把"要挂上去还缺什么"逐条列出来——一个"挂上了但 404"的
+    dashboard 插件比一个"明确说没挂"的更难查，所以宁可报未挂。
     """
     routes = routes_for(plugin)
-    return {
+    record = MOUNTS.get(plugin.name)
+    base: dict[str, Any] = {
         "plugin": plugin.name,
-        "state": "partial",
-        "mounted": False,
         "route_prefix": plugin.route_prefix,
         "frontend_path": plugin.frontend_path,
         "tab": plugin.tab.as_dict(),
         "assets": {"entry": plugin.entry, "css": plugin.css, "api": plugin.api},
         "routes": [item.as_dict() for item in routes],
-        "reason": (
-            "Orbit 的 dashboard 是 React 前端 + FastAPI（app/main.py），没有"
-            "『扫插件目录 → include_router』的挂载点，也没有插件页注册表；"
-            "本轮只做到发现 + 校验 + 路由描述"
-        ),
-        "needed": [
-            "app/main.py 增加插件路由挂载：include_router(router, prefix='/api/plugins/<name>')",
-            "前端侧边栏读 tab.position 生成入口（React 侧目前没有插件页注册表）",
-            "静态资源服务：把 dist/ 挂到 /plugins/<name>/ 并带 version 缓存键",
-            "鉴权：/api/plugins/* 必须与核心 API 走同一套 session token（不得自带例外）",
-        ],
     }
+    if record is not None:
+        base.update(
+            {
+                "state": "mounted",
+                "mounted": True,
+                "mounted_routes": len(record.routes),
+                "mounted_paths": [item.path for item in record.routes],
+                "reason": (
+                    f"已由 app/plugin_dashboard.py::mount() 挂载：{len(record.routes)} 条路由进 "
+                    f"{record.prefix}（这一步 import 了 {record.api}，即执行了插件代码）"
+                ),
+                "needed": [
+                    "前端侧边栏读 tab.position 生成入口（React 侧目前没有插件页注册表）",
+                    "静态资源服务：把 dist/ 挂到 /plugins/<name>/ 并带 version 缓存键",
+                    "鉴权：/api/plugins/* 必须与核心 API 走同一套 session token（不得自带例外）",
+                ],
+            }
+        )
+        return base
+    base.update(
+        {
+            "state": "partial",
+            "mounted": False,
+            "mounted_routes": 0,
+            "reason": (
+                "挂载入口已经有了（app/plugin_dashboard.py::mount() / build_router()），但 "
+                "app/main.py 是禁改区，没有地方 include 这个 router，所以本页面当前没有"
+                "被挂上；前端侧边栏也还没有插件页注册表"
+            ),
+            "needed": [
+                "app/main.py 增加一行：plugin_dashboard.mount_into_app(app)"
+                "（内部就是 include_router；必须在 mount('/', StaticFiles) 之前，"
+                "否则 /api/* 被静态站吃掉）",
+                "前端侧边栏读 tab.position 生成入口（React 侧目前没有插件页注册表）",
+                "静态资源服务：把 dist/ 挂到 /plugins/<name>/ 并带 version 缓存键",
+                "鉴权：/api/plugins/* 必须与核心 API 走同一套 session token（不得自带例外）",
+            ],
+        }
+    )
+    return base
+
 
 
 # ── 页面登记表：`ctx.register_dashboard_page` 的真实落点（MATRIX 13.4）───────
@@ -664,16 +717,26 @@ class PageRegistry:
         return out
 
     def as_dict(self) -> dict[str, Any]:
-        """结构化快照。``mounted`` 恒为 0：没有挂载点，这一点不许含糊。"""
+        """结构化快照。``mounted`` 是**数出来的**（查 :data:`MOUNTS`），不是常量。
+
+        为什么现算而不是用 :meth:`add` 时缓存的那份描述：登记发生在装配期，挂载发生在
+        装配之后，缓存的 ``mounted=False`` 会一直骗人。现算的代价是每次多读一遍源码
+        （``routes_for`` 走文件），而 ``orbit plugins pages`` 是低频命令。
+        """
+        pages = [describe(manifest) for manifest in self.manifests()]
+        mounted = [item["plugin"] for item in pages if item["mounted"]]
+        pending = [item["plugin"] for item in pages if not item["mounted"]]
         return {
-            "pages": [entry["described"] for entry in self._pages.values()],
+            "pages": pages,
             "routes": [item.as_dict() for item in self.routes()],
             "registered": len(self._pages),
-            "mounted": 0,
-            "pending_mount": list(self._pages),
+            "mounted": len(mounted),
+            "mounted_pages": mounted,
+            "pending_mount": pending,
             "reason": (
-                "登记表是真实落点（注册后 `orbit plugins pages` 立刻查得到），"
-                "但 app/main.py 没有 include_router 的插件分支，所以一条路由都没挂上"
+                "登记表是真实落点（注册后 `orbit plugins pages` 立刻查得到），挂载入口是 "
+                "app/plugin_dashboard.py::mount()；但 app/main.py 没有 include 这个 router"
+                "（禁改区），所以除 mount() 被显式调用过的插件外，一条路由都没挂上"
             ),
         }
 
@@ -683,6 +746,294 @@ class PageRegistry:
 #: **为什么是对象而不是模块级字典**：测试与热重载要能换一个干净的实例（``clear()``），
 #: 共享一个裸 dict 会让"上一个用例注册的页面"漏到下一个用例里。
 PAGES = PageRegistry()
+
+
+# ── 真挂载：build_router / mount / mount_into_app（MATRIX 13.8）─────────────
+
+
+@dataclass(frozen=True)
+class MountRecord:
+    """一次真实挂载的结果。``routes`` 是**真的**进了 APIRouter 的那几条。"""
+
+    plugin: str
+    prefix: str
+    api: str
+    routes: tuple[RouteSpec, ...] = ()
+    #: 被跳过的路由（例如 websocket：``try/except`` 包不住一条长连接）。
+    skipped: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "plugin": self.plugin,
+            "prefix": self.prefix,
+            "api": self.api,
+            "mounted_routes": len(self.routes),
+            "paths": [item.path for item in self.routes],
+            "skipped": list(self.skipped),
+        }
+
+
+class MountRegistry:
+    """进程级挂载登记表：谁真的被挂上了、挂了几条、谁被跳过了以及为什么。
+
+    **为什么要单独一张表**：:class:`PageRegistry` 记的是"插件声明了页面"（装配期的事），
+    这里记的是"路由真的进了 app"（挂载期的事）。两件事混在一个字段里，就会出现
+    "登记了 3 个页面所以显示已挂载 3 个"这种谎报——那正是本轮要修掉的那类问题。
+    """
+
+    def __init__(self) -> None:
+        self._mounted: dict[str, MountRecord] = {}
+        self._skipped: dict[str, str] = {}
+
+    def record(self, record: MountRecord) -> MountRecord:
+        self._mounted[record.plugin] = record
+        self._skipped.pop(record.plugin, None)
+        return record
+
+    def record_skip(self, plugin: str, reason: str) -> None:
+        """记一条"这个插件没挂上，因为……"。**不许静默跳过**：跳过也是事实。"""
+        self._mounted.pop(plugin, None)
+        self._skipped[plugin] = reason
+
+    def get(self, plugin: str) -> MountRecord | None:
+        return self._mounted.get(plugin)
+
+    def mounted_names(self) -> list[str]:
+        return list(self._mounted)
+
+    def skipped(self) -> dict[str, str]:
+        return dict(self._skipped)
+
+    def route_count(self) -> int:
+        return sum(len(record.routes) for record in self._mounted.values())
+
+    def clear(self) -> None:
+        """清空（测试隔离与热重载用）。"""
+        self._mounted.clear()
+        self._skipped.clear()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "mounted": [record.as_dict() for record in self._mounted.values()],
+            "skipped": self.skipped(),
+            "mounted_plugins": len(self._mounted),
+            "mounted_routes": self.route_count(),
+        }
+
+
+#: 进程级挂载登记表。:func:`describe` 与 :class:`PageRegistry.as_dict` 都读它，
+#: 所以"挂没挂上"永远只有一个答案。
+MOUNTS = MountRegistry()
+
+
+def _import_api(plugin: DashboardManifest) -> tuple[Any, str]:
+    """import 插件的 ``api`` 模块。返回 ``(module, 错误)``，**错误不抛给调用方**。
+
+    **这一步会执行第三方代码**，这是本模块唯一这样做的地方。三条纪律：
+
+    1. 只从 :func:`mount` / :func:`build_router` 进来（报告路径永不 import）；
+    2. 路径必须落在插件目录内（``resolve()`` 后比前缀，挡住 ``..`` 与符号链接）；
+    3. import 失败就地收口成一条字符串——一个坏插件不该让整个 dashboard 起不来。
+    """
+    if plugin.root is None or not plugin.api:
+        return None, "manifest 没有绑定插件目录或没声明 api"
+    root = plugin.root.resolve()
+    candidate = (root / plugin.api).resolve()
+    if not candidate.is_relative_to(root):
+        return None, f"api 指向插件目录之外：{plugin.api}"
+    if not candidate.is_file():
+        return None, f"api 模块不存在：{plugin.api}"
+    module_name = "orbit_dashboard_plugins." + re.sub(r"[^a-zA-Z0-9_]", "_", plugin.name)
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, candidate)
+        if spec is None or spec.loader is None:
+            return None, f"无法为 {candidate} 构造 import 规格"
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001 —— 第三方代码，任何异常都只能隔离
+        sys.modules.pop(module_name, None)
+        return None, f"{type(exc).__name__}: {exc}"
+    return module, ""
+
+
+def _isolate(endpoint: Any, plugin: str, route: str) -> Any:
+    """给一条插件路由的 endpoint 包一层 ``try/except``（隔离：插件炸不能拖垮 app）。
+
+    两个细节决定这个包装能不能用：
+
+    - ``functools.wraps`` 让 ``inspect.signature`` 透过 ``__wrapped__`` 看到**原始签名**，
+      所以 FastAPI 的参数/依赖解析与没包过时完全一致（否则插件路由的参数会全变成
+      ``*args, **kwargs``，请求体解析当场失效）；
+    - ``HTTPException`` 原样放行：插件主动抛 404/400 是正常语义，不该被改写成 500。
+    """
+
+    @functools.wraps(endpoint)
+    async def guarded(*args: Any, **kwargs: Any) -> Any:
+        try:
+            outcome = endpoint(*args, **kwargs)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            return outcome
+        except Exception as exc:
+            from fastapi import HTTPException
+
+            if isinstance(exc, HTTPException):
+                raise
+            message = f"插件 {plugin} 的路由 {route} 抛异常：{type(exc).__name__}: {exc}"
+            log.warning("%s", message)
+            raise HTTPException(500, message) from exc
+
+    return guarded
+
+
+def _mount_one(router: Any, plugin: DashboardManifest, plugin_router: Any) -> MountRecord:
+    """把一个插件的 ``router`` 里的每条路由搬到宿主 router 上，并逐条包隔离。
+
+    为什么重建路由而不是 ``include_router`` 一把梭：``include_router`` 没有"逐条包一层"
+    的钩子，而"插件抛异常只影响它自己那条"正是这一层要保证的事。重建的代价是丢掉了
+    ``response_model`` 之外的少数 APIRoute 参数（下面尽量原样带过去）。
+    """
+    from fastapi import APIRouter
+    from fastapi.routing import APIRoute
+
+    prefix = plugin.route_prefix.rstrip("/")
+    sub = APIRouter()
+    mounted: list[RouteSpec] = []
+    skipped: list[str] = []
+    for route in plugin_router.routes:
+        path = str(getattr(route, "path", "") or "")
+        if not isinstance(route, APIRoute):
+            # websocket / mount 之类的路由：try/except 包不住一条长连接，如实跳过。
+            skipped.append(f"{type(route).__name__} {path}（非 HTTP 路由，本层不包隔离）")
+            continue
+        methods = sorted(method for method in (route.methods or set()) if method != "HEAD")
+        if not methods:
+            skipped.append(f"{path}（没有 HTTP 方法声明）")
+            continue
+        guarded = _isolate(route.endpoint, plugin.name, path)
+        sub.add_api_route(
+            path=path,
+            endpoint=guarded,
+            methods=methods,
+            response_model=getattr(route, "response_model", None),
+            status_code=getattr(route, "status_code", None),
+            tags=list(getattr(route, "tags", None) or []),
+            dependencies=list(getattr(route, "dependencies", None) or []),
+            summary=getattr(route, "summary", None),
+            description=getattr(route, "description", None),
+            include_in_schema=bool(getattr(route, "include_in_schema", True)),
+        )
+        for method in methods:
+            mounted.append(
+                RouteSpec(
+                    method=method,
+                    path=_join(plugin.route_prefix, path),
+                    endpoint=plugin.api,
+                    source=f"@router.{method.lower()}('{path}')",
+                )
+            )
+    router.include_router(sub, prefix=prefix)
+    return MountRecord(
+        plugin=plugin.name,
+        prefix=prefix,
+        api=plugin.api,
+        routes=tuple(mounted),
+        skipped=tuple(skipped),
+    )
+
+
+def build_router(pages: PageRegistry | None = None) -> Any:
+    """把登记表里每个 dashboard 插件的 ``router`` **真正**挂进一个新 ``APIRouter``。
+
+    **这一步会 import 并执行第三方插件代码**（见 :func:`_import_api`），所以它只该从
+    :func:`mount` 这个显式入口被调用；:func:`routes_for` 那条"只读源码"的路径保持不变。
+
+    挂载前**必须**过 :func:`validate`：manifest 不完整、``api`` 里没有模块级 ``router``、
+    声明的静态资源不在盘上——任意一条不过就**不挂**（宁可 404，也不要挂上一个半成品：
+    一个"挂上了但每次 500"的插件比"明确说没挂"难查得多）。每条被拒的原因都进
+    :data:`MOUNTS` 的 ``skipped``，报告里看得见。
+    """
+    from fastapi import APIRouter
+
+    registry = PAGES if pages is None else pages
+    router = APIRouter()
+    for manifest in registry.manifests():
+        validation = validate(manifest)
+        if not validation.ok:
+            reasons = "；".join(
+                f"{item.field}: {item.detail}" for item in validation.issues if item.level == "error"
+            )
+            MOUNTS.record_skip(manifest.name, f"校验未通过，未挂载：{reasons}")
+            log.warning("dashboard 插件 %s 未通过校验，跳过挂载：%s", manifest.name, reasons)
+            continue
+        module, error = _import_api(manifest)
+        if error or module is None:
+            MOUNTS.record_skip(manifest.name, f"import 失败，未挂载：{error}")
+            log.warning("dashboard 插件 %s 的 api 模块 import 失败，跳过挂载：%s", manifest.name, error)
+            continue
+        plugin_router = getattr(module, "router", None)
+        if not isinstance(plugin_router, APIRouter):
+            MOUNTS.record_skip(
+                manifest.name,
+                f"api 模块里没有模块级 router（拿到的是 {type(plugin_router).__name__}），未挂载",
+            )
+            continue
+        try:
+            record = _mount_one(router, manifest, plugin_router)
+        except Exception as exc:  # noqa: BLE001 —— 一个插件的路由形状再怪也不该拖垮别的
+            MOUNTS.record_skip(manifest.name, f"挂载时抛异常，未挂载：{type(exc).__name__}: {exc}")
+            log.warning("dashboard 插件 %s 挂载失败：%s", manifest.name, exc)
+            continue
+        MOUNTS.record(record)
+        log.info(
+            "dashboard 插件 %s 已挂载 %d 条路由到 %s", manifest.name, len(record.routes), record.prefix
+        )
+    return router
+
+
+def mount(pages: PageRegistry | None = None, *, audit: bool = True) -> dict[str, Any]:
+    """**显式的、可审计的挂载入口**：``build_router`` + 一份报告。
+
+    **调用它等于允许执行插件代码**——所以它单独存在，并且默认在日志里逐条点名
+    "即将 import 谁、从哪个文件"。审计需要的是"谁在什么时候放行了什么"，不是一句
+    "挂载完成"。
+    """
+    registry = PAGES if pages is None else pages
+    if audit:
+        for manifest in registry.manifests():
+            log.warning(
+                "挂载 dashboard 插件 %s：即将 import %s（这一步会执行第三方代码）",
+                manifest.name,
+                manifest.api or "(未声明 api)",
+            )
+    router = build_router(registry)
+    report = MOUNTS.as_dict()
+    report["router"] = router
+    return report
+
+
+def mount_into_app(app: Any, pages: PageRegistry | None = None) -> dict[str, Any]:
+    """把插件路由挂到一个 FastAPI app 上——``app/main.py`` 需要的**那一行**。
+
+    ``main.py`` 是禁改区，所以本函数目前没有生产调用方；一旦接线，写法是::
+
+        from app import plugin_dashboard
+        plugin_dashboard.mount_into_app(app)   # 必须在 app.mount("/", StaticFiles) 之前
+
+    "必须在静态站之前"不是风格问题：``app.mount("/")`` 会把 ``/api/*`` 一起吃掉，
+    之后 include 的路由永远收不到请求。
+    """
+    report = mount(pages)
+    router = report.pop("router", None)
+    include = getattr(app, "include_router", None)
+    if router is not None and callable(include):
+        include(router)
+        report["included"] = True
+    else:
+        report["included"] = False
+        report["note"] = "目标对象没有 include_router，router 只被构造、没有挂到 app 上"
+    return report
 
 
 # ── 小工具 ──────────────────────────────────────────────────────────────────
@@ -697,6 +1048,7 @@ __all__ = [
     "API_PREFIX",
     "DASHBOARD_FIELDS",
     "EXCLUDED_DIRS",
+    "MOUNTS",
     "OPTIONAL_DASHBOARD_FIELDS",
     "PAGES",
     "DashboardDiscovery",
@@ -705,12 +1057,17 @@ __all__ = [
     "DashboardManifest",
     "DashboardTab",
     "DashboardValidation",
+    "MountRecord",
+    "MountRegistry",
     "PageRegistry",
     "RouteSpec",
+    "build_router",
     "describe",
     "discover",
     "load_manifest",
     "manifest_names",
+    "mount",
+    "mount_into_app",
     "parse_manifest",
     "routes_for",
     "validate",

@@ -272,6 +272,27 @@ class HookRegistry:
         """列出某个事件上挂着的 hook 名（按执行顺序）。"""
         return [entry.name for entry in self._hooks.get(normalize_event(event), [])]
 
+    def entries(self, event: str | None = None) -> list[tuple[str, Hook, int]]:
+        """列出某事件（``None`` = 全部事件）上的 ``(事件, 函数, 优先级)``，按执行顺序。
+
+        **为什么要这个公开访问器**：宿主把插件上下文创建在注册表 A 上、而真正的发射点
+        读的是注册表 B 时（``app/plugin_host.py::PluginHost`` 的"晚到接线"场景），唯一
+        正确的补救是**把已注册的 hook 搬到 B**。没有它就只能读私有 ``_hooks``，或者重新
+        import 一遍插件——后者等于再执行一次第三方代码，代价大得多。
+
+        返回的是**函数本身**而不是名字：搬家要按函数身份去重（同名函数可能是两个不同的
+        闭包），名字在这里只能用于展示。
+        """
+        if event is None:
+            names = [name for name in ALL_EVENTS if self._hooks.get(name)]
+        else:
+            names = [normalize_event(event)]
+        out: list[tuple[str, Hook, int]] = []
+        for name in names:
+            for entry in self._hooks.get(name, []):
+                out.append((name, entry.fn, entry.priority))
+        return out
+
     def events(self) -> list[str]:
         """当前有 hook 的事件（按事件表顺序，便于稳定输出）。"""
         return [event for event in ALL_EVENTS if self._hooks.get(event)]
