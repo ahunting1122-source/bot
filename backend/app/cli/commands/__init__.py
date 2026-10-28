@@ -89,6 +89,53 @@ from app.cli.commands.memory_extra2 import rebind_profile_options  # noqa: E402
 
 rebind_profile_options()
 
+
+# ── 表组装完之后的第三处修正：重算**纯分组节点**的状态 ─────────────────────
+#
+# `_table.Spec.build()` 的聚合逻辑本身是对的（子全 done → 父 done），但它**跑得太早**：
+# `skill_extra3` / `session_extra3` / `peer_extra` 这些模块是在表组装**之后**才把
+# handler 挂到已有子节点上的（它们自己包了 `register_specs`）。所以：
+#
+#   组装时子节点是 todo → 父节点算成 todo/partial → 之后子节点变 done，
+#   **父节点却停在旧状态上**。
+#
+# 实测有 6 个父节点中招（`profile` 24 个子全 done、`sessions` 27 个全 done、
+# `cron` 16 个全 done，父节点却都报 `partial`）——**完成度被系统性低估**。
+# 这与 `Spec.build` 里那段「`skin` 就是这么被低估的」注释是同一个病，只是
+# 那次是"一律标 todo"，这次是"算完之后才挂载"。
+def recompute_group_states() -> list[str]:
+    """按子节点状态重算纯分组节点的状态，返回被改动的节点名。
+
+    **只动"自己没有 handler 但有子命令"的节点**——有 handler 的节点它的状态是
+    自己挣来的（`claimed → done`），不能被子节点覆盖。
+    """
+    from app.cli.spec import REGISTRY as _REG
+
+    changed: list[str] = []
+
+    def walk(command) -> None:
+        for sub in command.subcommands:
+            walk(sub)
+        if not command.subcommands or command.handler is not None:
+            return
+        states = {sub.state for sub in command.subcommands}
+        if states == {"done"}:
+            want = "done"
+        elif states & {"done", "partial"}:
+            want = "partial"
+        else:
+            want = "todo"
+        if want != command.state:
+            changed.append(f"{command.name}: {command.state} → {want}")
+            command.state = want
+
+    for top in _REG.all():
+        walk(top)
+    return changed
+
+
+recompute_group_states()
+
 __all__ = [
     "acp",
     "approvals",

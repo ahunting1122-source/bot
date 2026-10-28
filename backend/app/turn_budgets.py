@@ -22,6 +22,12 @@ Hermes 有三个迭代上限，而它们的数值**不是**一回事：
 
 `budget.py` 管的是**单轮之内**的资源（结果大小分级、token 预算、预览裁剪）；
 这里管的是**跨轮**的迭代次数。两者叠加使用，但互不扣减。
+
+
+**与 `app/budget.py::TurnBudget` 的区别（这个命名陷阱害过人）**：
+`budget.TurnBudget` 是**工具结果字符累加器**（管单次输出多大），生产里在用；
+本模块的 `IterationBudgets` 是**迭代次数上限**（一个任务最多走几轮 think→execute）。
+两者名字曾经几乎一样、一个在用一个是死配置——**改名就是为了不再骗人**。
 """
 
 from __future__ import annotations
@@ -40,7 +46,7 @@ DESKTOP_TURNS = 500
 
 
 @dataclass(frozen=True)
-class TurnBudgets:
+class IterationBudgets:
     """一次运行实际生效的三个上限 + 它们各自的来源。"""
 
     parent_turns: int
@@ -85,7 +91,7 @@ def _positive(value: Any) -> int | None:
     return number if number > 0 else None
 
 
-def resolve(settings: Any = None) -> TurnBudgets:
+def resolve(settings: Any = None) -> IterationBudgets:
     """按「配置 → 默认」解析两个运行预算。
 
     支持两种配置位置（都读，前者优先）：
@@ -113,7 +119,7 @@ def resolve(settings: Any = None) -> TurnBudgets:
         if found is not None:
             child, child_source = found, "settings.max_iterations"
 
-    return TurnBudgets(
+    return IterationBudgets(
         parent_turns=parent,
         child_iterations=child,
         parent_source=parent_source,
@@ -139,7 +145,7 @@ def describe(settings: Any = None) -> str:
 __all__ = [
     "CONFIG_FALLBACK_ITERATIONS",
     "DESKTOP_TURNS",
-    "TurnBudgets",
+    "IterationBudgets",
     "describe",
     "resolve",
 ]

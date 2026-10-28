@@ -153,6 +153,28 @@ WIRING_POINTS: dict[str, str] = {
 #: 全部可用事件（实证 17 + 推断 2）。
 ALL_EVENTS: tuple[str, ...] = HOOK_EVENTS + INFERRED_EVENTS
 
+#: **当前真有发射点**的事件。其余事件订阅了**不会触发**（MATRIX 13.5）。
+#:
+#: 为什么把它和 `HOOK_EVENTS` 并列：**清单里有名字 = 承诺它会触发**。
+#: 只写「17 个里 4 个能用」这种散文，第三方开发者仍不知道**哪 4 个**能用；
+#: 这个集合是可编程的契约——插件可以在注册前先 `if ev in EMITTED_EVENTS`。
+#:
+#: 目前 4 个发射点都在 `app/graph/nodes.py`：
+#:   - `pre_llm_call` / `post_llm_call`（`ask_model` 每次尝试）
+#:   - `pre_tool_call` / `post_tool_call`（`run_tool` 每次调用）
+#:
+#: 剩下 13 个还没有发射点，落点各自明确：审批前后在 `tools.py::_approve_command`、
+#: 会话起止在 `agent.py`、压缩前后在 `compaction`、子 agent 在 `delegate`、
+#: API 请求前后在 `nodes.stream_model`、`transform_tool_result` 在 `digest`。
+EMITTED_EVENTS = frozenset(
+    {
+        "pre_llm_call",
+        "post_llm_call",
+        "pre_tool_call",
+        "post_tool_call",
+    }
+)
+
 
 class UnknownHookEvent(KeyError):
     """注册/发射了一个不在契约里的事件名。
@@ -241,6 +263,17 @@ class HookRegistry:
         name = normalize_event(event)
         if not callable(fn):
             raise TypeError(f"hook 必须是可调用对象：{fn!r}")
+        # 订阅一个**当前没有发射点**的事件时响亮提示（MATRIX 13.5）。
+        # **注册一个永远不会被调用的回调，比不注册更糟**——它让插件作者以为接上了。
+        # 用 warning 不用抛错：钩子是旁路，抛错会让整个插件装不上；
+        # 而且将来接上第 5 个发射点时，不该需要改所有订阅方。
+        if name in HOOK_EVENTS and name not in EMITTED_EVENTS:
+            log.warning(
+                "hook 事件 %r 当前**没有发射点**，订阅了也不会触发。"
+                "真有发射点的事件见 app.hooks.EMITTED_EVENTS：%s",
+                name,
+                sorted(EMITTED_EVENTS),
+            )
         self._counter += 1
         entry = _Entry(fn=fn, priority=int(priority), order=self._counter, name=_hook_name(fn))
         bucket = self._hooks.setdefault(name, [])

@@ -286,6 +286,10 @@ def _apply_flags(context: Context, args) -> dict[str, Any]:
         if int(max_turns) <= 0:
             raise CliError(f"--max-turns 必须是正整数：{max_turns}")
         state["max_turns"] = int(max_turns)
+        # **必须写进 settings**：`policies.budget.start()` 是通过
+        # `turn_budgets.resolve(settings)` 取轮次上限的，只放进 `state` 的话
+        # 那个值永远到不了 budget——这正是本轮审计查出的 2.2 虚报的根因。
+        updates["max_turns"] = int(max_turns)
         state["budgets"] = resolve_budgets(context.settings).to_dict()
     run_budget = getattr(args, "run_budget", None)
     if run_budget:

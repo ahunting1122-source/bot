@@ -557,6 +557,10 @@ class Nodes:
             "waiting": {},
             "answer": {},
             "plan": plan,
+            # 轮次计数（MATRIX 2.2）：`actions` 数工具调用，**这一条数循环次数**。
+            # 两者必须分开：一个"每轮只思考、不调工具"的循环 `actions` 永远是 0，
+            # 只靠 `max_actions` 拦不住它，任务会一直转下去。
+            "turns": int(state.get("turns") or 0) + 1,
         }
         if meta_updates:
             # 恢复旧 checkpoint 时补冻的前缀要写回状态，否则每轮 think 都会重算一次。

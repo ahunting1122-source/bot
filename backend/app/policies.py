@@ -406,9 +406,17 @@ class DefaultBudgetPolicy:
     default_max_tokens = 200_000
 
     def start(self, settings) -> dict:
+        # `max_turns`（MATRIX 2.2）：一个任务最多走几个 think→execute 循环。
+        # **这条之前是虚的**——`turn_budgets.resolve()` 能算出父 90 / 子 50，
+        # `--max-turns` 也把值写进 state，但图里没有任何地方读它，所以一个不收敛的
+        # 工具循环会一直跑下去。现在把它放进 budget，由 `check()` 硬停。
+        from app.turn_budgets import resolve as resolve_turn_budgets
+
+        turns = resolve_turn_budgets(settings)
         return {
             "max_actions": int(getattr(settings, "max_actions", 40) or 40),
             "used_actions": 0,
+            "max_turns": int(turns.parent_turns),
             "max_tokens": self.default_max_tokens,
             "token_estimate": 0,
             # 时间上限从 settings 读：默认 360s（6 分钟），ORBIT_MAX_SECONDS 可覆盖。
@@ -431,12 +439,20 @@ class DefaultBudgetPolicy:
         limit = int(budget.get("max_actions") or 0)
         if limit and int(state.get("actions") or 0) >= limit:
             return "max_actions"
+        # 轮次上限（MATRIX 2.2）：`actions` 数的是工具调用，`steps` 数的是循环次数。
+        # 两者都要有上限——只用 `max_actions` 的话，一个"每轮只思考不调工具"的循环
+        # 永远不会触发它，任务会一直转下去。
+        max_turns = int(budget.get("max_turns") or 0)
+        if max_turns:
+            used_turns = int(state.get("turns") or 0)
+            if used_turns >= max_turns:
+                return "max_turns"
         max_tokens = int(budget.get("max_tokens") or 0)
         if max_tokens and self.total_tokens(budget) >= max_tokens:
             return "max_tokens"
         # 时间上限是**软闸**：到点不硬停，而是标记"转入后台"继续跑（见 `budget` 节点）。
-        # 硬停只剩动作数与 token 两类——时间交给 `backgrounded` 标志与 `background_report`
-        # 定时进度事件去处理，长线任务不再被一个墙钟一刀切。
+        # 硬停只剩动作数 / 轮次 / token 三类——时间交给 `backgrounded` 标志与
+        # `background_report` 定时进度事件去处理，长线任务不再被一个墙钟一刀切。
         return ""
 
 
