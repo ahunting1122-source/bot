@@ -747,3 +747,79 @@ def as_dict(values: Mapping[str, MetricValue]) -> dict[str, Any]:
                 entry["missing"] = dict(value.missing)
         payload[metric.name] = entry
     return payload
+
+
+def _schema_value(value: MetricValue) -> float:
+    """把一次采集压成 schema v2 要求的**单个数字**。
+
+    v2 规定 `available` 为真时必须有数字 `value`，而本模块的采集结果里
+    histogram 是 `count`/`total`/`buckets`、counter/gauge 是 `samples`。
+    所以这里做一次**显式的**映射，而不是让校验器去猜：
+
+    - histogram → **观测次数 `count`**（"有多少次"永远是个有意义的标量）；
+      耗时总和与分桶另放在 `sum` / `buckets` 里，不丢。
+    - 其余 → `samples` 求和（无 label 时就是那个值；有 label 时是聚合，
+      逐 label 明细另放在 `samples` 里）。
+    """
+    if value.metric.kind == "histogram":
+        return float(value.count)
+    return float(sum(value.samples.values()))
+
+
+def as_schema_payload(values: Mapping[str, MetricValue]) -> dict[str, Any]:
+    """``shared_metrics`` schema **v2** 载荷——**生产方真的按契约产出**（MATRIX 15.4）。
+
+    ## 为什么需要这个函数
+
+    `app/metrics_schema.py` 的 v1/v2 双版本、`schema_version` 字段、单向迁移与
+    校验器**都是真的**（有测试）。但**唯一 importer 是 `orbit metrics schema`
+    这条报告命令**——`app/metrics.py` 自己**不用 schema**。
+    于是校验器校验的是**用户喂进来的任意 JSON**，而不是本产品产出的东西：
+    **一个只有校验器、没有产出方的契约，等于没有契约。**
+
+    ## 关键点：产出时**当场校验**
+
+    `validate()` 不是给用户看的门，是**给生产方自己的门**：字段名写错、类型漂移、
+    `available` 为真却没有数字 `value`——这些都会在这里**立刻抛**，
+    而不是等到某天有人拿 `--json` 的输出喂进校验器才发现。
+    **产出方自校验，是让契约活着的唯一方式。**
+
+    ## 边界
+
+    校验通过**只证明形状对**，不证明数值对——数值的正确性由 `collect()` 的测试管。
+    这两件事不要混。
+    """
+    from app import metrics_schema
+
+    metrics: dict[str, Any] = {}
+    for metric in CATALOG:
+        value = values.get(metric.name)
+        if value is None:
+            continue
+        entry: dict[str, Any] = {
+            "available": value.available,
+            "source": metric.source,
+            "help": metric.help,
+        }
+        if value.available:
+            entry["value"] = _schema_value(value)
+            # 明细照带：schema 不禁止额外键，而丢掉它们会让这个载荷比 `as_dict` 更难用
+            if metric.kind == "histogram":
+                entry["sum"] = float(value.total)
+                entry["buckets"] = [
+                    {"le": float(bound), "count": float(count)} for bound, count in value.buckets
+                ]
+            else:
+                entry["samples"] = {key: float(number) for key, number in value.samples.items()}
+        else:
+            # 不可用时**必须**有说明——空着等于没说（schema 的硬要求）
+            entry["reason"] = value.reason or "无数据源"
+        metrics[metric.name] = entry
+
+    payload: dict[str, Any] = {
+        "schema_version": metrics_schema.CURRENT_VERSION,
+        "metrics": metrics,
+    }
+    # **产出方自校验**：契约一旦漂移，这里立刻炸，而不是等下游发现
+    metrics_schema.validate(payload)
+    return payload

@@ -370,7 +370,9 @@ class AgentRunner:
         self._task_platform[task_id] = str(platform or "cli")
         job = self.current.get(task_id)
         if job is not None and not job.done():
-            deferred = asyncio.create_task(self._enqueue_after(job, task_id, resume))
+            deferred = asyncio.create_task(
+                self._enqueue_after(job, task_id, resume, self._task_platform.get(task_id, platform))
+            )
             self._deferred.add(deferred)
             deferred.add_done_callback(self._deferred.discard)
             return
@@ -382,10 +384,30 @@ class AgentRunner:
         self.queued.add(task_id)
         await self.queue.put(task_id)
 
-    async def _enqueue_after(self, job: asyncio.Task, task_id: str, resume: dict | None):
-        """等当前 job 收尾后再入队。`job.done()` 之后不再判 `current`，否则会自激。"""
+    async def _enqueue_after(
+        self, job: asyncio.Task, task_id: str, resume: dict | None, platform: str = "cli"
+    ):
+        """等当前 job 收尾后再入队。`job.done()` 之后不再判 `current`，否则会自激。
+
+        **`platform` 必须由调用方捕获后传回来**（MATRIX 6.4 的一个真 bug 修在这里）。
+
+        为什么不能在这个函数里读 `self._task_platform[task_id]`：入队路径的时序是
+
+        1. `enqueue(platform="api")` **最前面**记下 `"api"`；
+        2. 发现任务正在跑 → 走延后分支 → 本函数等它收尾；
+        3. 原 job 收尾时 `finally` 里 `pop` 掉记录；
+        4. **本函数才重新入队**——此时记录已经被删，读回来只能是默认 `cli`。
+
+        所以必须在**第 2 步（记录还在的时候）**把平台捕获进闭包/参数里。
+        **「把信息放在最前面」解决的是「早退时丢信息」，不解决「重新入队时用什么值」
+        ——两个问题看起来是一个，实际是两步。**
+
+        后果不是理论上的：**延后入队正是 `WAITING_USER` 恢复的主路径**——
+        用户在 API 上回答澄清 → 恢复后平台被降级成 `cli` → 工具集跟着换掉，
+        而且**发生在任务中途**。
+        """
         await asyncio.gather(job, return_exceptions=True)
-        await self.enqueue(task_id, resume)
+        await self.enqueue(task_id, resume, platform=platform)
 
     async def cancel(self, task_id: str):
         job = self.current.get(task_id)

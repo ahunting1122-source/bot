@@ -447,7 +447,23 @@ def run_metrics(context: Context, args) -> int:
     else:
         context.out("Prometheus 指标（无数据源的指标如实标注，不填 0）：")
         context.table(("指标", "类型/单位", "值", "来源"), metrics_module.summarize(values))
-    context.emit({"ok": True, "metrics": metrics_module.as_dict(values)})
+    # `--json` 载荷走 **shared_metrics schema v2**（MATRIX 15.4）。
+    #
+    # 之前 `as_dict()` 的载荷是自造形状：`metrics_schema.py` 的 v1/v2 与校验器
+    # 都写好了、也有测试，但**唯一 importer 是 `orbit metrics schema` 这条报告命令**
+    # ——`metrics.py` 自己不用 schema。于是校验器校验的是**用户喂进来的任意 JSON**，
+    # 不是本产品产出的东西：**只有校验器、没有产出方的契约，等于没有契约**。
+    #
+    # 现在产出方自校验（`as_schema_payload` 里当场 `validate()`），契约一旦漂移
+    # 就立刻炸，而不是等下游发现。
+    payload = metrics_module.as_schema_payload(values)
+    context.emit(
+        {
+            "ok": True,
+            "schema_version": payload["schema_version"],
+            "metrics": payload["metrics"],
+        }
+    )
     return 0
 
 
