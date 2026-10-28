@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 83 · 🟡 37 · ⬜ 61（完成度 45.9%，截至 W7/W8/W11/W12 收口）
+条目合计 **181**。当前：✅ 85 · 🟡 37 · ⬜ 59（完成度 47.0%，截至 W13/W14 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -150,7 +150,7 @@
 | 8.5 | resources → RAG 索引 | 【实证】同上 | W7 | ✅ | `app/mcp_resources.py` 的 `ResourceIndexer`：复用现有 RAG（`FtsIndexer` / `FtsRetriever`），按列表签名增量（**所有信号拼起来**，不取第一个就返回）；二进制资源跳过并记原因；消失的 URI 连带失效；`tests/test_mcp_resources.py` |
 | 8.6 | 心跳 + 失败宽限期（不因单次失败摘工具） | 【实证】`mcp_stdio_watchdog.py`；`_CHECK_FN_FAILURE_GRACE_SECONDS` | W7 | ✅ | `app/mcp.py` 每服务心跳 + `HEARTBEAT_GRACE_SECONDS` 宽限期（探测抖动不得静默摘掉整个 toolset）+ 指数退避重连 |
 | 8.7 | schema 缓存（`mcp_schema_cache.py`） | 【实证】调研 05 | W7 | ⬜ | MCP schema 缓存未做（每次连接重新拉工具 schema） |
-| 8.8 | `orbit mcp {add,list,remove,test,login,reauth,configure,catalog,install,picker,serve}` | 【实证】`_raw/sub/mcp__*.txt`（11 条） | W7 | 🟡 | `orbit mcp` 17 条里实现 14 条（`add` / `list` / `remove` / `test` / `enable` / `disable` / `reload` / `serve` / `resources` / `prompts` / `auth *` / `configure` / `catalog` 等）；`login` / `reauth` 如实报未实现 |
+| 8.8 | `orbit mcp {add,list,remove,test,login,reauth,configure,catalog,install,picker,serve}` | 【实证】`_raw/sub/mcp__*.txt`（11 条） | W7 | 🟡 | `orbit mcp` 17 条里实现 **14** 条（`serve` / `add` / `remove` / `list` / `test` / `configure` / `login` / `reauth` / `auth` / `enable` / `disable` / `reload` / `resources` / `prompts`）；**未实现的是 `picker` / `catalog` / `install`**（`orbit mcp catalog` → exit 3）。`login` / `reauth` 有真 handler，但它们内部**如实报 OAuth 流程未实现**并给手工通道 `auth set`（见 8.3） |
 | 8.9 | 把 Orbit 自己暴露成 MCP 服务（`mcp serve`） | 【实证】`_raw/sub/mcp__serve.txt` | W7 | ✅ | `app/mcp_server.py`：`to_mcp_tools(specs)` 是纯函数（测试只测转换，不真起进程）；`orbit mcp serve` 走 stdio server |
 | 8.10 | optional-mcps 预置目录（63 个服务模板） | 【实证】`_internal/optional-mcps/` | W7 | ⬜ | optional-mcps 预置目录（63 个服务模板）未做 |
 
@@ -179,7 +179,7 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | 🟡 | `app/session_plane.py::timeline` 把 **plane / messages / task_events** 三个来源合并成一条按时间排序的时间线——「统一读视图」成立；但**不是**「同库同表」：plane 是 JSONL（`storage.py` 与 alembic 是禁改区，且事件只追加的语义用日志比用表更直接） |
+| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | 🟡 | `app/session_plane.py::timeline` 把 **plane / messages / task_events** 三个来源合并成一条按时间排序的时间线——**读侧**的统一成立且有测试；**但写侧未统一**：目前只有 `delivery_ledger` 与 plane CLI 在写 plane，`cron` / `gateway` / `agent` / `graph/nodes` / `main` 对它的引用数**全是 0**。另外也不是「同库同表」（plane 走 JSONL，因为 `storage.py` 与 alembic 是禁改区）。→ 变 ✅ 的路径：把 cron / gateway / agent 的会话写入也过 plane |
 | 10.2 | 消息追加日志 + `id` AUTOINCREMENT 作游标（不复用） | 【实证】调研 03 §5（max id 14,597 > 行数 14,595） | W8 | ✅ | `SessionPlane.append` 写 `<data>/sessions/plane.jsonl`，`id` 单调递增且**重启后能续上**（进程内锁 + 文件尾读回，不靠内存计数器）；`since(cursor)` 按 **id 游标**增量读（不按时间戳——同毫秒内顺序会乱） |
 | 10.3 | 归档不删（`active=0 AND compacted=1`） | 【实证】调研 03 §3（2,101 条） | W8 | ⬜ | — |
 | 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`）；压缩阈值 **0.50** / 目标比 **0.20**；产物前缀 `[CONTEXT COMPACTION` / `[CONTEXT SUMMARY]:`；实测 529k→199k、503k→191k（≈37.6%） | 【实证】调研 09 §6、03 §3 | W8 | 🟡 | `SessionPlane.compress(child, parent)` 记 `parent_session_id` + `compressed_at` + `reason`；`lineage()` 沿父链上溯并**检测循环引用**（脏数据不许让命令挂死）。**缺**：压缩阈值 0.50 / 目标 0.20 与主循环的接线（阈值判断在 `graph`，本轮没接） |
@@ -244,13 +244,13 @@
 | 14.1 | 审批三态 `off` / `smart` / `manual` | 【实证】`hermes approvals test` 三态退出码 0/2/3 | W13 | 🟡 | `app/approvals.py` `APPROVAL_MODES`；`orbit approvals mode` 可切换。**缺交互式审批通道**：Orbit 没有"弹窗问一句"的 UI，`smart`/`manual` 的语义是"拒绝并让人自己去做"，与 Hermes 的 ask 不完全等价 |
 | 14.2 | 硬地板无条件拦（18 条：`rm -rf /`、mkfs、`dd of=/dev/sd*`、fork bomb、`kill -1`、shutdown/reboot、diskpart、vssadmin、bcdedit…） | 【实证】`app/approvals.py` `HARDLINE_PATTERNS` | W13 | ✅ | `tests/test_approvals.py::test_hardline_*`（11 条样本 × 3 种模式）。**边界**：完全访问档默认不守硬地板（`approvals.hardline_in_machine`，默认关）——尊重 Orbit 既有产品决策，见 `README` 与 `test_file_scope.py` |
 | 14.3 | 密钥脱敏（`security.redact_secrets` 默认开） | 【实证】config.yaml 注释 | W13 | ✅ | `app/redact.py` 16 类模式 + `redact_obj` 递归；**已接线到两条独立出口**：① `tools.as_tool_text`（模型侧唯一漏斗，先脱敏 dict 再序列化，避免字符串替换破坏 JSON 结构）② `policies.DefaultToolResultPolicy.record`（落库侧）。`tests/test_redact_wiring.py` 6 条锁死（含「非密钥内容没被动」的假阳性回归） |
-| 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | ⬜ | tirith 执行前扫描未做 |
+| 14.4 | `tirith` 执行前扫描（`tirith_*` 配置项） | 【实证】config.yaml 注释；前作"已被上游移除"需复核 | W13 | 🟡 | `app/tirith.py`：**组合级**执行前扫描，16 条规则（`curl|sh` / `base64 -d|sh` / 下载→chmod→执行 / `find -exec rm` / `xargs rm` / 命令替换里的破坏操作 / 清历史 / 清日志 / 读凭证 / `env|curl` / 反弹 shell / rc 持久化 / 递归 777 / DNS 外传 / curl 上传），四级严重度，阈值可配（`tirith_enabled` / `tirith_block_severity`，默认开启、拦到 high）；`tests/test_tirith.py` 38 条（含 11 条假阳性回归）。**分工**：`approvals` 判单条命令的危险模式，tirith 判跨管道/跨 `&&` 的组合——两者是先后两道，不是替代。**未接线**：还没插进 `tools.run_command` 的执行路径 |
 | 14.5 | OSV 供应链审计（`security audit`） | 【实证】`tools/osv_check.py`；`_raw/sub/security__audit.txt` | W13 | 🟡 | `app/security_audit.py`：venv / 插件 / MCP 三项审计；**无网络时如实报"缓存缺失，无法审计"，不许输出"未发现漏洞"**（有断言）。真实 OSV 数据需要联网刷新 |
 | 14.6 | 外部密钥源（Bitwarden / 1Password） | 【实证】`_raw/sub3/secrets-*__*.txt` | W13 | ✅ | `app/secrets.py` 五个源：keyring / env / file（明文在 `describe()` 里明确警示）/ Bitwarden / 1Password（未安装则 `available()=False` + 安装提示） |
 | 14.7 | 系统 keyring 存密钥（不落配置文件） | Orbit 已有 | W1 | ✅ | `backend/app/connectors.py` 的 `ConnectorConfig.service`；CLI 侧 `app/cli/context.py` 的 `Context.hydrate` |
 | 14.8 | `path_security` / `url_safety` / `website_policy` / `threat_patterns` | 【实证】调研 02 §4 | W13 | 🟡 | `url_safety` 已在 `app/web.py`（本机/内网/元数据/重定向再审）；`path_security` 由 `tools.resolve_path` 承担；**`website_policy` / `threat_patterns` 未独立实现** |
 | 14.9 | `orbit approvals {test,suggest,allow,list-rules,mode}`（`test` 三态退出码、`suggest` 从历史挖可加白模式且破坏类永不提议） | 【实证】`_raw/sub/approvals__*.txt` | W13 | ✅ | `app/cli/commands/approvals.py`；`tests/test_approvals.py::test_cli_*` |
-| 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ⬜ | `orbit hooks` CLI 未做（`app/hooks.py` 有注册表但没有命令面） |
+| 14.10 | `orbit hooks {list,test,revoke,doctor}`（shell 脚本 hook） | 【实证】`_raw/sub/hooks__*.txt` | W13 | ✅ | Hermes 的 4 个子命令逐条接管：`hooks list` / `hooks test <event> [--for-tool] [--payload-file]` / `hooks revoke <command>` / `hooks doctor`；实现在 `app/shell_hooks.py`（进程外 shell hook，与 `app/hooks.py` 的进程内注册表分工明确）+ `app/cli/commands/hooks.py`。管理面（`add`/`remove`/`trust`/`enable`/`disable`/`events`）另放 `orbit shellhooks`，**不往 `hooks` 里塞**——Hermes 的 `hooks` 是查看与排障，加写操作会让 `--help` 与基准对不上。**安全基石**：新 hook 一律 `trusted=False` 不执行，授权只能靠一次显式 `shellhooks trust`；hook 超时/崩溃/非零退出**绝不抛异常**（旁路不能变成关键路径）。`tests/test_shell_hooks.py` 22 条（含「未授权不执行」「失败不抛」「一个失败不影响其它」） |
 
 ## L15 可观测性层
 
