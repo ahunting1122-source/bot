@@ -16,7 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import approvals, budget, code_exec, egress, memory_write, terminal, tirith, toolsets
+from app import (
+    approval_channel,
+    approvals,
+    budget,
+    code_exec,
+    egress,
+    memory_write,
+    terminal,
+    tirith,
+    toolsets,
+)
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Message, Operation, Store, Task, serialize
 
@@ -2040,7 +2050,28 @@ class ToolRegistry:
             hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
             machine_wide=self.settings.machine_wide,
         )
-        if verdict.verdict != approvals.VERDICT_ALLOW:
+        if verdict.verdict == approvals.VERDICT_ASK:
+            # 三态里的 `ask` 到这里才真的去问人（MATRIX 14.1）。
+            #
+            # 为什么放在 deny 判定**之前**：`ask` 不是拒绝，是"我需要一个人来决定"。
+            # 如果先按 deny 处理，`smart` / `manual` 两档就退化成"一律拒绝"，
+            # 用户会以为审批模式坏了。
+            #
+            # 通道选择与超时语义都在 `approval_channel` 里：无 TTY / 无人值守一律
+            # **deny**，且超时是第三态 `timeout`——把"超时"说成"你拒绝了"，
+            # 用户会以为自己点过拒绝，然后去找一个不存在的操作记录。
+            decision = approval_channel.approve_or_refuse(
+                text,
+                mode=mode,
+                settings=self.settings,
+                task_id=task_id,
+                reason=str(getattr(verdict, "reason", "") or ""),
+            )
+            if not decision.allowed:
+                raise ValueError(
+                    f"审批未通过（{decision.outcome}）：{decision.reason}"
+                )
+        elif verdict.verdict != approvals.VERDICT_ALLOW:
             raise ValueError(_refusal(verdict, self.settings.machine_wide, mode))
         if egress_check:
             self._egress_gate(text)
