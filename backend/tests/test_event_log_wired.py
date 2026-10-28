@@ -108,3 +108,43 @@ def test_the_log_is_reachable_from_the_event_write_path():
     assert "self.event_log.append(" in code, (
         "`Store.event` 不再写事件日志了——`app/event_log.py` 又变成孤立文件"
     )
+
+
+def test_the_failure_buffer_is_bounded(store):
+    """**有界**：失败记账不能无限增长。
+
+    原来是无界 `list`，而一个**持续失败**的审计轨会让它无限长——
+    **一个失败的诊断设施把进程内存吃掉**，这个失败模式本身很讽刺。
+    """
+    from app.storage import EVENT_LOG_FAILURES
+
+    for index in range(EVENT_LOG_FAILURES.maxlen + 50):
+        EVENT_LOG_FAILURES.append(f"failure-{index}")
+
+    assert len(EVENT_LOG_FAILURES) == EVENT_LOG_FAILURES.maxlen
+    # 留的是**最近**的（诊断要看最近发生了什么，不是最早）
+    assert EVENT_LOG_FAILURES[-1] == f"failure-{EVENT_LOG_FAILURES.maxlen + 49}"
+
+
+async def test_the_failure_buffer_has_a_reader(store):
+    """**有读点**：`describe_event_log()` 必须能报出审计轨正在坏。
+
+    没有这个读点，「失败必须可见」就只是一句注释——
+    而**「只写不读」正是我给 10.14 留 🟡 的那把尺子**，它也得量自己。
+    """
+    from app.storage import EVENT_LOG_FAILURES
+
+    healthy = store.describe_event_log()
+    assert healthy["ok"] is True
+    assert healthy["capacity"] == EVENT_LOG_FAILURES.maxlen
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("磁盘满了")
+
+    store.event_log.append = _boom  # type: ignore[method-assign]
+    await store.event("task-h", "task_started", model="x")
+
+    broken = store.describe_event_log()
+    assert broken["ok"] is False, "审计轨在坏，但 describe 说它健康"
+    assert broken["count"] >= 1
+    assert "磁盘满了" in broken["last"]

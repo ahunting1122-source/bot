@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -279,7 +280,32 @@ def serialize(row: Base) -> dict[str, Any]:
 
 #: 事件日志写入失败记账（MATRIX 10.14）。**失败必须可见**——
 #: 审计轨静默坏掉，比没有审计轨更难发现。
-EVENT_LOG_FAILURES: list[str] = []
+#:
+#: **两个设计点，都是被同一把尺子量出来的**：
+#: 1. **有界**（`deque(maxlen=100)`）：原来是无界 `list`，而一个**持续失败**的审计轨
+#:    会让这个列表无限增长——**一个失败的诊断设施把进程内存吃掉**，这个失败模式本身
+#:    很讽刺。只留最近 100 条，够诊断、不吃内存。
+#: 2. **必须有读点**：原来全仓只有测试读它，而注释写着「失败必须可见」——
+#:    **「只写不读」正是我给 10.14 留 🟡 的判据**。所以配了
+#:    :func:`event_log_health`，并由 `Store.describe_event_log()` 暴露出去
+#:    （`orbit doctor` / 状态接口可以调）。
+EVENT_LOG_FAILURES: deque[str] = deque(maxlen=100)
+
+
+def event_log_health() -> dict[str, Any]:
+    """事件日志的健康状况。**这是 `EVENT_LOG_FAILURES` 的读点**——没有它，
+    「失败必须可见」只是一句注释。
+
+    返回最近失败条数与最后一条原因；`ok=False` 表示审计轨正在坏。
+    """
+    failures = list(EVENT_LOG_FAILURES)
+    return {
+        "ok": not failures,
+        "count": len(failures),
+        "last": failures[-1] if failures else "",
+        # 有界缓冲区：报出上限，免得「只有 100 条」被读成「只失败了 100 次」
+        "capacity": EVENT_LOG_FAILURES.maxlen,
+    }
 
 
 class Store:
@@ -294,6 +320,20 @@ class Store:
         # 它是**追加式审计轨**，与 `task_events` 表并存——表是查询用的主存储，
         # 日志是可回放、可压缩、带游标的顺序记录。
         self.event_log = EventLog(Path(path).parent / "events")
+
+    def describe_event_log(self) -> dict[str, Any]:
+        """事件日志的自述：**这是 `EVENT_LOG_FAILURES` 的读点**。
+
+        只报「有没有在坏、坏了几次、最后一次为什么」——不报内容。
+        没有这个读点，「失败必须可见」就只是一句注释（**而「只写不读」正是
+        我给 10.14 留 🟡 的那把尺子**，所以这把尺子也得量自己）。
+        """
+        info = event_log_health()
+        try:
+            info["streams"] = len(self.event_log.streams())
+        except Exception as exc:  # noqa: BLE001 —— 自省失败不该让 describe 崩
+            info["streams_error"] = f"{type(exc).__name__}: {exc}"
+        return info
 
     async def tune(self):
         """WAL lets the long-lived SSE reader run while tasks keep writing.
