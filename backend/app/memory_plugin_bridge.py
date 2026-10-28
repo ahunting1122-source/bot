@@ -136,10 +136,48 @@ def recall(query: str, *, limit: int = 5) -> str:
 
 
 def describe() -> dict[str, Any]:
-    """自曝：装没装路由器、有几个插件 provider、读写各成功失败多少次。"""
+    """自曝：装没装路由器、有几个插件 provider、读写各成功失败多少次，
+    以及**内置 provider 里几个真能用**。
+
+    **为什么要报内置那一半**：`PROVIDER_NAMES` 有 15 个名字，很容易被读成
+    「15 个 provider 都能用」。本机实测只有 3 个可用（`file` / `jsonl` /
+    `holographic`），另外 12 个要网络或凭证。**不报这个数字，读者会高估能力。**
+    """
     providers = _plugin_providers()
+    # `total` 来自 `PROVIDER_NAMES` 这个常量，**与装没装路由器无关**——
+    # 没装路由器时也该如实报「15 个名字、0 个已装」，而不是报 0 个名字。
+    builtin: dict[str, Any] = {"total": 0, "available": 0, "names": []}
+    try:
+        from app.memory_providers import PROVIDER_NAMES
+
+        builtin["total"] = len(PROVIDER_NAMES)
+    except Exception as exc:  # noqa: BLE001
+        builtin["error"] = f"{type(exc).__name__}: {exc}"
+    if _ROUTER is not None:
+        try:
+            usable: list[str] = []
+            for name in PROVIDER_NAMES:
+                provider = None
+                try:
+                    provider = next(
+                        (p for p in getattr(_ROUTER, "providers", ()) if p.name == name), None
+                    )
+                except Exception:  # noqa: BLE001 —— 自省失败不该让 describe 崩
+                    provider = None
+                if provider is None:
+                    continue
+                try:
+                    if provider.available():
+                        usable.append(name)
+                except Exception:  # noqa: BLE001
+                    continue
+            builtin["available"] = len(usable)
+            builtin["names"] = usable
+        except Exception as exc:  # noqa: BLE001
+            builtin["error"] = f"{type(exc).__name__}: {exc}"
     return {
         "configured": _ROUTER is not None,
         "plugin_providers": [str(getattr(p, "name", "?")) for p in providers],
+        "builtin": builtin,
         "stats": dict(STATS),
     }
