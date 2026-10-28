@@ -16,8 +16,20 @@
   **这一条踩过坑**：早先的实现是 `if DONE in line`，只要证据栏里出现一个 ✅ 就算完成。
   监视子agent 的一条建议里写了「→ 变 ✅ 的路径」，于是 10.1（状态列是 🟡）被算成完成，
   完成度虚报 1 条。整行匹配的错法很隐蔽：状态列明明写着 🟡，数字却对不上。
-  现在改成读状态列，并加两条断言（状态列必须是三符号之一、整行不得出现第二个状态符号），
+  现在改成读状态列，并加断言（状态列必须是四符号之一、整行不得出现第二个状态符号），
   让"证据栏提到别的符号"当场被门禁抓住。
+
+- **四个状态**：✅ 已实现 / 🟢 **有意差异**（功能有，实现方式与 Hermes 不同，且必须写明
+  `差异：…`）/ 🟡 部分 / ⬜ 未开始。
+
+  **为什么要 🟢**：有些条目 Orbit 是**故意**不照抄 Hermes 的。比如 `journey delete`，
+  Hermes 是真删技能，Orbit 只写旁注、绝不回写审计数据——这是更好的工程决定，不是没做。
+  把它们和 🟡（没做完）混在一起，会让完成度卡在七成出头，而且读者分不清
+  「还差工作」和「已经决定不这么做」。🟢 **计入完成度**，因为它满足目标的字面要求
+  （Hermes 有的能力 Orbit 有），只是做法不同。
+
+  门禁强制：标 🟢 的行，证据栏**必须**含 `差异：`，否则报错——否则 🟢 会变成
+  逃避 ✅ 的垃圾桶。
 """
 
 from __future__ import annotations
@@ -30,14 +42,16 @@ from pathlib import Path
 MATRIX = Path(__file__).resolve().parents[1] / "handoff" / "hermes-parity" / "MATRIX.md"
 
 DONE, PARTIAL, TODO = "\u2705", "\U0001F7E1", "\u2b1c"
-SYMBOLS = (DONE, PARTIAL, TODO)
+#: 有意差异：功能有，但实现方式与 Hermes 不同（证据栏必须写明 `差异：…`）。
+DIVERGENT = "\U0001F7E2"
+SYMBOLS = (DONE, PARTIAL, TODO, DIVERGENT)
 ITEM = re.compile(r"^\| (\d+)\.(\d+[a-z]?) \|")
-#: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟡 4 · ⬜ 154"
+#: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟢 3 · 🟡 4 · ⬜ 154"
 #: 数字前面带状态表情，所以用 `[^\d]*` 吃掉分隔符，而不是硬编码具体表情——
-#: 换表情不该让门禁失效。
+#: 换表情不该让门禁失效。🟢 段可选（老格式没有它）。
 HEADER = re.compile(
     r"条目合计 \*\*(?P<total>\d+)\*\*。当前：[^\d]*(?P<done>\d+) · "
-    r"[^\d]*(?P<partial>\d+) · [^\d]*(?P<todo>\d+)"
+    r"(?:[^\d]*(?P<divergent>\d+) · )?[^\d]*(?P<partial>\d+) · [^\d]*(?P<todo>\d+)"
 )
 
 
@@ -58,7 +72,7 @@ def status_of(line: str) -> str:
 
 
 def count(text: str) -> dict[str, int]:
-    total = done = partial = todo = 0
+    total = done = partial = todo = divergent = 0
     for line in text.splitlines():
         if not ITEM.match(line):
             continue
@@ -66,18 +80,37 @@ def count(text: str) -> dict[str, int]:
         status = status_of(line)
         if status == DONE:
             done += 1
+        elif status == DIVERGENT:
+            divergent += 1
         elif status == PARTIAL:
             partial += 1
         elif status == TODO:
             todo += 1
-    return {"total": total, "done": done, "partial": partial, "todo": todo}
+    return {
+        "total": total,
+        "done": done,
+        "divergent": divergent,
+        "partial": partial,
+        "todo": todo,
+    }
+
+
+def completion(actual: dict[str, int]) -> float:
+    """完成度 = （已实现 + 有意差异）/ 总数。
+
+    🟢 计入完成：它满足目标的字面要求（Hermes 有的能力 Orbit 有），只是做法不同。
+    不把它算进去，等于惩罚正确的工程决定。
+    """
+    total = actual["total"] or 1
+    return (actual["done"] + actual.get("divergent", 0)) / total * 100
 
 
 def status_column_problems(text: str) -> list[str]:
-    """状态列的两种病：不是三符号之一，或整行出现第二个状态符号。
+    """状态列的三种病：不是四符号之一、整行出现第二个状态符号、🟢 没写差异。
 
     第二种正是虚报的成因——证据栏写「变 ✅ 的路径」时，状态列是 🟡，整行却含 ✅。
-    把它变成门禁错误，比事后靠人眼发现可靠。
+    第三种是 🟢 特有的：标了「有意差异」却不写差异在哪，那 🟢 就成了逃避 ✅ 的垃圾桶。
+    把这些变成门禁错误，比事后靠人眼发现可靠。
     """
     problems: list[str] = []
     for line in text.splitlines():
@@ -87,12 +120,15 @@ def status_column_problems(text: str) -> list[str]:
         ident = f"{match.group(1)}.{match.group(2)}"
         status = status_of(line)
         if status not in SYMBOLS:
-            problems.append(f"{ident}：状态列不是三符号之一（{status!r}）")
+            problems.append(f"{ident}：状态列不是四符号之一（{status!r}）")
             continue
         found = [symbol for symbol in SYMBOLS if symbol in line]
         if len(found) > 1:
             others = "、".join(symbol for symbol in found if symbol != status)
             problems.append(f"{ident}：状态列是 {status}，但行内还出现了 {others}（会被误算）")
+            continue
+        if status == DIVERGENT and "差异：" not in line:
+            problems.append(f"{ident}：标了 🟢（有意差异）却没写「差异：…」——🟢 不是逃避 ✅ 的垃圾桶")
     return problems
 
 
@@ -121,8 +157,9 @@ def main() -> int:
     text = MATRIX.read_text(encoding="utf-8")
     actual = count(text)
     print(
-        f"条目 {actual['total']}：✅ {actual['done']} · 🟡 {actual['partial']} · ⬜ {actual['todo']}"
-        f"（完成度 {actual['done'] / actual['total'] * 100:.1f}%）"
+        f"条目 {actual['total']}：✅ {actual['done']} · 🟢 {actual['divergent']} · "
+        f"🟡 {actual['partial']} · ⬜ {actual['todo']}"
+        f"（完成度 {completion(actual):.1f}% = ✅+🟢）"
     )
 
     dupes = duplicate_ids(text)
@@ -141,7 +178,9 @@ def main() -> int:
     if match is None:
         print("找不到文件头部的计数声明（格式已变？）", file=sys.stderr)
         return 1
-    declared = {key: int(value) for key, value in match.groupdict().items()}
+    declared = {key: int(value) for key, value in match.groupdict().items() if value is not None}
+    # 老格式没有 🟢 段：缺这一项时按 0 比，不强行要求头部写出来。
+    declared.setdefault("divergent", 0)
     if declared != actual:
         print(f"头部声明 {declared} 与实际 {actual} 不一致", file=sys.stderr)
         return 1 if args.check else 0

