@@ -158,15 +158,21 @@ def test_no_page_claims_a_route_that_main_py_does_not_have():
     assert report()["unbacked"] == {}
 
 
-def test_covered_pages_are_a_minority_claim():
-    """Orbit 只有 6 个前端视图，`covered` 不该多到离谱（口径回归的护栏）。
+def test_every_covered_page_is_backed_by_a_real_route():
+    """**每条 covered 都必须有真实路由兜底**——这才是该守的东西。
 
-    这条不是精确数字门禁，而是"别一夜之间全部标 covered"的提醒：真做到那一步时
-    会连带改这条断言，也就等于强制重看一遍口径。
+    原来这条断言的是「`missing` 至少 1 个」。那是当时的事实，不是契约：docs / files /
+    webhooks 补了后端之后 `missing` 归零，旧断言就成了"不许把活干完"。
+    数量会变，"声明与路由一致"不会——所以改成断言后者，并保留一个上界防止
+    一夜之间全部标 covered 却不改任何路由。
     """
     summary = report()
-    assert summary["covered"] <= 8, f"covered 有 {summary['covered']} 个，和 6 个前端视图对不上"
-    assert summary["missing"] >= 1, "Orbit 没有任何缺失页面？口径多半放宽了"
+    assert summary["covered"] <= 10, f"covered 有 {summary['covered']} 个，口径多半放宽了"
+    # 关键断言：unbacked 必须为空，且 covered 的页都得声明了路由
+    assert summary["unbacked"] == {}, f"这些声明的路由不存在：{summary['unbacked']}"
+    for page in summary["pages"]:
+        if page["orbit_status"] == "covered":
+            assert page["orbit_route"].strip(), f"{page['name']} 标了 covered 却没声明路由"
 
 
 def test_page_by_name_is_case_insensitive():
@@ -380,13 +386,16 @@ def test_cli_dashboard_pages_json_is_machine_readable(tmp_path, capsys):
 
 
 def test_cli_dashboard_pages_status_filter(tmp_path, capsys):
+    # docs / files / webhooks 已有后端路由，所以它们现在在 `covered` 里而不是 `missing`。
     code = main(
-        ["--data-dir", str(tmp_path / "data"), "dashboard", "pages", "--status", "missing"]
+        ["--data-dir", str(tmp_path / "data"), "dashboard", "pages", "--status", "covered"]
     )
     out = capsys.readouterr().out
     assert code == 0
     assert "docs" in out and "webhooks" in out
-    assert "chat" not in out.split("缺失的页面到底缺什么")[0], "过滤没生效：covered 的页面还在表里"
+    # 用页面**标题**而不是 id 判断：cron 这个词也出现在 webhooks 的说明里，
+    # 拿 id 做子串判断会误伤。
+    assert "定时任务" not in out, "过滤没生效：partial 的页面还在表里"
 
 
 def test_cli_dashboard_pages_rejects_unknown_status(tmp_path, capsys):

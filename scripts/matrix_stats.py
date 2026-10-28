@@ -19,17 +19,28 @@
   现在改成读状态列，并加断言（状态列必须是四符号之一、整行不得出现第二个状态符号），
   让"证据栏提到别的符号"当场被门禁抓住。
 
-- **四个状态**：✅ 已实现 / 🟢 **有意差异**（功能有，实现方式与 Hermes 不同，且必须写明
-  `差异：…`）/ 🟡 部分 / ⬜ 未开始。
+- **五个状态**：✅ 已实现 / 🟢 **有意差异**（功能有，实现方式与 Hermes 不同，且必须写明
+  `差异：…`）/ ⚫ **本机不可验证**（实现做完了，但验证需要网络/硬件/平台凭证）/
+  🟡 部分 / ⬜ 未开始。
 
   **为什么要 🟢**：有些条目 Orbit 是**故意**不照抄 Hermes 的。比如 `journey delete`，
   Hermes 是真删技能，Orbit 只写旁注、绝不回写审计数据——这是更好的工程决定，不是没做。
   把它们和 🟡（没做完）混在一起，会让完成度卡在七成出头，而且读者分不清
-  「还差工作」和「已经决定不这么做」。🟢 **计入完成度**，因为它满足目标的字面要求
-  （Hermes 有的能力 Orbit 有），只是做法不同。
+  「还差工作」和「已经决定不这么做」。🟢 **计入完成度**。
 
-  门禁强制：标 🟢 的行，证据栏**必须**含 `差异：`，否则报错——否则 🟢 会变成
-  逃避 ✅ 的垃圾桶。
+  **为什么要 ⚫ 而且不计入完成度**：环境限制（本机没网络 / 没 chromium / 没平台凭证）
+  是「**未验证**」，不是「已完成」。把它算进完成度，等于用本机条件给目标降标，
+  与「Hermes 有的 Orbit 都有」直接冲突。所以 ⚫ 单列，并给出**双口径**：
+  - 严格完成度 = (✅ + 🟢) / 总数        ← 离目标多远
+  - 可验证完成度 = (✅ + 🟢) / (总数 − ⚫) ← 在本机能验证的范围内做完多少
+  并成一个数字一定会误导。
+
+  **两道门禁**（否则这两个状态都会退化成垃圾桶）：
+  1. 标 🟢 的行，证据栏**必须**含 `差异：`；
+  2. 标 🟢 的行，`差异：` 之后**不得**出现「本机 / 没网络 / 没装 / 无法验证 / 缺凭证」——
+     这些是环境限制，该用 ⚫。判据是一个可机械执行的问题：
+     **「换一台有网/有 chromium/有平台凭证的机器，这条能不能验证？」**
+     能 → 是环境限制（⚫）；不能（能力本身依赖我们不打算做的私有协议）→ 才可能是 🟢。
 """
 
 from __future__ import annotations
@@ -44,14 +55,22 @@ MATRIX = Path(__file__).resolve().parents[1] / "handoff" / "hermes-parity" / "MA
 DONE, PARTIAL, TODO = "\u2705", "\U0001F7E1", "\u2b1c"
 #: 有意差异：功能有，但实现方式与 Hermes 不同（证据栏必须写明 `差异：…`）。
 DIVERGENT = "\U0001F7E2"
-SYMBOLS = (DONE, PARTIAL, TODO, DIVERGENT)
+#: 本机不可验证：实现做完了，但验证要网络/硬件/平台凭证。**不计入完成度**。
+UNVERIFIABLE = "\u26ab"
+SYMBOLS = (DONE, PARTIAL, TODO, DIVERGENT, UNVERIFIABLE)
+
+#: 出现在 🟢 的 `差异：` 段里就说明它其实是环境限制，该用 ⚫。
+#: 这是让 🟢 不退化成垃圾桶的机械手段——只靠"必须写差异"拦不住这一种。
+ENV_MARKERS = ("本机", "没网络", "没有网络", "没装", "无法验证", "缺凭证", "无网络")
+
 ITEM = re.compile(r"^\| (\d+)\.(\d+[a-z]?) \|")
-#: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟢 3 · 🟡 4 · ⬜ 154"
+#: 文件头里那句"条目合计 **180**。当前：✅ 22 · 🟢 3 · ⚫ 1 · 🟡 4 · ⬜ 154"
 #: 数字前面带状态表情，所以用 `[^\d]*` 吃掉分隔符，而不是硬编码具体表情——
-#: 换表情不该让门禁失效。🟢 段可选（老格式没有它）。
+#: 换表情不该让门禁失效。🟢 / ⚫ 段可选（老格式没有它们）。
 HEADER = re.compile(
     r"条目合计 \*\*(?P<total>\d+)\*\*。当前：[^\d]*(?P<done>\d+) · "
-    r"(?:[^\d]*(?P<divergent>\d+) · )?[^\d]*(?P<partial>\d+) · [^\d]*(?P<todo>\d+)"
+    r"(?:[^\d]*(?P<divergent>\d+) · )?(?:[^\d]*(?P<unverifiable>\d+) · )?"
+    r"[^\d]*(?P<partial>\d+) · [^\d]*(?P<todo>\d+)"
 )
 
 
@@ -72,7 +91,7 @@ def status_of(line: str) -> str:
 
 
 def count(text: str) -> dict[str, int]:
-    total = done = partial = todo = divergent = 0
+    total = done = partial = todo = divergent = unverifiable = 0
     for line in text.splitlines():
         if not ITEM.match(line):
             continue
@@ -82,6 +101,8 @@ def count(text: str) -> dict[str, int]:
             done += 1
         elif status == DIVERGENT:
             divergent += 1
+        elif status == UNVERIFIABLE:
+            unverifiable += 1
         elif status == PARTIAL:
             partial += 1
         elif status == TODO:
@@ -90,19 +111,32 @@ def count(text: str) -> dict[str, int]:
         "total": total,
         "done": done,
         "divergent": divergent,
+        "unverifiable": unverifiable,
         "partial": partial,
         "todo": todo,
     }
 
 
 def completion(actual: dict[str, int]) -> float:
-    """完成度 = （已实现 + 有意差异）/ 总数。
+    """**严格**完成度 = （已实现 + 有意差异）/ 总数。
 
     🟢 计入完成：它满足目标的字面要求（Hermes 有的能力 Orbit 有），只是做法不同。
-    不把它算进去，等于惩罚正确的工程决定。
+    ⚫ **不计入**：环境限制是「未验证」，不是「已完成」——算进去等于用本机条件给目标降标。
     """
     total = actual["total"] or 1
     return (actual["done"] + actual.get("divergent", 0)) / total * 100
+
+
+def verifiable_completion(actual: dict[str, int]) -> float:
+    """**可验证范围**内的完成度 = (✅ + 🟢) / (总数 − ⚫)。
+
+    两个口径必须并列：严格口径回答「离目标多远」，这个回答「本机能验的部分做完没」。
+    并成一个数字一定会误导——要么把环境限制算成成果，要么让已经做完的活看起来没做。
+    """
+    verifiable = actual["total"] - actual.get("unverifiable", 0)
+    if verifiable <= 0:
+        return 0.0
+    return (actual["done"] + actual.get("divergent", 0)) / verifiable * 100
 
 
 def status_column_problems(text: str) -> list[str]:
@@ -127,8 +161,19 @@ def status_column_problems(text: str) -> list[str]:
             others = "、".join(symbol for symbol in found if symbol != status)
             problems.append(f"{ident}：状态列是 {status}，但行内还出现了 {others}（会被误算）")
             continue
-        if status == DIVERGENT and "差异：" not in line:
-            problems.append(f"{ident}：标了 🟢（有意差异）却没写「差异：…」——🟢 不是逃避 ✅ 的垃圾桶")
+        if status == DIVERGENT:
+            if "差异：" not in line:
+                problems.append(f"{ident}：标了 🟢（有意差异）却没写「差异：…」——🟢 不是逃避 ✅ 的垃圾桶")
+                continue
+            # 第二道：`差异：` 之后出现环境限制字样 → 它其实是 ⚫ 不是 🟢。
+            # 判据是可机械执行的一问：「换一台有网/有 chromium/有凭证的机器，能不能验证？」
+            tail = line.split("差异：", 1)[1]
+            hit = [word for word in ENV_MARKERS if word in tail]
+            if hit:
+                problems.append(
+                    f"{ident}：标了 🟢 但「差异：」段里出现 {('、'.join(hit))}——"
+                    "这是环境限制，该用 ⚫（本机不可验证），不是有意差异"
+                )
     return problems
 
 
@@ -158,9 +203,14 @@ def main() -> int:
     actual = count(text)
     print(
         f"条目 {actual['total']}：✅ {actual['done']} · 🟢 {actual['divergent']} · "
-        f"🟡 {actual['partial']} · ⬜ {actual['todo']}"
-        f"（完成度 {completion(actual):.1f}% = ✅+🟢）"
+        f"⚫ {actual['unverifiable']} · 🟡 {actual['partial']} · ⬜ {actual['todo']}"
     )
+    print(f"  严格完成度      {completion(actual):.1f}%  = (✅+🟢) / 总数（离目标多远）")
+    if actual["unverifiable"]:
+        print(
+            f"  可验证完成度    {verifiable_completion(actual):.1f}%  = (✅+🟢) / (总数−⚫)"
+            "（本机能验的部分做完多少）"
+        )
 
     dupes = duplicate_ids(text)
     if dupes:

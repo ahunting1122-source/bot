@@ -1,45 +1,46 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 12:48（本机实测时钟，只读取证）
-**本轮轮次**：**N = 9**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（`orbit setup` / `config edit` / `doctor --fix` / `cron run` / `gateway start` / `backup restore` 全部未运行）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `a693224`；**轮初工作树干净，轮末出现 2 个在飞改动，见 R1**）
+**更新时间**：2026-10-28 13:30（本机实测时钟，只读取证）
+**本轮轮次**：**N = 10**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `711e8fe`；**轮初工作树干净，轮末 10 项在飞改动，见 R1**）
 
 ---
 
 ## 总体完成度
 
-### **127 / 181 项 = 70.2%**
+### **137 / 181 项 = 75.7%**（✅ 135 + 🟢 2）
 
 | 项 | 说明 |
 |---|---|
 | 权威口径 | 读「状态」列（先替转义竖线 `\|` 再切段） |
-| 完成 / 部分 / 未开始 | **✅ 127 · 🟡 46 · ⬜ 8**（127+46+8 = 181 ✓） |
-| 与 `matrix_stats --check` 一致性 | 工具输出「181 项 · ✅127 · 🟡46 · ⬜8（70.2%）」exit 0 —— **与我独立解析逐字一致** ✅ |
-| 格式合法性 | 181 行状态列**全部合法**，**无任何一行出现第二个状态符号** ✅（门禁持续生效） |
-| 剩余 ⬜ 清单 | 我独立列出的 8 条 = `2.1 / 5.7 / 5.14 / 7.16 / 7.18 / 8.7 / 8.10 / 9.14` —— **与你给的清单逐条相同** ✅ |
+| 四态 | **✅ 135 · 🟢 2 · 🟡 44 · ⬜ 0**（合计 181 ✓） |
+| **⬜ 已归零** | **181 条里没有任何"未开始"** —— 这是项目开跑以来第一次 |
+| 与 `matrix_stats --check` | 工具输出「181 项 · ✅135 · 🟢2 · 🟡44 · ⬜0（75.7% = ✅+🟢）」exit 0 —— **与我独立解析逐字一致** ✅ |
+| 格式合法性 | 181 行状态列**全部合法**；**无任何一行出现第二个状态符号**；**两条 🟢 都含 `差异：`** ✅ |
 
-> 记账提示：我上轮实测是 **112（61.9%）**，你这次写「64.1% → 70.2%」。中间那 4 条（112→116）是我上轮报告之后、本轮波次之前落地的，我这轮没有复核它们——**本轮我只对「116→127」这 11 条负责**。
-
-### 硬口径：**全部对上**
+### 硬口径：**基本全对，两处微差都能解释**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
-| `REGISTRY` 81 顶层 / 386 二级 / 39 三级 = 506 | **81 / 386 / 39 = 506** | ✅ 一致 |
-| done 290 / partial 28 / todo 188 | **290 / 28 / 188**（合计 506 ✓） | ✅ 一致 |
-| pytest 1 failed, 2303 passed, 1 skipped | **1 failed / 2303 passed / 1 skipped（200.17s）** | ✅ 一致（你 198.86s） |
+| `REGISTRY` 81 顶层 / **389** 二级 / 42 三级 = **512**；done **319** / partial 27 / todo 166 | **81 / 390 / 42 = 513**；done **320** / 27 / 166 | ⚠️ **差 1 条二级子命令**（见下） |
+| pytest 1 failed, 2512 passed, 1 skipped | **1 failed / 2512 passed / 1 skipped（231.57s）** | ✅ 一致（你 209.07s） |
 | 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| mypy **135** files clean | **135 files, Success**（exit 0） | ✅ 一致 |
+| mypy **143** files clean | **145 files clean**（exit 0） | ⚠️ **+2，来源已查明（见下）** |
 | `matrix_stats --check` exit 0 | **exit 0** | ✅ 一致 |
 
-**上轮三条建议，我逐条复核了落地情况：**
+**两处微差都不是取数错误，是轮中落地的代码：**
+- `REGISTRY` 513 vs 512：我**连跑两次结果稳定**（81/390/42，done 320），所以不是随机；轮末发现 `backend/app/toolsets.py` 与 `main.py` **正在被改** → 多出来的那条二级子命令来自轮中改动。
+- `mypy` 145 vs 143：轮末新增了 `dashboard_api.py` 与 `turn_budgets.py` **两个未跟踪的 app 文件**，143+2=145，完全对得上；且这两个新文件本身 mypy clean。
+
+### 上轮三条建议的落地复核
 
 | 上轮建议 | 本轮实测 | 状态 |
 |---|---|---|
-| 修 `metrics_schema.py` 的 2 个 mypy 错误 | **135 文件 clean** —— 错误消失，且文件数从 122 涨到 135（那 2 个在飞文件已提交） | ✅ **已修** |
-| 10.5 的「177,015」换成可复现数字 | MATRIX 现写「64 会话 → 46 份，2,505,095 → 1,858,947 字节，省 18 份 / 646,148 字节」，**与我上轮的只读实测逐字相同**，并注明「先前照抄子agent 自述，复现不出来，**已作废**」 | ✅ **已修，且改法正确** |
-| L2 计数 ✅6/🟡3/⬜1 | 本轮实测 L2 = **✅6 · 🟡3 · ⬜1 = 10** | ✅ **已修** |
+| 7.17 补差异标注 | 已补，且**升级成第四个状态 🟢** + 硬门禁（见 A⑥） | ✅ 超出建议 |
+| 9.14 做成可复跑门禁 | `tests/test_core_zero_vectors.py` **四条断言全部落地，含反向防空转**（见 A 附） | ✅ 超出建议 |
+| 「同名不同语义」常设检查 | MATRIX 里加了显式提醒；**未做成自动门禁**，你已如实标注 | 🟡 部分落地 |
 
 ---
 
@@ -47,260 +48,217 @@
 
 | 层 | 完成/总数 | 百分比 | 状态 |
 |---|---|---|---|
-| L1 入口 / CLI | 13 / 18 | 72.2% | 🟡5、⬜0 |
-| L2 Agent 核心循环 | 6 / 10 | 60.0% | 🟡3、⬜1 |
-| **L3 上下文装配** | **8 / 8** | **100%** | **✅ 仍完整（你让我确认的那条）** |
-| L4 模型适配 | 8 / 13 | 61.5% | 🟡5、⬜0 |
-| L5 工具层 | 13 / 19 | 68.4% | 🟡4、⬜2 |
-| L6 工具集 / 注册 | 3 / 5 | 60.0% | 🟡2、⬜0 |
-| L7 Skill / curator | 13 / 18 | 72.2% | 🟡3、⬜2 |
-| L8 MCP | 6 / 10 | 60.0% | 🟡2、⬜2 |
-| L9 记忆层 | 11 / 16 | 68.8% | 🟡4、⬜1 |
-| L10 持久化 / 会话 | 10 / 15 | 66.7% | 🟡5、⬜0 |
-| **L11 cron** | **6 / 6** | **100%** | **🎉 本轮补齐** |
-| L12 Gateway / 多平台 | 8 / 11 | 72.7% | 🟡3、⬜0 |
-| L13 插件 | 5 / 10 | 50.0% | 🟡5、⬜0 |
-| L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4、⬜0 |
-| **L15 可观测性** | **6 / 6** | **100%** | **🎉 本轮补齐** |
-| L16 Web UI / 前端 | 5 / 6 | 83.3% | 🟡1、⬜0 |
-| **合计** | **127 / 181** | **70.2%** | — |
+| L1 入口 / CLI | 13 / 18 | 72.2% | 🟡5 |
+| L2 Agent 核心循环 | 7 / 10 | 70.0% | 🟡3 |
+| **L3 上下文装配** | **8 / 8** | **100%** | ✅ |
+| L4 模型适配 | 8 / 13 | 61.5% | 🟡5 |
+| L5 工具层 | 14 / 19 | 73.7% | 🟡5 |
+| L6 工具集 / 注册 | 3 / 5 | 60.0% | 🟡2 |
+| L7 Skill / curator | **16 ✅ + 1 🟢** / 18 | 94.4% | 🟡1 |
+| L8 MCP | 8 / 10 | 80.0% | 🟡2 |
+| L9 记忆层 | 12 / 16 | 75.0% | 🟡4 |
+| L10 持久化 / 会话 | **10 ✅ + 1 🟢** / 15 | 73.3% | 🟡4 |
+| **L11 cron** | **6 / 6** | **100%** | ✅ |
+| L12 Gateway / 多平台 | 8 / 11 | 72.7% | 🟡3 |
+| L13 插件 | 5 / 10 | 50.0% | 🟡5 |
+| L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4 |
+| **L15 可观测性** | **6 / 6** | **100%** | ✅ |
+| L16 Web UI / 前端 | 5 / 6 | 83.3% | 🟡1 |
+| **合计** | **137 / 181** | **75.7%** | **⬜ 0** |
 
-**现在有三层 100%**：**L3 上下文装配（8/8）**、**L11 cron（6/6）**、**L15 可观测性（6/6）**。
-**8 个整层零 ⬜ 的层**：L1 / L4 / L6 / L10 / L11 / L12 / L13 / L14 / L15 / L16（只剩 🟡）。
+**三层 100%**：L3（8/8）、L11（6/6）、L15（6/6）。
+**最弱两层**：L13 插件（50%，5 条 🟡）、L6 toolset（60%，2 条 🟡）、L14（60%，4 条 🟡）、L4（61.5%，5 条 🟡）。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：本轮 11 条转 ✅ 中**复核 9 条（82%）**；你点名的 7 条**全部复核**；两处主动交代**全部复核**；另按你的要求抽查了「同名不同语义」这一类。
+**抽样率**：本轮 7 条转 ✅ **全部复核（7/7）**；2 条 🟢 **全部复核**；另独立复核 9.14 的守卫。
 
-### A. 你点名的 7 条，逐条判定 —— **7/7 全部撑得住**
+### A. 你点名的 7 条 + 2 条 🟢 —— **全部撑得住，两条 🟢 一条差半句**
 
-**① 9.12 写入门禁「已接线」→ ✅✅ 接线与拦截都验证了（端到端 CLI 差最后一步）**
+**① 5.7 spill → ✅✅ 三点全中**
 
-**接线**（`tools.py`）：
-```
-:17    from app import approvals, code_exec, egress, memory_write, terminal, tirith, toolsets
-:1735  allowed, refusal = memory_write_allowed(latest_user_text(messages))
-:1746  check = await memory_write.check_write(...)          ← memory_save 路径真调
-```
-**CLI 路径**（`cli/commands/memory_extra.py:280`）——**在写之前、按最终态**：
-```python
-check = context.run(memory_write.check_write(
-    planned.final, mode=approvals.resolve_mode(context.settings),
-    backend=engine, data_dir=context.data_dir, limit=limit))
-if not check.ok:
-    context.warn(f"记忆写入被拒（{check.stage}）：{check.reason}")
-    return check.exit_code or 1
-result = context.run(apply_batch(store, operations, limit=limit))   ← 被拒时根本走不到这
-```
-**门禁真的会拦**（我直接调 `check_write`，纯内存不落盘）：
-```
-注入文本 → ok=False verdict=blocked stage=threat_scan
-           reason=威胁扫描拒绝：prompt_injection_zh（中文经典注入：要求忽略以上内容）；role_h…
-干净文本 → ok=False verdict=blocked stage=approval（因为我没给 data_dir，smart 模式要暂存——预期行为）
-```
-**退出码链路**：`memory_write.EXIT_CODES = {allow: 0, staged: 2, **blocked: 3**}` → `return check.exit_code or 1` = **3** ✓
+| 你的问题 | 实测 |
+|---|---|
+| 提示行是否真含**路径 + 原始字符数** | ✅ `spill_notice(total, head_kept, tail_kept, path)` 的 docstring 明写要回答三个问题：被截了吗 / **原文多大（报字符数不是字节数）** / **去哪看（绝对路径 + 点名 `local_read_file`）** |
+| 落盘失败是否真说「**找不回来**」 | ✅ docstring：「落盘失败时（`path is None`）第三点换成"找不回来"——这比给一个不存在的路径好：模型会去读一个不存在的文件，然后得出"工具坏了"的错误结论」。`spill_safe` 同样「内联截断 + 明说"找不回来"，永不抛异常」 |
+| 是否真只接 `as_tool_text` 一处 | ✅ 全仓 `spill_output`/`spill_safe` 的**唯一外部调用点**是 `tools.py:2754`，在 `as_tool_text` 里（注释 `:2722`「序列化之后、注入包裹之前过一遍」） |
 
-> ⚠️ **端到端 CLI 实跑未完成**（如实标注）：`orbit memory batch --file <注入>` 在**全新 `--data-dir`** 下会先撞上「数据库不存在：…app.sqlite（先运行 `orbit setup`）」，而 `orbit setup` 属改状态命令 → 我没有跑。**已核到的是：门禁逻辑（in-process）+ 调用点（写之前）+ 退出码映射（blocked→3）三段完整**，缺的只是"在真库上跑一遍"这一步。
-> 附带发现：`memory batch` 对带 BOM 的 JSON 会**明确报错**（"operations 不是合法 JSON：Unexpected UTF-8 BOM"）而不是静默当空——这是好的错误处理，不是缺陷。
+**额外加分**：`spill_safe` 的 docstring 把**叠加顺序**讲透了——「三层治理先跑、本层后跑」，并给出顺序反过来会犯的两个具体错误（同一段被截两次、第二次把提示行截掉；落盘路径失效导致模型扑空）。这种"写清为什么这个顺序"的证据比代码本身更值钱。
 
-**② 10.14 事件溯源 → ✅✅ 三处都真**
+**② 7.16 三方合并 → ✅✅ 三点全中**
+
+| 你的问题 | 实测 |
+|---|---|
+| 冲突是否**真的不自动选边** | ✅ 模块 docstring `:27-34` 的四情形表：`X` / `Y≠X` / `Z≠X, Y≠Z` → **`conflict`，不自动选边**；`DECISION_CONFLICT`(:120) |
+| 默认是否真是 skip | ✅ `POLICY_SKIP`(:123) 是默认；`:41-47` 写了「为什么默认 `--skip` 而不是 `--ours`」，并点明**代价**：「`--skip` 的代价是'同步没做完'，这是**可见**的代价：`conflicts` 列表里有名字、两边…」 |
+| 导入是否真过 lint + quarantine | ✅ `:51-59`：`quarantine → 扫描 → 放行 → 正式目录`；先落 `<data>/skills-quarantine/<name>/`（**扫描对象与最终落地的是同一份字节**）；扫威胁模式（critical 阻断）+ 跑 `skill_lint`；**额外要求 lint 零 ERROR**（比 hub 的"零 critical"更严） |
+
+**③ 7.18 seed 91 份 sha256 → ✅✅ 我全量复核了，0 处不一致**
+
+**先说我自己的一次错误**：我头两次独立比对时得出「0/91 一致」，原因**是我的正则 bug**——我用 `^---\s*\n(.*?)\n---\s*\n` 抽取 body，把闭合 `---` 后的那个 `\n` 吃掉了，于是我的 `disk_body` 比种子 `body` 少一个前导换行（5 份抽样全是 `len(seed) = len(disk) + 1`）。
+改用**测试同一口径**（`_FRONTMATTER.match(text)` → `text[match.end():]`，保留那个换行）后：
 
 ```
-event_log.py:11  seq   <data_dir>/events/<stream>.jsonl 里**每流独立**的自增整数
-event_log.py:17-21  ## 游标必须是 seq，不能是时间戳
-                    同毫秒时间戳完全相同，用 ts > cursor 增量读会把它们**一起漏掉或一起重复**
-def since(stream, cursor=0):   fresh = [i for i in read_all(stream) if _as_int(i["seq"]) > floor]
+抽验 5 份（随机种子 11）：meeting-action-items / grounded-citations / notion /
+                          teams-meeting-pipeline / openhue —— 5/5 一致
+全量 91 份：不一致 0 处
 ```
-- **每流独立单调** ✓（`:11` + `since` 按 `seq > cursor` 过滤）
-- **游标是 seq 不是时间戳** ✓（`:17-21` 明确写了理由；`since` 实现就是 `seq > floor`）
-- **`compact` 记下被丢 seq 区间** ✓：
-```python
-def compact(stream, keep):   # 返回 {stream, dropped, dropped_from, dropped_to, kept, compaction_seq}
-    ...
-    marker_payload = {"kind": KIND_COMPACTED, "stream":..., "dropped":..., "dropped_from": first_seq, ...}
+**「sha256 与源文件逐条比对 0 处不一致」这句话是真的** ✓✓
+
+**其余口径也核了**：`SEED_CATALOG` = **91**、`SEED_CATEGORIES` = **20**；源库一级目录 **21 个**，其中确有一个 `index-cache` → MATRIX 的「21 目录 = 20 类目 + `index-cache` 缓存目录」成立 ✓
+
+> 这条我自己的教训值得记：**当"独立复核"得出与对方相反的结论时，先怀疑自己的抽取口径**。我差一点就报了一条假发现。
+
+**④ 8.7 schema 缓存 → ✅✅ 两点全中**
+
+- **键含配置指纹** ✅：`config_fingerprint(entry)`（`mcp_schema_cache.py:94`，sha256 前 16 位），覆盖 command/args 等连接配置
+- **`ttlMs: 0` 的处理如描述** ✅：`:43-51` 写得很清楚——SEP-2549 原义 0 = 不可缓存（Hermes 严格照做 → `elapsed >= 0` 恒成立 → **永远 miss**），但**本机实测**发现 mcp 2.x 的 `MCPServer` **总是**在 `tools/list` 里发 `ttlMs: 0`（用 `model_dump(exclude_unset=True)` 验过，不是"没给"），所以默认把 0 当"没给提示"退回兜底 TTL；要原义可 `SchemaCache(path, strict_ttl=True)` ✓
+- 兜底 `DEFAULT_TTL_SECONDS = 24h`（`:87`，抄 mcp SDK `MAX_TTL_MS`）✓
+
+**⑤ 8.10 目录 → ✅✅ 65 与 1 都精确**
+
 ```
-且「没裁过就**不写压缩事件**——没裁过就不该在审计里留下'这里被裁过'的假痕迹」✓ 这条很硬。
-
-**③ 11.3 cron 投递 → ✅✅ 真在 `create` 时拒**
-
-```python
-def validate_deliver(deliver):
-    """…**未实现的平台在 ``create`` / ``edit`` 就被拒**（调用方都是先校验再落盘），
-       而不是等到任务跑起来才失败：那时用户已经等了半小时。"""
-    ...
-    if value.startswith(DELIVER_PLATFORM_PREFIX):
-        reason = _platform_rejection(platform_name)
-        if reason:
-            raise ValueError(reason)          ← create 阶段直接抛
+CATALOG = 65 条 ✓（不是任务书的 63）
+unknown=True 的条目 = 恰好 1 条：n8n ✓
+字段：name/label/description/transport/url/command/args/env/auth/docs/unknown/note
 ```
-✓✓ 而且理由写得很好：「静默接受一个没实现的平台会让用户以为"输出已经发到群里了"，实际什么都没发——定时任务的失败模式里，"以为发了"比"明确没发"贵得多」。
+`orbit mcp catalog` 实跑输出正常（含传输/目标/鉴权/状态四列），exit 0 ✓
 
-**④ 11.6 级联停止 → ✅✅ 真管 3 个子系统 + 真只标记**
+**⑥ 两条 🟢 → 10.11 达标；7.17 差半句**
 
-```python
-def pause_all(data_dir, *, reason=""):
-    """紧急停止级联：cron 哨兵 + gateway 哨兵 + 正在跑的任务（只标记）。
-    三个子系统，为什么都得管：
-    - cron：挡"下一轮 tick 不开始"；
-    - gateway：挡"新网关轮次与出站投递"——只停 cron 等于停了半台机器；
-    - 正在跑的任务：已经开始的那一轮在**别的进程**里，只能打标记让它自己退。
-      跨进程强杀（taskkill / 信号）会引入"杀错 PID / 杀掉外部调度器"的风险，
-      那比"多跑完这一轮"贵得多。"""
-```
-代码：`store.set_paused(True)` + `running.mark_cancelled(reason=...)` + `_gateway_pause_paths` / `write_json` ✓
-另：`CascadeStatus.paused` 是「**任一**子系统仍停着就算停着」而不是"全部停着"——理由「漏停一个子系统（比如 gateway 还在发消息）比多报一次'还停着'危险得多」✓ 这个方向选对了。
-
-**⑤ 15.4 / 15.5 → ✅✅ 两处都真**
-
-**15.4 `available=false` 必须写 source/help**：
-```python
-# metrics_schema.py
-# 不可用时**必须**有 source 或 help 说明为什么——空着等于没说。
-if not item["available"]:
-    _check(bool(item.get("source") or item.get("help")),
-           f"v2 的指标 {name} 标了不可用，却没写 source/help 说明原因")
-```
-✓ 而且 `available=true` 时反向要求有数字 `value` ✓
-
-**15.5 `flush()` 真抛错 + 钩子 11 条**：
-- `exporters.py:33`「Hermes `plugins/observability/langfuse/plugin.yaml` 里的 hooks 清单（**11 条**）」
-- 实测 `LANGFUSE_HOOKS` = **11**：`pre_api_request, post_api_request, api_request_error, pre_llm_call, post_llm_call, pre_tool_call, post_tool_call, on_session_finalize, on_session_end, subagent_start, subagent_stop` ✓
-- `flush()` 在 `:214-221` **`raise NetworkUnavailable(...)`** —— 不是返回假成功 ✓✓
-
-**⑥ 4.10 三级能力元数据 → ✅✅ 七字段真的全 None**
-
-`app/capabilities.py::resolve(model, provider, ...)`（不是我一开始猜的 `model_capabilities`）。用例：
-```python
-def test_unknown_model_returns_none_for_every_field():        # test_capabilities.py:124
-    assert result.value(name) is None, f"{name} 不许有默认值"   # ← 逐字段断言，不是抽查一个
-    assert payload["context_window"] is None
-    assert payload["supports_tools"] is None
-```
-✓✓ **「不许有默认值」被写进了断言消息**，这正是你要的那个形状。
-
-**⑦ 9.11 HRR → ✅✅ 权重与 0.78 串扰都有用例钉住**
-
-`app/holographic.py`（不是 `memory_graph.py`——后者 docstring `:12` 明说"HRR 那套**再换实现**"，是另一件事）：
-- `DIM = 1024`（实测 `H.DIM = 1024`）✓
-- 权重 **fts 0.4 / jaccard 0.3 / hrr 0.3**（`:18-20,63`）✓
-- `encode` 用 `hashlib` 派生种子做确定性伪随机相位（**不用 `random`**，要可复现）、`bind`/`unbind` 用 FFT ✓
-- **用例**：`test_weights_are_forty_thirty_thirty`(:100) · `test_each_signal_contributes_its_own_weight`(:106) · `test_score_is_exactly_the_weighted_sum_of_its_three_signals`(:113) ✓
-- **0.78 串扰**：`test_multi_token_bind_unbind_is_approximate_not_exact`(:73)，docstring「多词叠加后 bind→unbind 有串扰（实测 ≈0.78）：这是 HRR 的统计性质，不是 bug」✓✓
-
-### B. 你的两处主动交代
-
-**① 9.16 的研究错误 → ✅ 更正准确，我独立复核了 13 这个数**
-
-MATRIX 现在写：「Hermes 的 `profile` **不是用户画像**，而是 **profile distribution（可切换的发行版配置）管理器**，且是 **13** 条子命令不是 14」。
-**我从 `research/_raw/sub/profile__*.txt` 独立数**：共 **13** 个文件 —— `alias, create, delete, describe, export, import, info, install, list, rename, show, update, use`，**与你列的 13 条逐条相同** ✓✓
-状态也诚实：🟡 + 「distribution 那 10 条仍 todo——把它们做成画像增删改就是抄错语义」✓
-
-**这是本轮最值得记的一条**：一个从**研究阶段**就存在的语义错误，被子agent 在实现时顶回来。**错误在被发现前已经存在了 8 轮**，而它不会表现为任何测试失败或计数异常——**只能靠人/agent 对着上游 help 逐字读出来**。
-
-**② 「如实说没有 ≠ 有」这条规矩 → 已落地，且当场抓到 4 条**
-
-你抓的 4 条我抽核了 2 条，都成立：
-- **记忆写入门禁**：现在 `check_write` 真的在 `memory_save`（`tools.py:1746`）与 `memory batch`（`memory_extra.py:280`）两处，且注入文本实测 `blocked / threat_scan / prompt_injection_zh` ✓
-- **`egress` 6 条**：上轮我核过 = `install/start/stop/restart/reload/disable` 为 `partial` ✓
-- 另外两条（`profile show` 的 `_BOUND` 重绑、你自己写错 `Context` API）我未单独复核，如实标注。
-
-### C. 按你的要求抽查「同名不同语义」这一类 —— **发现 1 条：7.17**
-
-你点名要核 `journey` / `plane` / `session` / `memory-graph`，结果如下：
-
-| 名字 | Hermes 侧 | Orbit 侧 | 判定 |
-|---|---|---|---|
-| `journey` / `learning` / `memory-graph` | **三个是同一命令的别名**（我核过：去掉 `### CMD` 头行后三份 help **完全相同**） | 注册为 `journey` + `aliases=('learning','memory-graph')` ✓；`hermes='journey'` | 别名关系**对** |
-| `plane` | Hermes **无**此命令 | `hermes=''`（空）→ 明确标为 Orbit 自有 | ✓ 不占位 |
-| `session-search` | Hermes **无**此命令 | `hermes=''` ✓ | ✓ 不占位 |
-| `sessions` | 19 子命令 | 26 子命令、`state=partial` | ✓ 如实标 partial |
-
-**但 `journey` 的语义有一处差异，MATRIX 没标出来** ⚠️：
-- **Hermes**：`delete` = 「Delete a learned skill (archived) or **memory** by node id」；`edit` = 「Edit a learned skill or memory by node id **in $EDITOR**」——**真的删、真的编辑**
-- **Orbit**：`journey.py` 的 `edit(id, note)` / `delete(id)` **只写 `journey-notes.json`**，usage 与 ledger 字节不变（第 7 轮我核过，`journey.py:29,36` 明写「绝不回写 `.usage.json` 或 ledger」「一个字节都不动」）
-
-→ **语义是"标注"而不是"删除/编辑"**。这个取舍本身**是对的**（审计不可篡改，理由写在模块 docstring 里），但 MATRIX 7.17 标的是 **✅**，证据栏只写了 Orbit 做了什么，**没有把它标为与 Hermes 的差异**。
-**建议**：7.17 在证据栏加一句「**差异**：Hermes 的 `delete`/`edit` 真删/真编辑；Orbit 只写旁注 + 墓碑标记（审计不可篡改的取舍），语义是"标注"而非"删除"」——或者降为 🟡。**这正是你担心的那一类，只是它是"行为差异未标注"而非"数字错"。**
-
-### D. 其余复核
-
-| 条目 | 证据 | 判定 |
+| 条目 | `差异：` 是否写清了**代价** | 判定 |
 |---|---|---|
-| 7.14 bundles | `orbit bundles` 实测 5 子命令 `list/show/create/delete/reload`，`state=done`；`bundles.py` 有 `Bundle`/`Bundles`/`ReloadReport` | ✅ |
-| L3 未被破坏 | 8/8 = 100%（独立解析） | ✅ **确认** |
-| 8 条剩余 ⬜ | 独立列出与你给的清单**逐条相同** | ✅ |
-| `memory batch` 的 BOM 处理 | 带 BOM 的 JSON → 明确报错而非静默当空 | ✅ 好行为 |
+| **10.11** | 显式写了「**代价**（如实写）：`alembic_version` 只有一个值，看不出每个库各自演进到哪；Hermes 的逐库版本号在多库场景下信息更全」 | ✅✅ **完全达标** |
+| **7.17** | 写了差异 + 取舍理由（「审计数据不可篡改——删掉一条使用记录，等于让'这个技能到底被用过没有'永远不可考」），但**代价是隐含的**：读者要自己推出「所以用户无法通过 journey 真正删除/编辑条目，只能标注」 | ⚠️ **建议补半句显式代价** |
+
+**⑦ 5.14 tools catalog → ✅✅ 23/94 与 `report()` 一致**
+
+实跑 `orbit tools catalog`（exit 0）：
+```
+Hermes 内置工具 94 个 / 19 个功能域；Orbit 内置工具 39 个
+覆盖 23 / 94（24%），缺 71，Orbit 独有 10
+```
+`orbit_coverage()` 对照：`covered` = **23** 个键（read_file/write_file/patch/search_files/terminal/process/execute_code/browser_×5/web×2/session_search/memory/skills×3/todo/clarify/tool_search）、`total` = **94**、`missing` = **71**、`domains` = **dict 19 条** ✓✓
+你交代的字段名问题也印证了：`DomainCoverage` 的字段确实是 `covered`（不是 `have`），`domains` 确实是 dict ✓
+
+**附：9.14 守卫（上轮建议的落地）→ ✅✅ 四条断言全在，含反向防空转**
+
+```
+test_no_module_level_vector_imports        (:58)  AST 遍历模块顶层，断言 "这些文件在模块级 import 了向量库"
+test_vector_libs_are_actually_used_somewhere(:69) ← 反向断言："app/ 下找不到任何向量库的使用——守卫已空转"
+test_vec_available_degrades_instead_of_raising(:84) isinstance(vectors.vec_available(), bool)
+test_app_imports_without_vector_libs        (:91)  从 sys.modules 摘掉向量库后核心仍能 import
+test_rerank_import_does_not_load_the_model  (:104)
+```
+**第 4 条（`sys.modules` 摘除）是"真的不依赖"而不是"看代码说没依赖"** ✓ 反向断言那条尤其重要——没有它，守卫可能因为正则失效而永远绿。
+
+### B. 你主动交代的三件事
+
+**① 5.14 留在 🟡 没抬 → 判断正确**
+
+「覆盖 23/94，缺 71」——**从"不知道缺什么"到"知道缺什么"不等于对齐**，这个判断是对的。我复核了它的产物质量：`tools catalog` 对每条缺失都给了原因，且原因是**具体的**（`browser_back` 需要页面历史栈 / `browser_cdp` 是刻意不做协议逃生口 / `browser_vision` 本机无视觉 provider），不是套话。**这已经是能交付的产物，但确实不是"对齐"。**
+
+**② 你接 CLI 时想当然写错三个字段名 → 这条本身是正面证据**
+
+`Coverage.domains` 是 dict、`DomainCoverage` 是 `covered` —— 我实测确认了（见 A⑦）。**mypy 抓出来说明类型标注是有效的**；更重要的是你把这条写进了交代，而不是悄悄改掉。
+
+**③ 删掉 `assert ... or True` → 完全正确**
+
+「一条永远通过的测试比没有更坏」——这句判断我完全同意，而且它比"修一个 bug"更有价值：**假测试会污染整条证据链**，因为它让"测试全绿"这个信号失去意义。这类东西如果留着，我下轮抽查时会把它当成证据引用。
+
+### C. 我本轮的方法学修正（自我披露）
+
+1. **7.18 的两次误判**（见 A③）：我的 frontmatter 正则吃了换行，导致差点报一条假发现。**规则记下：独立复核与对方结论相反时，先怀疑自己的抽取口径。**
+2. **REGISTRY 计数必须连跑两次**：本轮我这么做了，才敢断定 513 是稳定值而不是随机（结论：稳定，差异来自轮中代码）。
 
 ---
 
 ## 与目标标志的差距
 
-只剩 **8 条 ⬜**，逐条列（这是离「Hermes 有的 Orbit 都有」的最后硬缺口）：
+**⬜ 已归零**，所以"还差什么"这个问题变了性质：不再是"有哪些没做"，而是**"44 条 🟡 里哪些该做完、哪些是决定不做"**。
 
-| # | 条目 | 内容 | 备注 |
-|---|---|---|---|
-| 1 | **2.1** | 单循环 + 传输适配器归一化多 provider | 【推断】层（Hermes 源码在 PYZ 内） |
-| 2 | **5.7** | `hook_output_spill`（10,000 / head 500 / tail 500）+ `spill_safety` 拒符号链接 | **轮末看到 `budget.py` 正在被改，可能就在做这条** |
-| 3 | **5.14** | 内置工具数量对齐（94 个；Orbit 现 29+） | 差 65 个工具 |
-| 4 | **7.16** | `orbit sync`（跨设备技能同步 + 三方合并） | 体量最大的一条 |
-| 5 | **7.18** | 技能库规模（Hermes 21 类目 / 91 技能） | 规模类，非机制 |
-| 6 | **8.7** | MCP schema 缓存 | **轮末看到 `mcp_schema_cache.py` 新建，正在做** |
-| 7 | **8.10** | optional-mcps 预置目录（63 个服务模板） | 纯数据活 |
-| 8 | **9.14** | 核心零向量（向量只在 provider 里） | 这是一条"**证明没有**"的条目 |
-
-> 注意 **9.14 是反向条目**（要求"核心**不含**向量"）。它不能靠写代码完成，只能靠"扫依赖 + 扫 import 并给出证据"来完成——建议把它做成一条**可复跑的门禁**（`grep -r 'lancedb|chromadb|faiss' app/` 必须为空），否则它会永远挂在 ⬜ 上。
-
-### 46 条 🟡 的分布（这才是真正的剩余工作）
+### 44 条 🟡 的分布
 
 | 层 | 🟡 | 主要内容 |
 |---|---|---|
+| L1 | 5 | 全局 23 flag、二级/三级实现率、`serve`/`desktop`/`gui`、`acp` |
 | L4 | 5 | 4.1 只 16/48 profile、4.2 只 3/5 transport、4.9 只 4/18 槽位 等 |
-| L10 | 5 | 10.1 写侧未统一、10.4 压缩阈值未接、10.9 非影子 git、10.11 无 schema_version 表、10.13 19 子命令实现 8 |
+| L5 | 5 | 5.14 工具 23/94、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant |
 | L13 | 5 | dashboard 插件契约、懒发现、`all`/`pack` CLI 等 |
-| L1 | 5 | 全局 23 flag、二级/三级实现率、`serve`/`desktop`/`gui` 等 |
-| L5 | 4 | 媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant |
 | L9 | 4 | USER.md 用量头、8 个外部 provider（`available()` 恒 False）、写入门禁余项、漂移防护 |
-| L14 | 4 | tirith 已 ✅；egress 代理、`path_security`/`url_safety` 四件套、脱敏出口未全覆盖 |
+| L14 | 4 | egress 代理、`path_security`/`url_safety` 四件套、脱敏出口未全覆盖、tirith 余项 |
+| L10 | 4 | 10.1 写侧未统一、10.4 压缩阈值、10.9 非影子 git、10.13 19 子命令实现 8 |
 | L2 | 3 | 心跳判卡死、swarm 调度、后台学习回路 |
-| L7 | 3 | hub 远端索引、`skills_guard` 107 条威胁模式、7.17 语义差异 |
 | L12 | 3 | 19 个平台适配器全是占位、peer、monitoring 导出 |
 | L6 | 2 | toolset 覆盖 13/32、四层过滤只做平台层 |
 | L8 | 2 | OAuth 真流程、`orbit mcp` 剩余子命令 |
-| L16 | 1 | dashboard 剩余页面语义 |
+| L7 / L16 | 1 + 1 | `skills_guard` 107 条威胁模式 / dashboard 剩余页面语义 |
+
+### 这 44 条其实分三类（这是本轮最重要的结构判断）
+
+| 类别 | 特征 | 例子 | 建议 |
+|---|---|---|---|
+| **A. 纯数据活**（照调研表抄） | 无新逻辑，只是把 Hermes 的表搬过来 | 4.1 的 32 个 profile、4.9 的 14 个槽位、5.14 的 71 个工具、7.18 类 | **该做完**，性价比最高 |
+| **B. 环境限制**（本机做不到） | 需要网络 / chromium / 平台凭证 / 外部 CLI | browser_vision、browser_cdp、8.10 之外的平台适配器、OAuth 真流程、8 个外部 provider | **见下方判断** |
+| **C. 工程决定不同**（有意不照抄） | 已经想清楚"不这么做更好"，且能说清代价 | 10.1 非同库同表、10.9 非影子 git、10.11（已 🟢）、7.17（已 🟢） | **应升 🟢** |
+
+**我的判断：B 类不该归 🟢。**
 
 ---
 
 ## 风险与漂移
 
-### R1 🟡 **轮末出现 2 个在飞改动（本轮基线取自轮初，不受影响）**
+### R1 🟡 **轮末出现 10 项在飞改动（本轮基线取自轮初）**
 
 ```
-轮初 git status: 0 条目  ✓（与你说的一致）
-轮末 git status: 2 条目
-   M backend/app/budget.py                 ← 可能在收 5.7 hook_output_spill
-   ?? backend/app/mcp_schema_cache.py      ← 明确是 8.7 MCP schema cache
+轮初 git status: 0 条目 ✓
+轮末 git status: 10 条目
+  M  app/context.py  app/main.py  app/session_plane.py  app/session_search.py  app/toolsets.py
+  M  tests/test_session_search.py
+  ?? app/dashboard_api.py  app/turn_budgets.py  tests/test_dashboard_api.py  tests/test_turn_budgets.py
 ```
-→ **本轮所有硬口径均取自轮初的 `HEAD a693224`**；这两个改动落地后 `REGISTRY` 与测试数都会再变。**上轮的教训（轮初轮末各查一次 git）本轮已执行，也确实又抓到了在飞施工。**
+→ 下一波（dashboard_api / turn_budgets）正在起。**本轮所有硬口径取自 `HEAD 711e8fe`**；`mypy 145 vs 143` 与 `REGISTRY 513 vs 512` 两个微差都可由这 2 个新 app 文件 + `toolsets.py` 的改动解释。
 
-### R2 🟠 **7.17 的行为差异未标注（本轮唯一的新发现，见 C 节）**
+### R2 🟠 **🟢 这个状态的口径风险：它可能变成新的垃圾桶（你问的那个问题的核心）**
 
-Hermes 的 `journey delete/edit` **真删/真编辑**，Orbit **只写旁注 + 墓碑**。取舍正确，但 MATRIX 标 ✅ 且未标差异。**这类"行为差异未标注"比数字错更难发现**——它不会让任何测试红，也不会让计数异常。
+你自己已经写了硬门禁（🟢 必须含 `差异：`，否则 `matrix_stats` 报错），**这条我复核成立**（`matrix_stats.py:31,109-112`）。
+**但门禁只能拦住"不写差异"，拦不住"把不该归 🟢 的东西塞进去"** —— 因为 `差异：` 是一段自由文本，写「本机没有 chromium，所以没验证」也照样能过门禁。
 
-### R3 🟡 **「同名不同语义」这个类别建议做成常设检查**
+**所以你的问题（环境限制要不要归 🟢）不是格式问题，是口径问题。我的判断是：不应该。** 理由三条：
 
-本轮按你的要求抽查了 4 个名字，抓到 1 条（7.17）。建议把它固化成一张小表（Hermes 命令名 → Hermes 语义 → Orbit 语义 → 是否一致），**在 MATRIX 里加一列或单独一张附页**。目前 9.16 的教训（`profile` = distribution ≠ 用户画像）已经说明这类错误**能潜伏 8 轮不被发现**。
+1. **🟢 的语义是"我们选择不同做法"，环境限制是"我们没验证"。** 前者是**已完成**（能力在，形态不同），后者是**未验证**（能力可能压根没写，或写了没跑过）。把后者算进完成度，等于用"本机条件差"给目标降标——这与「Hermes 有的 Orbit 都有」这个目标标志直接冲突。
+2. **判据要可机械执行，否则口径会漂。** 建议用一条硬问题：**"换一台有网络 / 有 chromium / 有平台凭证的机器，这条能不能验证？"** —— **能** → 是环境限制（不是 🟢，也不是"已完成"）；**不能**（比如 Hermes 那个能力本身就依赖厂商私有协议、我们不打算做）→ 才是 🟢。
+3. **不改状态也能解决"完成度卡在七成多"这个观感问题**：用**双口径并列**代替改口径——
+
+```
+主口径（严格）：75.7% = (✅135 + 🟢2) / 181     ← 回答"离目标多远"
+辅助口径：      X% = 已完成 / (181 − 环境受限条目数)  ← 回答"在可验证范围内做完了多少"
+```
+两个数字并列，谁都不会被误导；而把它们并成一个数字，一定会误导。
+
+**如果你一定要在 MATRIX 里体现，我建议加第五个状态而不是复用 🟢**：
+`⚫ 本机不可验证`（**不计入完成度**，单独统计"待外部环境验证 N 条"）。这样：
+- ✅ / 🟢 仍是"做完了"，
+- 🟡 仍是"该做没做"，
+- ⚫ 是"做了但本机验不了"或"需要外部条件才能做"，
+- 三者互不污染，完成度不虚高。
+
+**一句话回答你**：**不要归 🟢。** 归了之后 🟢 就从"有意差异"退化成"做不到"的出口，而这正是你自己警惕的那种垃圾桶——只是从 ✅ 换到了 🟢。
+
+### R3 🟡 **7.17 的 🟢 差异栏建议补显式代价**
+
+见 A⑥：写了取舍理由，但"代价"是隐含的。补一句「代价：用户无法通过 `journey` 真正删除或编辑条目，只能标注；要真正消除影响得走 curator 的动作」即可（`journey.py:36` 的 docstring 里其实已经有这句话，搬到 MATRIX 就行）。
 
 ### R4 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| 9.12 的**端到端** CLI exit 3 | 全新 `--data-dir` 缺 `app.sqlite`，补库要跑 `orbit setup`（改状态）→ 未运行。**门禁逻辑 + 调用点 + 退出码映射三段已核** |
-| `profile show` 的 `_BOUND` 重绑修复 | 未单独复核（你交代的第 2 条） |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 4 轮如此） |
-| 本轮 11 条转 ✅ 中未抽查的 2 条 | 9 条已核 |
+| `orbit sync` 的**实际跨设备**流程 | 需要第二台设备/第二个 data_dir 做端到端；只核了 `merge()` 的四情形与 quarantine 顺序 |
+| `skill_seed.seed()` 真写入 88 目录 | 会写 `<data>/skills/`（真实技能目录）→ 未运行；只核了 dry-run 默认值与测试断言 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 5 轮如此） |
 
 ---
 
@@ -308,15 +266,15 @@ Hermes 的 `journey delete/edit` **真删/真编辑**，Orbit **只写旁注 + �
 
 按优先级：
 
-1. **【P0】给 7.17 补「行为差异」标注**（R2）：Hermes 真删/真编辑 vs Orbit 只写旁注 + 墓碑。**这是本轮唯一一条"✅ 撑得住但语义未对齐"的条目**，而它恰好落在你担心的那一类上。补一句就行，不必降级——取舍是对的，只要说出来。
-2. **【P0】把「同名不同语义」做成常设检查**（R3）：建议在 MATRIX 加一列 `语义一致性`（一致 / 有意差异 / 待核），并先过一遍全部 181 条里的**命令类条目**（L1/L7/L8/L10/L11/L12/L13）。9.16 那条潜伏了 8 轮，说明这个风险是真实的。
-3. **【P0】9.14 是"证明没有"型条目**，不能靠写代码完成：建议做成可复跑门禁（`grep -r 'lancedb|chromadb|faiss|sentence_transformers' app/` 必须空 + `pyproject.toml` 无相关依赖），跑通即 ✅。否则它会永远挂 ⬜。
-4. **【P1】5.7 / 8.7 已在收尾**（轮末看到 `budget.py` 改动与 `mcp_schema_cache.py` 新建）：这两条收掉后 ⬜ 只剩 6 条，其中 4 条是**规模/数据类**（5.14 工具数、7.18 技能数、8.10 63 模板、7.16 sync）。
-5. **【P1】46 条 🟡 才是真正的大头**：其中 **L4 的 5 条**（4.1 只 16/48 profile、4.2 只 3/5 transport、4.9 只 4/18 槽位）**基本都是"照 06 调研的表抄数据"**，纯数据活、无新逻辑，是性价比最高的一块。
-6. **【P1】L10 的 5 条 🟡 里有 3 条是"取舍类"**（10.1 非同库同表、10.9 非影子 git、10.11 无 schema_version 表）——这些**可能永远不该变 ✅**。建议给这类加一个状态 **🟢「有意差异」**，否则完成度永远卡在 70% 出头，且读者分不清"没做"和"故意不做"。
-7. **【P2】给每条 ✅ 补「验证命令」列**：本轮 9.12（in-process 调 `check_write`）、9.11（`H.DIM` + 三个权重用例）、4.10（`resolve()` 逐字段 None）都是可一键复跑的；把这种断言补到其余条目，下轮监视不必重读源码。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 7 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
+1. **【P0】给「环境限制」一个独立状态 ⚫（或双口径），别归 🟢**（R2）：这是你问的那个问题的直接答案。判据用一句话可判——「换一台有网/有 chromium/有平台凭证的机器，这条能不能验证？」能 → 环境受限；不能 → 才可能是 🟢。**同时给出双口径数字**（严格 75.7% + 可验证范围内 X%），否则完成度会永远卡在七成多且读者分不清"没做完"和"验不了"。
+2. **【P0】把 44 条 🟡 按我上面那张三类表打标签**（A 数据活 / B 环境限制 / C 工程决定）。**A 类优先做完**（4.1 的 32 个 profile、4.9 的 14 个槽位、5.14 的 71 个工具——全是照 06/02 调研表抄，无新逻辑）；**C 类升 🟢**（10.1 / 10.9 等你已经想清楚的）；**B 类进 ⚫**。做完这一步，剩下的才是真正的"未完成"。
+3. **【P0】7.17 的 🟢 补一句显式代价**（R3）——把 `journey.py:36` 已有的那句搬进 MATRIX 即可，成本几乎为零。
+4. **【P1】把 🟢 门禁从"格式检查"升级成"口径检查"**（R2 的延伸）：现在只查有没有 `差异：`；建议再加一条——`差异：` 段落里**不得出现**「本机 / 没网络 / 没装 / 无法验证 / 缺凭证」这类词（命中就报错并提示"这属于环境限制，请用 ⚫"）。**这是唯一能让 🟢 不退化成正垃圾桶的机械手段。**
+5. **【P1】L13 插件（50%，5 条 🟡）是现在最弱的一层**：dashboard 插件契约、懒发现、`all`/`pack` CLI。轮末已在起 `dashboard_api.py`，说明这块正在动——建议一次收口。
+6. **【P1】L6 toolset（60%）值得单独看**：只有 5 条，2 条 🟡 是"toolset 覆盖 13/32"和"四层过滤只做平台层"。**toolset 表也是纯数据活**（照 02 调研的 32 个 toolset 抄），性价比高。
+7. **【P2】给每条 ✅ 补「验证命令」列**：本轮 5.14（`orbit tools catalog`）、9.14（`test_core_zero_vectors.py` 四条）、7.18（91 份 sha256 全量比对脚本）都是可一键复跑的；把这种断言补到其余条目，下轮监视不必重读源码。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 8 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
 
 ---
 
-*本报告由 monitor 角色只读生成。本轮 11 条转 ✅ 复核 9 条（82%），你点名的 7 条**全部撑得住**；两处交代**全部成立**（9.16 的 13 条子命令我从 `_raw` 独立数过，逐条相同）；按你的要求抽查「同名不同语义」抓到 **1 条（7.17 行为差异未标注）**。9.12 的端到端 CLI 因需先建库而未跑，已如实标注。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。本轮 7 条转 ✅ **全部撑得住**、2 条 🟢 **10.11 完全达标 / 7.17 差半句显式代价**；9.14 守卫四条断言含反向防空转，复核通过。**我本轮也犯了一次错并已更正**：7.18 的 sha256 我头两次误判为"0/91 一致"，实为我的 frontmatter 正则吃了换行；按测试同一口径复核后 **91/91 一致**。关于你问的 🟢 口径问题，我的判断是**不该把环境限制归入 🟢**，理由与替代方案见 R2。*

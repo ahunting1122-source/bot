@@ -813,6 +813,13 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
 
+    # dashboard 的 docs / files / webhooks 三页后端（MATRIX 16.1）。
+    # 单独成模块的理由：它们共享同一套路径校验，而那套校验是最容易写漏的部分——
+    # 放一起才能只写一次。**必须在 mount("/") 之前**，否则静态站会把 /api/* 吃掉。
+    from app import dashboard_api
+
+    app.include_router(dashboard_api.router)
+
     dist = ROOT / "frontend" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")

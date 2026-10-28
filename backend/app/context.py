@@ -210,7 +210,12 @@ async def build_context(store: Store, task: Task, settings, *, touch: bool = Tru
     )
     summary = conversation.summary if conversation and conversation.summary_message_count else ""
     # 画像层：整段注入、与 memories 分开陈述。空画像返回空串，不占预算。
-    profile_block = profile_module.render_block(settings)
+    #
+    # 走 `memory_prompt.render_user_block` 而不是 `profile.render_block`：前者在标题行里
+    # 带**用量自曝**（`[99% — n/N 字符]`），与 MEMORY 那半边口径一致。
+    # 为什么这件事重要：用户看不到「还剩多少」就不会去清理，等到写不进去那天才发现，
+    # 而那时候最先被丢的是**最旧**的条目——往往是当初最关键的那条背景。
+    profile_block = memory_prompt.render_user_block(profile_module.persisted_entries(settings))
     # 文件权限级别是**每轮都变**的运行时事实，必须放进系统提示：模型不知道自己
     # 被允许走多远。写死"授权目录"会让它在完全访问档下仍不敢碰工作目录之外，
     # 也让它在有限档下以为可以随便写整机。

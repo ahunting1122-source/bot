@@ -54,7 +54,11 @@ MAIN_PATH: Path = Path(__file__).with_name("main.py")
 
 #: 抽 FastAPI 路由声明的正则。只认 ``@app.<method>("<path>")`` 这一种写法——
 #: ``app/main.py`` 里全部路由都是这个形状，放宽只会让"没找到"变成"猜"。
-_ROUTE_RE = re.compile(r"""@app\.(get|post|put|patch|delete|websocket)\(\s*["']([^"']+)["']""")
+# 同时认 `@app.<method>`（main.py）与 `@router.<method>`（dashboard_api.py）：
+# 只认前者会让挂在 APIRouter 上的路由对这个核对器隐形。
+_ROUTE_RE = re.compile(
+    r"""@(?:app|router)\.(get|post|put|patch|delete|websocket)\(\s*["']([^"']+)["']"""
+)
 
 #: 从 ``orbit_route`` 里抽 ``/api/...`` 路由的字面量。
 _ROUTE_TOKEN_RE = re.compile(r"/api/[A-Za-z0-9_/{}\-]+")
@@ -193,8 +197,13 @@ PAGES: tuple[DashboardPage, ...] = (
             "内置静态文档页（Hermes 侧无 /api 路由，纯前端）",
             "仓库根目录的 .md（README / ARCHITECTURE / ROADMAP …）",
         ),
-        orbit_status="missing",
-        gap="Orbit 没有面板内文档页，前端也没有对应视图；文档散在仓库根目录的 .md 里。",
+        orbit_status="covered",
+        orbit_route="/api/docs + /api/docs/read",
+        note=(
+            "后端已有：列出可读 Markdown（项目 handoff/ 与 data/skills/）并按路径读正文，"
+            "路径经 _safe_relative 校验（拒绝绝对路径、..、符号链接逃逸、Windows 保留名、ADS）。"
+            "前端视图未做——没有 React 页面，只能用 API 或 curl 读。"
+        ),
     ),
     DashboardPage(
         name="env",
@@ -219,7 +228,13 @@ PAGES: tuple[DashboardPage, ...] = (
             "app.sqlite · artifacts",
             "Hermes 路由 /api/files*（list / read / mkdir / upload）",
         ),
-        orbit_status="missing",
+        orbit_status="covered",
+        orbit_route="/api/files",
+        note=(
+            "后端已有目录浏览（限深度 4、限 500 条，跳过 .git/.venv/node_modules）。"
+            "未做：读单个文件正文、上传、下载——那三条要么走 /api/artifacts/{id}，"
+            "要么还需要新路由；前端视图也未做。"
+        ),
         gap="只有 /api/artifacts/{artifact_id} 单件下载，没有目录浏览/读写/上传路由，"
         "前端也没有文件页——agent 产出的文件只能靠「知道 artifact id」去取。",
     ),
@@ -347,8 +362,14 @@ PAGES: tuple[DashboardPage, ...] = (
             "Hermes 路由 /api/webhooks*（enable / 单个开关）",
             "Hermes data/webhooks.json",
         ),
-        orbit_status="missing",
-        gap="Orbit 没有 webhook 入口（无路由、无落盘配置）；外部触发只能靠消息平台或 cron。",
+        orbit_status="covered",
+        orbit_route="/api/webhooks + /api/webhooks/{webhook_id}",
+        note=(
+            "后端已有：登记 / 列表 / 删除 + 入站收件（secret 用 x-orbit-secret 校验，永不回显），"
+            "落 data/webhooks/<id>.jsonl。如实说明：入站只落盘、返回 202，不直接拉起 agent"
+            "——那要走任务队列与审批上下文，从这里硬调会绕开预算与审批。真正触发需"
+            "cron/gateway 读收件箱。前端视图未做。"
+        ),
     ),
 )
 
@@ -364,13 +385,20 @@ def main_routes(path: Path | None = None) -> dict[str, str]:
     判成对不上，比静默放行安全。
     """
     target = path or MAIN_PATH
-    try:
-        text = target.read_text(encoding="utf-8")
-    except OSError:
-        return {}
     routes: dict[str, str] = {}
-    for method, route in _ROUTE_RE.findall(text):
-        routes.setdefault(route, method.upper())
+    # 两处来源：`main.py` 的 `@app.<method>` 与 `dashboard_api.py` 的 `@router.<method>`。
+    # 少了第二处，`APIRouter` 上挂的路由对这个核对器就是隐形的——页面会被误报成
+    # missing，而路由其实已经在跑。核对器自己也得跟上实现，否则它只是一份过时清单。
+    sources = [target]
+    if path is None:
+        sources.append(MAIN_PATH.parent / "dashboard_api.py")
+    for source in sources:
+        try:
+            text = source.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for method, route in _ROUTE_RE.findall(text):
+            routes.setdefault(route, method.upper())
     return routes
 
 
