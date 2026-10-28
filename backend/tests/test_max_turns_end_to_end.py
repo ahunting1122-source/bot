@@ -118,7 +118,18 @@ async def test_runaway_loop_stops_on_max_turns(tmp_path):
             "说明 `turns` 计数器没有穿过 checkpoint 累加，2.2 仍然是假的"
         )
 
-        # ③ 轮次确实到了上限附近，不是别的东西先停
+        # ③ **停了要告诉用户怎么办**：只说「被预算停下」等于让用户自己猜改哪个开关。
+        # 90 够不够是用户的偏好，但「停了不说怎么调」是产品缺陷——这条可验、且不慢。
+        hints = [
+            str((e.get("payload") or {}).get("hint") or "")
+            for e in stops
+            if (e.get("payload") or {}).get("reason") == "max_turns"
+        ]
+        assert hints and any("--max-turns" in h for h in hints), (
+            f"budget_stopped 没有可操作提示（实际：{hints}）"
+        )
+
+        # ④ 轮次确实到了上限附近，不是别的东西先停
         turns = _max_turns_recorded(stops)
         assert turns >= 3, f"停时只跑了 {turns} 轮，小于 max_turns=3"
     finally:

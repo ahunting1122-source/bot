@@ -485,7 +485,13 @@ REGISTRY.add(
             Option(("-s", "--skills"), "预载技能名（可重复），正文注入 Context 层", metavar="SKILL", action="append"),
             Option(("--accept-hooks",), "自动信任新出现的 shell hooks（写进信任表）", action="store_true", dest="accept_hooks"),
             # ── 预算 ──
-            Option(("--max-turns",), "本轮最多几个 think→execute 循环（默认 90）", metavar="N", dest="max_turns"),
+            Option(
+                ("--max-turns",),
+                "本轮最多几个 think→execute 循环（默认取 agent.max_turns = 90；"
+                "Hermes 的 CLI 帮助写 500，那是它 CLI 侧的默认，见 MATRIX 2.2）",
+                metavar="N",
+                dest="max_turns",
+            ),
             Option(("--run-budget",), "本轮墙钟预算（秒）", metavar="SECONDS", dest="run_budget"),
             # ── 工作目录与隔离 ──
             Option(("--in",), "把工作目录切到该路径（影响项目上下文加载）", metavar="DIR", dest="in_dir"),

@@ -215,7 +215,7 @@ _OPTION_HELP: dict[str, str] = {
     "--max-size-mb MAX_SIZE_MB": "清理后按项目删最旧提交直到总大小 ≤ N MB（默认 500）",
     "--max-tokens MAX_TOKENS": "只匹配总 token（入+出）≤ N 的会话",
     "--max-tool-calls MAX_TOOL_CALLS": "只匹配工具调用次数 ≤ N 的会话",
-    "--max-turns N": "每轮对话最多的工具调用迭代数（默认 500）",
+    "--max-turns N": "每轮对话最多的工具调用迭代数（**Hermes CLI 帮助原文写默认 500**；它的 `agent.max_turns` 配置默认是 90，两个数在 Hermes 侧并存。Orbit 实现取 90——只有一套预算，且更保守，见 MATRIX 2.2）",
     "--metadata METADATA": "结构化事实的 JSON 字典（如 {\"tests_run\": 12}）",
     "--migrate-secrets": "连白名单密钥一起迁移（TELEGRAM_BOT_TOKEN、API key 等）",
     "--min-cost MIN_COST": "只匹配花费 ≥ N 美元（实际或估算）的会话",

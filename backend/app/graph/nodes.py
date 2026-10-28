@@ -1448,6 +1448,9 @@ class Nodes:
                 max_turns=budget.get("max_turns"),
                 turns=turns,
                 elapsed=budget["elapsed"],
+                # **停了要告诉用户怎么办**：90 够不够是用户的偏好，
+                # "停了不说怎么调"是产品缺陷。这条同时进事件与用户可见的提示。
+                hint=_stop_hint(decision, budget, turns),
             )
         return {"budget": budget, "turns": turns}
 
@@ -1600,3 +1603,26 @@ def register_ask_user(registry) -> None:
 
 
 __all__ = ["AskArgs", "Nodes", "register_ask_user", "tried_tool"]
+
+
+def _stop_hint(reason: str, budget: dict, turns: int) -> str:
+    """任务被预算停下时，告诉用户**具体怎么调**。
+
+    只说「被预算停下」等于让用户自己猜哪个预算、改哪个开关。
+    """
+    if reason == "max_turns":
+        return (
+            f"已走 {turns} 轮（上限 {budget.get('max_turns')}）。"
+            "要放宽：`orbit chat --max-turns N`，或配置 `agent.max_turns`。"
+        )
+    if reason == "max_actions":
+        return (
+            f"已执行 {budget.get('used_actions')} 个动作（上限 {budget.get('max_actions')}）。"
+            "要放宽：配置 `max_actions`。"
+        )
+    if reason == "max_tokens":
+        return (
+            f"已用约 {budget.get('token_estimate')} token（上限 {budget.get('max_tokens')}）。"
+            "这个上限写死在 `DefaultBudgetPolicy.default_max_tokens`，改配置改不了。"
+        )
+    return ""

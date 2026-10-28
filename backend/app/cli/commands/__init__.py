@@ -28,6 +28,12 @@ from app.cli.commands import (  # isort: split
     memory_extra,
     memory_extra2,
     model,
+    # `model_extra` 给 `model` 加开关、给 `moa` 加 `run` 子命令（MATRIX 4.11）。
+    # **必须在 `model` 之后导入**（它要往已存在的父节点上挂子命令），
+    # 但它**不自 import `hermes_parity`**，所以留在第一组。
+    # 少了这一行：`orbit moa` 的 `list`/`configure`/`delete` 都能跑，
+    # **唯独 `run` 不存在**——用户能配置 MoA 却永远跑不了它。
+    model_extra,
     observability,
     observability_extra,
     ops,
@@ -151,6 +157,7 @@ __all__ = [
     "memory_extra",
     "memory_extra2",
     "model",
+    "model_extra",
     "observability",
     "observability_extra",
     "observability_extra",
