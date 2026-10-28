@@ -138,3 +138,28 @@ def test_run_metrics_uses_the_schema_producer():
     assert "as_schema_payload(" in code, (
         "`run_metrics` 不再走 schema 产出了——`metrics_schema` 又变成只有报告命令用的摆设"
     )
+
+def test_a_histogram_value_carries_the_metric_s_own_semantics(collected):
+    """**语义判据**：*_seconds 的 histogram，alue 必须是**秒**而不是**次数**。
+
+    目录里唯一的 histogram 是 orbit_task_duration_seconds（help 写「任务墙钟耗时」）。
+    第一版把 alue 给成观测次数——**下游读到 alue: 42 会认为「42 秒」，
+    而它其实是「42 次任务」**。source/help 都不澄清这一点。
+
+    **通用性不能凌驾于语义一致性**：次数有意义，但它不该占 alue 这个
+    与指标名同义的位置。次数以 count 显式给出。
+    """
+    metrics, values, _settings = collected
+    payload = metrics.as_schema_payload(values)
+
+    name = "orbit_task_duration_seconds"
+    item = payload["metrics"].get(name)
+    if item is None or not item.get("available"):
+        pytest.skip("本机没有该指标的样本，跳过语义断言")
+
+    source = values[name]
+    assert item["value"] == float(source.total), (
+        f"{name} 的 value 应该是总秒数（{source.total}），实际 {item['value']}——"
+        "那是次数，下游会当成秒"
+    )
+    assert item.get("count") == float(source.count), "次数要以 count 显式给出"

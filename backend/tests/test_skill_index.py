@@ -420,12 +420,22 @@ def test_new_skill_invalidates_by_signature(tmp_path):
 
 
 def test_edited_skill_invalidates_by_signature(tmp_path):
-    """改内容只更新文件 mtime、不动父目录 mtime——签名里必须掺文件 mtime+size。"""
+    """改内容只更新文件 mtime、不动父目录 mtime——签名里必须掺文件 mtime+size。
+
+    **内容长度必须不同**（`旧描述` → `新描述（更长）`）。原来用 `旧描述` → `新描述`，
+    两个在 UTF-8 下**都是 9 字节**（三个汉字 × 3），于是 size 判据完全失效、
+    只剩 `mtime_ns`；同一 tick 内两次写入就会偶发变红。
+
+    **这不是「脆弱测试」要容忍的那种偶发**：偶发红的测试会**污染整个红灯信号**——
+    下次它再红，谁也不能立刻判断是不是回归。**改一个字符串就能稳定，
+    而它仍然验的是「改内容会失效缓存」。**
+    """
     index = make_index(tmp_path)
     write_skill(index.user_root, "demo", description="旧描述")
     assert index.index().skills[0]["description"] == "旧描述"
-    write_skill(index.user_root, "demo", description="新描述")
-    assert index.index().skills[0]["description"] == "新描述"
+    longer = "新描述（内容更长，让 size 判据也失效不了）"
+    write_skill(index.user_root, "demo", description=longer)
+    assert index.index().skills[0]["description"] == longer
 
 
 # ── 6. 威胁扫描（skills_guard 子集）─────────────────────────────────────────

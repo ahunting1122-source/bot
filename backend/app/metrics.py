@@ -762,7 +762,12 @@ def _schema_value(value: MetricValue) -> float:
       逐 label 明细另放在 `samples` 里）。
     """
     if value.metric.kind == "histogram":
-        return float(value.count)
+        # **用 	otal 不用 count**。目录里唯一的 histogram 是
+        # orbit_task_duration_seconds（help 写「任务墙钟耗时」）——
+        # 若 alue 给次数，下游读到 alue: 42 会认为「42 秒」，
+        # 而它其实是「42 次任务」。**通用性不能凌驾于语义一致性。**
+        # 次数另以 count 显式给出（uckets 里也有，但显式更清楚）。
+        return float(value.total)
     return float(sum(value.samples.values()))
 
 
@@ -805,7 +810,7 @@ def as_schema_payload(values: Mapping[str, MetricValue]) -> dict[str, Any]:
             entry["value"] = _schema_value(value)
             # 明细照带：schema 不禁止额外键，而丢掉它们会让这个载荷比 `as_dict` 更难用
             if metric.kind == "histogram":
-                entry["sum"] = float(value.total)
+                entry["count"] = float(value.count)
                 entry["buckets"] = [
                     {"le": float(bound), "count": float(count)} for bound, count in value.buckets
                 ]
