@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     # `resolve()` 永远回落到默认 90。**这正是 2.2 修了两遍仍然不生效的根因。**
     # `None` = 没配，交给 `turn_budgets` 的默认档（父 90 / 子 50）。
     max_turns: int | None = None
+    # 推理档位（MATRIX 4.4）：`off` / `low` / `medium` / `high`，空串 = 不传。
+    #
+    # **必须声明**：`orbit chat --reasoning high` 之前写的是
+    # `updates["reasoning_level"]` → `settings.model_copy(update=...)`。
+    # pydantic v2 的 `model_copy` **不校验也不报错**，未声明的键会作为裸属性塞进
+    # `__dict__`——所以它"能用"但**不是模型字段**：`Settings.model_fields` 里查不到，
+    # 序列化时会丢，静态阅读时看不见。**与 `max_turns` 同一类病。**
+    reasoning_level: str = ""
     # 单轮回复的时间上限（秒）。到点后**任务转后台继续**、先给用户一份中间结论，
     # 而不是直接把任务掐断（`agent.py` 的预算兜底仍会硬停，这里只是默认档位）。
     max_seconds: int = 360

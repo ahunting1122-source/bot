@@ -515,7 +515,12 @@ class Nodes:
             # 只截正文，不丢组——摘要已经把更早的历史接住了。
             messages = self.truncate_bodies(messages, decision.target_tokens)
         specs = self.policies.exposer.expose(self.registry.specs())
-        base_model = runner.get_model()
+        # 把推理档位真的传下去（MATRIX 4.4）。
+        #
+        # 之前 `get_model()` 的调用点**全部不传** `reasoning_effort`，于是它恒为 None——
+        # `orbit chat --reasoning high` 只改了一个没人读的配置，
+        # **参数链完整、单测也过，但从没被激活过**。
+        base_model = runner.get_model(reasoning_effort=self._reasoning_effort())
         try:
             model = base_model.bind_tools(specs, parallel_tool_calls=False)
         except NotImplementedError as exc:
@@ -663,7 +668,13 @@ class Nodes:
         try:
             prompt = [HumanMessage(content=compaction.summary_prompt(messages, prior=prior))]
             answer = await self.ask_model(
-                get_model(), prompt, task, identity, allow_compact=False
+                # 摘要也用同一个推理档位（MATRIX 4.4）——摘要是一次真的模型调用，
+                # 不传档位就等于同一份配置在两处行为不同。
+                get_model(reasoning_effort=self._reasoning_effort()),
+                prompt,
+                task,
+                identity,
+                allow_compact=False,
             )
             return str(getattr(answer, "text", "") or "").strip()
         except asyncio.CancelledError:
@@ -1376,6 +1387,16 @@ class Nodes:
                 HumanMessage(content=f"【流程自省提示，不是用户消息】\n{body}")
             ],
         }
+
+    def _reasoning_effort(self) -> str | None:
+        """当前推理档位（MATRIX 4.4）；空串转成 None 表示「不传」。
+
+        单独抽一个方法是因为**有两个调用点**（主循环与摘要压缩），
+        两处必须用同一份值——否则同一份配置在两个地方行为不同，
+        而这种不一致最难发现。
+        """
+        level = str(getattr(self.settings, "reasoning_level", "") or "").strip()
+        return level or None
 
     # ── budget ─────────────────────────────────────────────────────────────
     async def budget(self, state):

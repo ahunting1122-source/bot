@@ -56,6 +56,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from app import hooks
 from app import policies as policies_module
 from app.budget import BudgetConfig, TurnBudget
 
@@ -468,6 +469,20 @@ class DelegateRunner:
                 log.warning("子任务 runner 创建失败：%s", exc)
                 return self._failed(child_id, f"子任务 runner 创建失败：{exc}")
             self._children[child_id] = child
+            # `subagent_start` 发射点（MATRIX 13.5）。
+            #
+            # 为什么加：`exporters.py` 的 `LANGFUSE_HOOKS` 订阅了 `subagent_start` /
+            # `subagent_stop`——观测端靠它们把子 agent 的 span 挂到父任务下面。
+            # 没有发射点，Langfuse 上的子 agent 就是一个**没有起点的孤儿 span**。
+            hooks.emit(
+                "subagent_start",
+                {
+                    "child_id": child_id,
+                    "goal": spec.goal,
+                    "siblings": siblings,
+                    "budget": {"steps": budget.steps, "tokens": budget.tokens},
+                },
+            )
             inner: asyncio.Task[Any] = asyncio.ensure_future(
                 child.run(spec.goal, budget=budget, spec=spec)
             )
@@ -489,6 +504,23 @@ class DelegateRunner:
                 return self._failed(child_id, f"子任务异常：{exc}", budget=budget)
             finally:
                 self._inner.pop(child_id, None)
+                # `subagent_stop` 发射点（MATRIX 13.5）：与 `subagent_start` 配对。
+                # 放在 `finally` 里，**失败/中断/取消的子任务也发**——否则观测端
+                # 会留下只有 start 没有 stop 的悬挂 span，比没有更误导。
+                # 这里拿不到最终结果（`_finish` 还没跑），所以只报身份与预算用量，
+                # 不假装知道成败——**宁可少报，不要错报**。
+                try:
+                    hooks.emit(
+                        "subagent_stop",
+                        {
+                            "child_id": child_id,
+                            "siblings": siblings,
+                            "steps_used": budget.steps_used,
+                            "tokens_used": budget.tokens_used,
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001 —— 观测钩子不该影响委派结果
+                    log.warning("subagent_stop 发射失败（不影响委派）：%s", exc)
             return self._finish(child_id, payload, budget)
 
     def _failed(self, child_id: str, error: str, *, budget: ChildBudget | None = None) -> DelegateResult:

@@ -120,7 +120,11 @@ class _Runner:
         self._token_usage: dict[str, dict] = {}
         self.settings = SimpleNamespace(context_length=window_tokens)
 
-    def get_model(self):
+    def get_model(self, reasoning_effort=None):
+        # **签名要与真实 AgentRunner.get_model 一致**（MATRIX 4.4 之后它多了一个
+        # 可选参数）。假件签名不准会让「产品真的传了参数」变成测试报错——
+        # 那不是产品的错，是假件过时了。
+        self.reasoning_effort_seen = reasoning_effort
         return self.model
 
     def is_interrupted(self, thread_id: str) -> bool:
@@ -563,7 +567,7 @@ async def test_reactive_overflow_without_a_model_degrades_to_truncation():
     """没有 `get_model`（纯替身）时也必须能压：这条路以前就是这样，不能退步。"""
 
     class _NoModelRunner(_Runner):
-        def get_model(self):  # type: ignore[override]
+        def get_model(self, reasoning_effort=None):  # type: ignore[override]
             raise AssertionError("没有模型时不该被调用")
 
     model = _CountingModel(limit_chars=12_000)
