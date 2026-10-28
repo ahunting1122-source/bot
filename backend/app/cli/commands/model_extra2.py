@@ -313,8 +313,13 @@ def _proxy_plan_from_args(args) -> px.ProxyPlan:
         if not left.strip() or not right.strip():
             raise CliError(f"`--map` 需要 `客户端模型=上游模型`，收到：{pair!r}")
         model_map[left.strip()] = right.strip()
+    auth_mode = str(getattr(args, "auth_mode", None) or "api_key").strip().lower()
+    if auth_mode not in {"api_key", "oauth"}:
+        raise CliError(f"未知的 --auth-mode：{auth_mode}（可选 api_key / oauth）")
     try:
-        return px.plan_for(provider, host=host, port=port, model_map=model_map)
+        return px.plan_for(
+            provider, host=host, port=port, model_map=model_map, auth_mode=auth_mode
+        )
     except px.ProxyError as exc:
         raise CliError(str(exc)) from exc
 
@@ -391,10 +396,17 @@ def run_proxy_serve(context: Context, args) -> int:
         api_key = pv.resolve_api_key(profile, context.settings)
     except pv.ProviderError:  # 本地端点没有 key，不算错
         api_key = ""
+    # OAuth 模式（MATRIX 4.7）：取令牌与判过期是纯本地的，只有刷新要网络。
+    # 刷新失败会由 `ProxyServer` 转成 `code=oauth_needs_network`——**如实报错，
+    # 不静默降级成无鉴权**（那会让上游收到没头的请求，错误信息还指向别处）。
+    token_provider = None
+    if getattr(plan, "auth_mode", "api_key") == "oauth":
+        token_provider = px.oauth_token_provider(context.settings)
     server = px.ProxyServer(
         plan,
         forward=px.http_forward(plan, api_key=api_key),
         headers=px.auth_headers(plan, api_key),
+        token_provider=token_provider,
     )
     context.out(server.describe())
     if not api_key and profile.auth == "api_key":
@@ -547,6 +559,12 @@ def attach() -> dict[str, str]:
                     "模型映射，`客户端模型=上游模型`（逗号分隔）",
                     metavar="PAIRS",
                 ),
+                Option(
+                    ("--auth-mode",),
+                    "鉴权方式：api_key（默认）或 oauth（从 keyring 取令牌，过期才需联网刷新）",
+                    metavar="MODE",
+                    dest="auth_mode",
+                ),
             ],
         ),
     )
@@ -567,6 +585,12 @@ def attach() -> dict[str, str]:
                     ("--map",),
                     "模型映射，`客户端模型=上游模型`（逗号分隔）",
                     metavar="PAIRS",
+                ),
+                Option(
+                    ("--auth-mode",),
+                    "鉴权方式：api_key（默认）或 oauth（从 keyring 取令牌，过期才需联网刷新）",
+                    metavar="MODE",
+                    dest="auth_mode",
                 ),
             ],
         ),
