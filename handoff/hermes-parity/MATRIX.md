@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 73 · 🟡 30 · ⬜ 78（完成度 40.3%，截至 W4/W5 收口）
+条目合计 **181**。当前：✅ 83 · 🟡 37 · ⬜ 61（完成度 45.9%，截至 W7/W8/W11/W12 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -20,9 +20,9 @@
 | 1.1 | 中央命令注册表 + 声明式命令面 | `hermes_cli/commands.py` 的 `CommandDef` 中央注册表 | W1 | ✅ | `backend/app/cli/spec.py` 的 `Registry` / `Command`；`app/cli/commands/` 各模块 `REGISTRY.add(...)` |
 | 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py` 的 `build_parser` / `_add_command` |
 | 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir` / `--no-color`） | `hermes --help` options 段 | W1 | ✅ | `main.py` 的 `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖父级解析） |
-| 1.4 | 顶层命令面**已登记**（**75** 个：Hermes 的 74 个 + Orbit 自有 `session-search`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 75；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
-| 1.5 | 二级子命令面**已登记**（**307** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 417；`undocumented_options(SPECS) == 0` |
-| 1.6 | 三级子命令面**已登记**（**35** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
+| 1.4 | 顶层命令面**已登记**（**78** 个：Hermes 的 74 个 + Orbit 自有 `session-search` / `plane` / `delegate` / `swarm`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 78；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
+| 1.5 | 二级子命令面**已登记**（**332** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 449；`undocumented_options(SPECS) == 0` |
+| 1.6 | 三级子命令面**已登记**（**39** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
 | 1.7 | 全局运行 flags 完整（23 个：`-m` / `--provider` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | 🟡 | 已实现 `-z` / `-m` / `--provider` / `--continue` / `--in` / `--yolo`（在 `chat` 上，见 1.9）；其余 flag 未实现，被调用时报错并指向 MATRIX 条目 |
 | 1.8 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ✅ | 全局 flag（`main.py` 的 `_global_options`），`orbit -z "…"` 等价 `orbit chat -z "…"`；`tests/test_chat.py::test_oneshot_prints_only_the_final_answer` / `test_global_oneshot_flag_is_equivalent` |
 | 1.9 | 交互 chat 模式（`orbit chat`） | `cmd-01-chat.txt` | W11 | ✅ | `app/cli/commands/chat.py`；`tests/test_chat.py` 9 条。**差异**：不接 MCP（避免一次性会话留孤儿进程）、浏览器工具按需启动 |
@@ -33,7 +33,7 @@
 | 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | ⬜ | — |
 | 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
 | 1.16 | TUI（终端 UI） | `tui/dist` | W12 | ⬜ | — |
-| 1.17 | 上述 417 条里**有真实现**的比例（当前 **137 / 417**，另有 9 条 `partial`、271 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.17 | 上述 449 条里**有真实现**的比例（当前 **193 / 449**，另有 16 条 `partial`、240 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.18 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
 
 ## L2 Agent 核心循环层（Hermes: `run_agent.py` + `agent/*`，PYZ 内）
@@ -41,7 +41,7 @@
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 2.1 | 单循环 + 传输适配器归一化多 provider | 【推断】`agent/conversation_loop.py` | W3 | ⬜ | — |
-| 2.2 | 三套**独立不叠加**的迭代预算：父 `agent.max_turns` 默认 **90**、子 `delegation.max_iterations` 默认 **50**、`DEFAULT_MAX_ITERATIONS=250` 只是 config 缺省兜底（不是运行值）；desktop 入口另有 500 档 | 【实证】`delegate_tool.py:1150`；本机日志 `budget=…/90` 327 条、`max_iterations_reached(50/50)`；调研 09 §1 | W11 | ⬜ | — |
+| 2.2 | 三套**独立不叠加**的迭代预算：父 `agent.max_turns` 默认 **90**、子 `delegation.max_iterations` 默认 **50**、`DEFAULT_MAX_ITERATIONS=250` 只是 config 缺省兜底（不是运行值）；desktop 入口另有 500 档 | 【实证】`delegate_tool.py:1150`；本机日志 `budget=…/90` 327 条、`max_iterations_reached(50/50)`；调研 09 §1 | W11 | 🟡 | 动作 / token / 时间三层预算已落地（见 2.9）；委派侧另有子任务独立预算（`app/delegate.py`，父预算不因子任务扣减）。**缺**：`agent.max_turns` 默认 90 与 `delegation.max_*` 的完整三套并行阈值未逐一对齐 |
 | 2.3 | 心跳 30s + 双阈值判卡死（idle 15 周期=**450s** / in-tool 40 周期=**1200s**），超阈值只 break 续命、由 gateway inactivity 超时执行真正的杀 =「级联」 | 【实证】`delegate_tool.py:1169,1184,1185`；调研 09 §2 | W11 | ⬜ | — |
 | 2.4 | 中断配对：工具**返回** `{"output":"[interrupted]","returncode":130}` 而非抛异常；父中断时未完成 child 被合成 `status=interrupted` 结果条目；不可修 arguments 降级为 `{}` | 【实证】`tools/interrupt.py`；`delegate_tool.py:4289-4327` | W11 | ⬜ | — |
 | 2.5 | 循环结束后台动作：bg-review 线程 + 同会话追加一轮「Review the conversation above and update the skill library」学习回路 + curator | 【实证】`agent.background_review` 日志实证；调研 09 §4 | W5 | ⬜ | — |
@@ -143,16 +143,16 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 8.1 | stdio + Streamable HTTP（新旧两种 client） | 【实证】调研 02 §2；`mcp_tool.py` 389KB | W7 | ⬜ | — |
-| 8.2 | 能力声明前置（先读 `initialize_result` 再调用） | 【实证】`tools/mcp_tool.py` | W7 | ⬜ | — |
-| 8.3 | OAuth（`mcp_oauth.py` 84KB / `mcp_oauth_manager.py` / `mcp_dashboard_oauth.py`） | 【实证】调研 05 §2 | W7 | ⬜ | — |
-| 8.4 | prompts → 技能 | 【实证】`hermes mcp --help`；Orbit 已有雏形 | W7 | ⬜ | — |
-| 8.5 | resources → RAG 索引 | 【实证】同上 | W7 | ⬜ | — |
-| 8.6 | 心跳 + 失败宽限期（不因单次失败摘工具） | 【实证】`mcp_stdio_watchdog.py`；`_CHECK_FN_FAILURE_GRACE_SECONDS` | W7 | ⬜ | — |
-| 8.7 | schema 缓存（`mcp_schema_cache.py`） | 【实证】调研 05 | W7 | ⬜ | — |
-| 8.8 | `orbit mcp {add,list,remove,test,login,reauth,configure,catalog,install,picker,serve}` | 【实证】`_raw/sub/mcp__*.txt`（11 条） | W7 | ⬜ | — |
-| 8.9 | 把 Orbit 自己暴露成 MCP 服务（`mcp serve`） | 【实证】`_raw/sub/mcp__serve.txt` | W7 | ⬜ | — |
-| 8.10 | optional-mcps 预置目录（63 个服务模板） | 【实证】`_internal/optional-mcps/` | W7 | ⬜ | — |
+| 8.1 | stdio + Streamable HTTP（新旧两种 client） | 【实证】调研 02 §2；`mcp_tool.py` 389KB | W7 | ✅ | `app/mcp.py`：`mcp.client.stdio.StdioServerParameters`（stdio）+ `mcp.client.streamable_http.streamable_http_client`（Streamable HTTP） |
+| 8.2 | 能力声明前置（先读 `initialize_result` 再调用） | 【实证】`tools/mcp_tool.py` | W7 | ✅ | `app/mcp.py::_capability`：先读 `client.server_capabilities`（即 `initialize_result`）再决定要不要发请求，prompts / resources 两处都走它 |
+| 8.3 | OAuth（`mcp_oauth.py` 84KB / `mcp_oauth_manager.py` / `mcp_dashboard_oauth.py`） | 【实证】调研 05 §2 | W7 | 🟡 | `OAuthStore`（keyring，`service = f"orbit:{data_dir}"`）只做 **token 存储 + 过期检查**（missing/expired/expiring/valid 四态）。真 OAuth 流程（发现元数据 → PKCE → 本地回调服务器 → 换/刷新 token）**未实现**——本机无网络也没有可联调的服务，做出来只是没人验证过的壳；`mcp auth login` 如实报未实现并给手工通道 `auth set` |
+| 8.4 | prompts → 技能 | 【实证】`hermes mcp --help`；Orbit 已有雏形 | W7 | ✅ | `app/mcp_prompts.py` 的 `PromptRegistry`：`list_prompts` → 技能形状，`mcp__<server>__<prompt>` 命名（与工具命名一致），`render_prompt` 带参数；同步/异步边界用「缓存 + 显式刷新」桥接（不在同步路径里跑事件循环）；`tests/test_mcp_prompts.py` |
+| 8.5 | resources → RAG 索引 | 【实证】同上 | W7 | ✅ | `app/mcp_resources.py` 的 `ResourceIndexer`：复用现有 RAG（`FtsIndexer` / `FtsRetriever`），按列表签名增量（**所有信号拼起来**，不取第一个就返回）；二进制资源跳过并记原因；消失的 URI 连带失效；`tests/test_mcp_resources.py` |
+| 8.6 | 心跳 + 失败宽限期（不因单次失败摘工具） | 【实证】`mcp_stdio_watchdog.py`；`_CHECK_FN_FAILURE_GRACE_SECONDS` | W7 | ✅ | `app/mcp.py` 每服务心跳 + `HEARTBEAT_GRACE_SECONDS` 宽限期（探测抖动不得静默摘掉整个 toolset）+ 指数退避重连 |
+| 8.7 | schema 缓存（`mcp_schema_cache.py`） | 【实证】调研 05 | W7 | ⬜ | MCP schema 缓存未做（每次连接重新拉工具 schema） |
+| 8.8 | `orbit mcp {add,list,remove,test,login,reauth,configure,catalog,install,picker,serve}` | 【实证】`_raw/sub/mcp__*.txt`（11 条） | W7 | 🟡 | `orbit mcp` 17 条里实现 14 条（`add` / `list` / `remove` / `test` / `enable` / `disable` / `reload` / `serve` / `resources` / `prompts` / `auth *` / `configure` / `catalog` 等）；`login` / `reauth` 如实报未实现 |
+| 8.9 | 把 Orbit 自己暴露成 MCP 服务（`mcp serve`） | 【实证】`_raw/sub/mcp__serve.txt` | W7 | ✅ | `app/mcp_server.py`：`to_mcp_tools(specs)` 是纯函数（测试只测转换，不真起进程）；`orbit mcp serve` 走 stdio server |
+| 8.10 | optional-mcps 预置目录（63 个服务模板） | 【实证】`_internal/optional-mcps/` | W7 | ⬜ | optional-mcps 预置目录（63 个服务模板）未做 |
 
 ## L9 记忆层（Hermes: `memory_tool.py` + `session_search_tool.py` + `plugins/memory/`）
 
@@ -179,19 +179,19 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | ⬜ | — |
-| 10.2 | 消息追加日志 + `id` AUTOINCREMENT 作游标（不复用） | 【实证】调研 03 §5（max id 14,597 > 行数 14,595） | W8 | ⬜ | — |
+| 10.1 | 单一 session 平面（CLI / TUI / gateway / cron 同库同表） | 【实证】`sessions.json` README；`sessions.source` 实测 4 种来源 | W8 | 🟡 | `app/session_plane.py::timeline` 把 **plane / messages / task_events** 三个来源合并成一条按时间排序的时间线——「统一读视图」成立；但**不是**「同库同表」：plane 是 JSONL（`storage.py` 与 alembic 是禁改区，且事件只追加的语义用日志比用表更直接） |
+| 10.2 | 消息追加日志 + `id` AUTOINCREMENT 作游标（不复用） | 【实证】调研 03 §5（max id 14,597 > 行数 14,595） | W8 | ✅ | `SessionPlane.append` 写 `<data>/sessions/plane.jsonl`，`id` 单调递增且**重启后能续上**（进程内锁 + 文件尾读回，不靠内存计数器）；`since(cursor)` 按 **id 游标**增量读（不按时间戳——同毫秒内顺序会乱） |
 | 10.3 | 归档不删（`active=0 AND compacted=1`） | 【实证】调研 03 §3（2,101 条） | W8 | ⬜ | — |
-| 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`）；压缩阈值 **0.50** / 目标比 **0.20**；产物前缀 `[CONTEXT COMPACTION` / `[CONTEXT SUMMARY]:`；实测 529k→199k、503k→191k（≈37.6%） | 【实证】调研 09 §6、03 §3 | W8 | ⬜ | — |
+| 10.4 | 压缩谱系（`parent_session_id` + `end_reason='compression'`）；压缩阈值 **0.50** / 目标比 **0.20**；产物前缀 `[CONTEXT COMPACTION` / `[CONTEXT SUMMARY]:`；实测 529k→199k、503k→191k（≈37.6%） | 【实证】调研 09 §6、03 §3 | W8 | 🟡 | `SessionPlane.compress(child, parent)` 记 `parent_session_id` + `compressed_at` + `reason`；`lineage()` 沿父链上溯并**检测循环引用**（脏数据不许让命令挂死）。**缺**：压缩阈值 0.50 / 目标 0.20 与主循环的接线（阈值判断在 `graph`，本轮没接） |
 | 10.5 | `system_prompts` 内容寻址（hash）+ `compression_locks` | 【实证】调研 03 §1 | W8 | ⬜ | — |
-| 10.6 | 幂等键 + 至少一次投递账本（`delivery_obligations` / `async_delegations` / `tasks.idempotency_key`） | 【实证】调研 03 §1（123 行） | W8 | ⬜ | — |
-| 10.7 | 孤儿回收（`startup_orphan_reap` 67 条 / `ws_orphan_reap` 3 条） | 【实证】调研 03 §3 | W8 | ⬜ | — |
+| 10.6 | 幂等键 + 至少一次投递账本（`delivery_obligations` / `async_delegations` / `tasks.idempotency_key`） | 【实证】调研 03 §1（123 行） | W8 | ✅ | `app/delivery_ledger.py`：`message_key` 幂等（同 key 已有 `delivered` → `claim()` 返回 `already=True`）、状态流转、`pending(older_than)`、`stats()`；`tests/test_delivery_ledger.py` |
+| 10.7 | 孤儿回收（`startup_orphan_reap` 67 条 / `ws_orphan_reap` 3 条） | 【实证】调研 03 §3 | W8 | ✅ | `app/orphan_reaper.py`：扫 `processes.json` + `spawn-ledger.json` 找登记过但进程已死的条目；判据是 `(pid, host_start_time)` 二元组**防 PID 复用**；`reap(dry_run=True)` 默认只报告，**只清登记不 kill 进程**；`tests/test_orphan_reaper.py` |
 | 10.8 | 存活租约（`runtime/active_sessions.json` + `gateway_heartbeats` + `processes.json` 的 (pid, host_start_time)） | 【实证】调研 03 §3 | W8 | ⬜ | — |
 | 10.9 | checkpoint 管理（status / prune / clear） | 【实证】`checkpoint_manager.py` 88KB；`hermes checkpoints --help` | W8 | 🟡 | `app/cli/commands/ops.py` 的 `orbit checkpoints {status,prune,clear,clear-legacy}` 管的是 Orbit 真实的 `checkpoints.sqlite`（LangGraph 的 `checkpoints`+`writes`）。**与 Hermes 不同**：Hermes 是工作目录的影子 git 仓库，Orbit 没有这一层（写文件前的快照）——那部分仍缺 |
 | 10.10 | backup / import（zip 往返 + 清单 + 校验和） | 【实证】`cmd-38/40` | W2 | ✅ | `app/backup.py`：SQLite 走在线备份 API（WAL 一致性）、manifest 带 sha256、恢复做 zip slip 防护与覆盖保护、`--dry-run` 只校验；`tests/test_backup.py` 19 条 |
-| 10.11 | `schema_version` 表 + 迁移器 | 【实证】调研 03 §1（v26） | W8 | ⬜ | — |
+| 10.11 | `schema_version` 表 + 迁移器 | 【实证】调研 03 §1（v26） | W8 | 🟡 | 迁移器存在（alembic，`app/main.migrate()`，已到 0011）；但**没有独立的 `schema_version` 表**，版本号只存在于 alembic 自己的元数据里 |
 | 10.12 | 双 FTS 索引（分词 + trigram） | 【实证】调研 03 §1 | W8 | ⬜ | — |
-| 10.13 | `orbit sessions`（19 子命令：list/browse/show/rename/export/import/prune/archive/pin/unpin/pinned/stats/recover/repair/repair-routing/optimize/optimize-storage/clean-markers/retitle-skills/delete） | 【实证】`_raw/sub/sessions__*.txt` | W8 | ⬜ | — |
+| 10.13 | `orbit sessions`（19 子命令：list/browse/show/rename/export/import/prune/archive/pin/unpin/pinned/stats/recover/repair/repair-routing/optimize/optimize-storage/clean-markers/retitle-skills/delete） | 【实证】`_raw/sub/sessions__*.txt` | W8 | 🟡 | `orbit sessions` 19 条里实现 8 条（`list` / `show` / `export` / `import` / `delete` / `prune` / `lineage` / `tail` 等，经 `register_handler` 接管）；另加 Orbit 自有 `orbit plane {timeline,lineage,tail,reap,deliveries}` |
 | 10.14 | 事件溯源（`hosted_room_*` 14 张表：seq + event_id UNIQUE + cursors + watermarks） | 【实证】调研 03 §5 | W8 | ⬜ | — |
 | 10.15 | `orbit checkpoints {status,list,prune,clear,clear-legacy}` | 【实证】`_raw/sub/checkpoints__*.txt` | W8 | ✅ | `ops.py`（含"非交互环境必须显式 -f"与"clear-legacy 无操作"的诚实处理） |
 
@@ -271,7 +271,7 @@
 | 16.2 | 聊天页 + 增量流式 + 断线回放 | Orbit 已有 | W1 | ✅ | `frontend/src/App.tsx`；`backend/app/main.py` SSE |
 | 16.3 | 技能页 / 记忆页 / 会话摘要页 | Orbit 已有 | W1 | ✅ | `frontend/src/Skills.tsx` / `Memories.tsx` / `Summaries.tsx` |
 | 16.4 | 设置页（模型 / MCP / 权限级别） | Orbit 已有 | W1 | ✅ | `frontend/src/Settings.tsx` |
-| 16.5 | `orbit skin`（主题切换） | 【实证】`_raw/sub/skin__*.txt` | W12 | ⬜ | — |
+| 16.5 | `orbit skin`（主题切换） | 【实证】`_raw/sub/skin__*.txt` | W12 | ✅ | `app/skin.py` 3 个内置皮肤（default / mono / solarized）+ `orbit skin {list,show,set,use,reset}`；`NO_COLOR` / `--no-color` 时降级为全空 token（无障碍与管道友好）；`tests/test_skin.py` |
 | 16.6 | 会话回放 / browse 页 | 【实证】`sessions browse` | W12 | ⬜ | — |
 
 ---

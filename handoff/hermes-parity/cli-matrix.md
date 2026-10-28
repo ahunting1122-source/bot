@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **417**：已实现 137、部分 9、待实现 271
+命令条目合计 **449**：已实现 193、部分 16、待实现 240
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -47,6 +47,14 @@
 | `cron resume` | `cron resume` | run | P0 | ✅ 已实现 | 恢复任务（job_id 给 all 则解除全局暂停） |
 | `cron doctor` | `cron doctor` | run | P0 | ✅ 已实现 | 体检定时任务（任务表 / 调度 / 流水 / 失败任务） |
 | `cron incidents` | `cron incidents` | run | P0 | ✅ 已实现 | 列出或确认 cron 失败事故 |
+| `delegate` | `delegate` | run | P1 | ✅ 已实现 | 子任务委派：深度 / 并发 / 预算三道闸（Hermes 没有同名 CLI，委派面是 delegate_task 工具） |
+| `delegate run` | `delegate run` | run | P0 | ✅ 已实现 | 跑一个子任务（--dry-run 只看预算与上限，不需要模型） |
+| `delegate list` | `delegate list` | run | P0 | ✅ 已实现 | 列委派账本（最近 N 条） |
+| `delegate show` | `delegate show` | run | P0 | ✅ 已实现 | 看一条委派记录的完整字段 |
+| `delegate cancel` | `delegate cancel` | run | P0 | ✅ 已实现 | 把账本上的子任务标记为 cancelled（进程内中断走 DelegateRunner.cancel） |
+| `swarm` | `swarm` | run | P1 | ✅ 已实现 | 批量并发：按 depends_on 拓扑序跑，同层并发（Hermes 侧是 agent_swarm 工具） |
+| `swarm run` | `swarm run` | run | P0 | ✅ 已实现 | 按计划文件跑一批子任务（--dry-run 只打印拓扑分层） |
+| `swarm status` | `swarm status` | run | P0 | ✅ 已实现 | 看最近跑过的 swarm（读委派账本） |
 | `model` | `model` | core | P0 | ✅ 已实现 | 选择默认模型与供应商（含 `--list` 列出全部 provider 与模型能力） |
 | `fallback` | `fallback` | core | P0 | ✅ 已实现 | 管理主模型失败时的回退链（触发条件：429 / 529 / 503 / 连接失败） |
 | `fallback list` | `fallback list` | core | P0 | ✅ 已实现 | 查看当前回退链 |
@@ -70,6 +78,7 @@
 | `insights` | `insights` | ops | P0 | ✅ 已实现 | 分析会话历史：token 用量、工具使用模式、站点分布、活动趋势 |
 | `monitoring` | `monitoring` | ops | P0 | ✅ 已实现 | 监控状态：健康指标 + 导出配置 + 脱敏姿态（不采集任何内容） |
 | `monitoring status` | `monitoring status` | ops | P0 | ✅ 已实现 | 显示监控设置、导出状态与脱敏姿态 |
+| `monitoring metrics` | `monitoring metrics` | ops | P0 | ✅ 已实现 | 输出 Prometheus 指标（无数据源的指标如实标注） |
 | `backup` | `backup` | ops | P0 | ✅ 已实现 | 把数据目录打包成带清单的 zip（SQLite 走在线快照） |
 | `import` | `import` | ops | P0 | ✅ 已实现 | 从备份 zip 恢复数据目录（默认不覆盖，需 --force） |
 | `checkpoints` | `checkpoints` | ops | P0 | ✅ 已实现 | 管理会话检查点存储（LangGraph 的 checkpoints.sqlite） |
@@ -92,6 +101,14 @@
 | `plugins pack show` | `plugins pack show` | ext | P0 | ✅ 已实现 | 解析并展示一个 pack（干跑） |
 | `plugins pack install` | `plugins pack install` | ext | P0 | 🟡 部分 | 安装一个 pack（需要网络，未实现） |
 | `plugins update` | `plugins update` | ext | P0 | 🟡 部分 | 更新插件（远程 pull 未实现；本地插件就地重新扫描） |
+| `plane` | `plane` | ops | P1 | ✅ 已实现 | 统一 session 平面：时间线 / 压缩谱系 / 投递账本 / 孤儿回收（Orbit 自有入口） |
+| `plane timeline` | `plane timeline` | ops | P0 | ✅ 已实现 | 把平面事件与 messages / task_events 合并成一条时间线 |
+| `plane tail` | `plane tail` | ops | P0 | ✅ 已实现 | 某会话最近 N 条（合并时间线的尾部） |
+| `plane lineage` | `plane lineage` | ops | P0 | ✅ 已实现 | 沿压缩谱系上溯到根（循环引用会报错） |
+| `plane show` | `plane show` | ops | P0 | ✅ 已实现 | 一个会话的平面视图（元数据 / 计数 / 谱系深度） |
+| `plane resume` | `plane resume` | ops | P0 | ✅ 已实现 | 记一次恢复并回显会话尾部（不跑模型） |
+| `plane reap` | `plane reap` | ops | P0 | ✅ 已实现 | 报告/清理孤儿登记（默认只报告，--apply 才清账本；绝不 kill） |
+| `plane deliveries` | `plane deliveries` | ops | P0 | ✅ 已实现 | 投递账本（至少一次语义的幂等账） |
 | `session-search` | `session-search` | core | P0 | ✅ 已实现 | 会话召回：discover / scroll / read / browse 四形态（零模型调用） |
 | `session-search discover` | `session-search discover` | core | P0 | ✅ 已实现 | 按关键词找候选消息，返回锚点（子串匹配，多词 AND） |
 | `session-search scroll` | `session-search scroll` | core | P0 | ✅ 已实现 | 围绕锚点展开 ±window 条，并补首尾书挡 |
@@ -129,10 +146,12 @@
 | `secrets get` | `secrets get` | core | P0 | ✅ 已实现 | 取一个键（默认脱敏，--reveal 才打印明文） |
 | `secrets remove` | `secrets remove` | core | P0 | ✅ 已实现 | 从所有可写源里删除一个键 |
 | `secrets sync` | `secrets sync` | core | P0 | ✅ 已实现 | 清点各源里的键（外部源取值未实现，本轮不同步） |
-| `skin` | `skin` | core | P2 | ⬜ 待实现 | 列出 / 切换 / 微调皮肤 |
-| `skin list` | `skin list` | core | P1 | ⬜ 待实现 | 列出可用皮肤 |
-| `skin use` | `skin use` | core | P1 | ⬜ 待实现 | 切换当前皮肤 |
-| `skin set` | `skin set` | core | P1 | ⬜ 待实现 | 设置当前皮肤的某一颜色 |
+| `skin` | `skin` | core | P2 | ✅ 已实现 | 列出 / 切换 / 微调皮肤 |
+| `skin list` | `skin list` | core | P1 | ✅ 已实现 | 列出可用皮肤 |
+| `skin use` | `skin use` | core | P1 | ✅ 已实现 | 切换当前皮肤 |
+| `skin set` | `skin set` | core | P1 | ✅ 已实现 | 设置当前皮肤的某一颜色 |
+| `skin show` | `skin show` | core | P0 | ✅ 已实现 | 显示某个皮肤的颜色 token（默认当前皮肤） |
+| `skin reset` | `skin reset` | core | P0 | ✅ 已实现 | 删除 skin.json，回到默认皮肤 |
 | `profile` | `profile` | core | P1 | ⬜ 待实现 | 管理 profile（多套隔离实例） |
 | `profile list` | `profile list` | core | P1 | ⬜ 待实现 | 列出全部 profile |
 | `profile use` | `profile use` | core | P1 | ⬜ 待实现 | 设置粘性默认 profile |
@@ -159,7 +178,7 @@
 | `project archive` | `project archive` | core | P1 | ⬜ 待实现 | 归档项目 |
 | `project restore` | `project restore` | core | P1 | ⬜ 待实现 | 恢复已归档项目 |
 | `project bind-board` | `project bind-board` | core | P1 | ⬜ 待实现 | 绑定看板到项目 |
-| `gateway` | `gateway` | run | P0 | ⬜ 待实现 | 消息网关管理 |
+| `gateway` | `gateway` | run | P0 | 🟡 部分 | 消息网关管理 |
 | `gateway run` | `gateway run` | core | P1 | ⬜ 待实现 | 前台运行网关 |
 | `gateway start` | `gateway start` | core | P1 | ✅ 已实现 | 启动已安装的后台服务 |
 | `gateway stop` | `gateway stop` | core | P1 | ✅ 已实现 | 停止网关服务 |
@@ -172,13 +191,13 @@
 | `gateway migrate-legacy` | `gateway migrate-legacy` | core | P1 | ⬜ 待实现 | 清理旧版 hermes.service 单元 |
 | `gateway enroll` | `gateway enroll` | core | P1 | ⬜ 待实现 | 向中继连接器注册本网关 |
 | `gateway doctor` | `gateway doctor` | run | P1 | ✅ 已实现 | 检查网关健康度（状态文件 / 锁 / 崩溃循环 / 适配器） |
-| `serve` | `serve` | run | P0 | ⬜ 待实现 | 启动后端服务（headless） |
+| `serve` | `serve` | run | P0 | ✅ 已实现 | 启动后端服务（headless） |
 | `send` | `send` | run | P1 | ✅ 已实现 | 向已配置平台发送消息 |
 | `pause` | `pause` | run | P1 | ⬜ 待实现 | 紧急停止：暂停 cron / 看板调度与新网关轮次 |
 | `resume` | `resume` | run | P1 | ⬜ 待实现 | 解除 `pause` 设置的紧急停止 |
 | `acp` | `acp` | run | P1 | ⬜ 待实现 | 以 ACP 服务方式运行 Agent |
-| `console` | `console` | run | P1 | ⬜ 待实现 | 打开安全命令控制台 |
-| `dashboard` | `dashboard` | run | P1 | ⬜ 待实现 | 启动 Web UI 面板 |
+| `console` | `console` | run | P1 | ✅ 已实现 | 打开安全命令控制台 |
+| `dashboard` | `dashboard` | run | P1 | ✅ 已实现 | 启动 Web UI 面板 |
 | `dashboard register` | `dashboard register` | core | P1 | ⬜ 待实现 | 把自托管面板注册到 Portal |
 | `desktop` | `desktop` | run | P1 | ⬜ 待实现 | 构建并启动原生桌面应用 |
 | `computer-use` | `computer-use` | run | P1 | ⬜ 待实现 | 管理 Computer Use（cua-driver）后端 |
@@ -243,15 +262,18 @@
 | `kanban decompose` | `kanban decompose` | core | P1 | ⬜ 待实现 | 把 triage 任务拆成子任务图 |
 | `kanban gc` | `kanban gc` | core | P1 | ⬜ 待实现 | 回收工作区 / 事件 / 日志 |
 | `kanban repair` | `kanban repair` | core | P1 | ⬜ 待实现 | 检查并自动修复 kanban.db |
-| `worktree` | `worktree` | run | P1 | ⬜ 待实现 | 审计并回收 git worktree 与已合并分支 |
-| `worktree list` | `worktree list` | core | P1 | ⬜ 待实现 | 逐棵分类：树龄 / 大小 / 结论 |
-| `worktree prune` | `worktree prune` | core | P1 | ⬜ 待实现 | 删除安全 worktree 与已合并分支 |
+| `worktree` | `worktree` | run | P1 | ✅ 已实现 | 审计并回收 git worktree 与已合并分支 |
+| `worktree list` | `worktree list` | core | P1 | ✅ 已实现 | 逐棵分类：树龄 / 大小 / 结论 |
+| `worktree prune` | `worktree prune` | core | P1 | ✅ 已实现 | 删除安全 worktree 与已合并分支 |
+| `worktree create` | `worktree create` | run | P0 | ✅ 已实现 | 在 <data_dir>/worktrees/<name> 建一棵隔离工作树（默认分支 orbit/<name>） |
+| `worktree remove` | `worktree remove` | run | P0 | ✅ 已实现 | 删除一棵工作树（有未提交改动时拒绝，除非 --force） |
+| `worktree cleanup` | `worktree cleanup` | run | P0 | ✅ 已实现 | 回收 prunable 的工作树（有改动的树永远不删） |
 | `verify` | `verify` | run | P1 | ⬜ 待实现 | 探测项目运行配方并做冒烟测试 |
-| `sessions` | `sessions` | ops | P0 | ⬜ 待实现 | 会话历史管理（列表 / 改名 / 导出 / 清理） |
+| `sessions` | `sessions` | ops | P0 | 🟡 部分 | 会话历史管理（列表 / 改名 / 导出 / 清理） |
 | `sessions list` | `sessions list` | core | P1 | ✅ 已实现 | 列出近期会话 |
 | `sessions export` | `sessions export` | core | P1 | ✅ 已实现 | 导出会话为 JSONL / Markdown / QMD |
 | `sessions delete` | `sessions delete` | core | P1 | ✅ 已实现 | 删除指定会话 |
-| `sessions prune` | `sessions prune` | core | P1 | ⬜ 待实现 | 按过滤条件删除旧会话 |
+| `sessions prune` | `sessions prune` | core | P1 | ✅ 已实现 | 按过滤条件删除旧会话 |
 | `sessions archive` | `sessions archive` | core | P1 | ⬜ 待实现 | 按过滤条件批量归档会话 |
 | `sessions optimize` | `sessions optimize` | core | P1 | ⬜ 待实现 | 合并 FTS 段并 VACUUM 回收空间 |
 | `sessions clean-markers` | `sessions clean-markers` | core | P1 | ⬜ 待实现 | 清理残留的工具调用标记 |
@@ -266,7 +288,7 @@
 | `sessions pinned` | `sessions pinned` | core | P1 | ⬜ 待实现 | 列出已固定会话 |
 | `sessions retitle-skills` | `sessions retitle-skills` | core | P1 | ⬜ 待实现 | 按技能重命名自动标题会话 |
 | `sessions browse` | `sessions browse` | core | P1 | ✅ 已实现 | 交互式浏览 / 搜索会话 |
-| `sessions import` | `sessions import` | core | P1 | ⬜ 待实现 | 导入 Claude Code / Codex 会话 |
+| `sessions import` | `sessions import` | core | P1 | ✅ 已实现 | 导入 Claude Code / Codex 会话 |
 | `import-agent` | `import-agent` | ops | P1 | ⬜ 待实现 | 导入 Claude Code / Codex CLI 配置 |
 | `migrate` | `migrate` | ops | P1 | ⬜ 待实现 | 迁移已退役模型 / 弃用配置 |
 | `migrate xai` | `migrate xai` | core | P1 | ⬜ 待实现 | 迁移 2026-05-15 退役的 xAI 模型 |
@@ -275,7 +297,7 @@
 | `debug` | `debug` | ops | P1 | ⬜ 待实现 | 上传日志与系统信息以求助 |
 | `debug share` | `debug share` | core | P1 | ⬜ 待实现 | 上传调试报告并给出分享链接 |
 | `debug delete` | `debug delete` | core | P1 | ⬜ 待实现 | 删除已上传的 paste |
-| `security` | `security` | ops | P1 | ⬜ 待实现 | 供应链审计（OSV.dev） |
+| `security` | `security` | ops | P1 | ✅ 已实现 | 供应链审计（OSV.dev） |
 | `security audit` | `security audit` | core | P1 | ✅ 已实现 | 跑一次供应链审计 |
 | `hooks` | `hooks` | ops | P0 | ⬜ 待实现 | 查看与管理 shell 脚本钩子 |
 | `hooks list` | `hooks list` | core | P1 | ⬜ 待实现 | 列出钩子及其匹配器 / 超时 |
@@ -292,7 +314,7 @@
 | `lsp install-all` | `lsp install-all` | core | P1 | ⬜ 待实现 | 安装所有可自动安装的服务器 |
 | `lsp restart` | `lsp restart` | core | P1 | ⬜ 待实现 | 拆掉运行中的 LSP 客户端 |
 | `lsp which` | `lsp which` | core | P1 | ⬜ 待实现 | 打印某服务器的二进制路径 |
-| `egress` | `egress` | ops | P1 | ⬜ 待实现 | 出口凭证注入防火墙（iron-proxy） |
+| `egress` | `egress` | ops | P1 | 🟡 部分 | 出口凭证注入防火墙（iron-proxy） |
 | `egress install` | `egress install` | core | P1 | ⬜ 待实现 | 下载 iron-proxy 二进制 |
 | `egress setup` | `egress setup` | core | P1 | ✅ 已实现 | 向导：安装 + CA + 铸令牌 + 写配置 |
 | `egress start` | `egress start` | core | P1 | ⬜ 待实现 | 启动受管 iron-proxy |
@@ -321,17 +343,17 @@
 | `whatsapp-cloud` | `whatsapp-cloud` | platform | P1 | ⬜ 待实现 | 配置 WhatsApp Business Cloud API 集成 |
 | `slack` | `slack` | platform | P1 | ⬜ 待实现 | Slack 集成辅助（manifest 生成等） |
 | `slack manifest` | `slack manifest` | core | P1 | ⬜ 待实现 | 打印或写出 Slack app manifest |
-| `webhook` | `webhook` | platform | P1 | ⬜ 待实现 | 动态 webhook 订阅管理 |
+| `webhook` | `webhook` | platform | P1 | ✅ 已实现 | 动态 webhook 订阅管理 |
 | `webhook subscribe` | `webhook subscribe` | core | P1 | ✅ 已实现 | 创建 webhook 订阅 |
 | `webhook list` | `webhook list` | core | P1 | ✅ 已实现 | 列出全部动态订阅 |
 | `webhook remove` | `webhook remove` | core | P1 | ✅ 已实现 | 删除订阅 |
 | `webhook test` | `webhook test` | core | P1 | ✅ 已实现 | 向路由发一次测试 POST |
-| `pairing` | `pairing` | platform | P1 | ⬜ 待实现 | DM 配对码与用户授权 |
+| `pairing` | `pairing` | platform | P1 | ✅ 已实现 | DM 配对码与用户授权 |
 | `pairing list` | `pairing list` | core | P1 | ✅ 已实现 | 查看待批准与已批准用户 |
 | `pairing approve` | `pairing approve` | core | P1 | ✅ 已实现 | 批准配对请求 |
 | `pairing revoke` | `pairing revoke` | core | P1 | ✅ 已实现 | 吊销用户访问 |
 | `pairing clear-pending` | `pairing clear-pending` | core | P1 | ✅ 已实现 | 清空全部待批准码 |
-| `peer` | `peer` | platform | P1 | ⬜ 待实现 | 跨机器 bot 间私信（对等网关） |
+| `peer` | `peer` | platform | P1 | 🟡 部分 | 跨机器 bot 间私信（对等网关） |
 | `peer add` | `peer add` | core | P1 | ✅ 已实现 | 注册（或更新）对等网关 |
 | `peer list` | `peer list` | core | P1 | ✅ 已实现 | 列出已注册对等节点 |
 | `peer remove` | `peer remove` | core | P1 | ✅ 已实现 | 移除对等节点 |
@@ -339,7 +361,7 @@
 | `peer run` | `peer run` | core | P1 | ⬜ 待实现 | 异步发起一次长任务 |
 | `peer status` | `peer status` | core | P1 | ✅ 已实现 | 读取异步任务状态与输出 |
 | `peer stop` | `peer stop` | core | P1 | ⬜ 待实现 | 停止一个异步对等任务 |
-| `skills` | `skills` | ext | P0 | ⬜ 待实现 | 技能搜索 / 安装 / 配置 / 管理 |
+| `skills` | `skills` | ext | P0 | 🟡 部分 | 技能搜索 / 安装 / 配置 / 管理 |
 | `skills trust` | `skills trust` | core | P1 | ✅ 已实现 | 信任项目以加载其仓库内技能 |
 | `skills untrust` | `skills untrust` | core | P1 | ✅ 已实现 | 撤销项目技能信任 |
 | `skills browse` | `skills browse` | core | P1 | ✅ 已实现 | 分页浏览全部可用技能 |
@@ -358,7 +380,7 @@
 | `skills opt-in` | `skills opt-in` | core | P1 | ⬜ 待实现 | 恢复内置技能播种 |
 | `skills repair-official` | `skills repair-official` | core | P1 | ⬜ 待实现 | 回填或恢复官方可选技能 |
 | `skills publish` | `skills publish` | core | P1 | ⬜ 待实现 | 把技能发布到注册表 |
-| `skills snapshot` | `skills snapshot` | core | P1 | ⬜ 待实现 | 导出 / 导入技能配置 |
+| `skills snapshot` | `skills snapshot` | core | P1 | ✅ 已实现 | 导出 / 导入技能配置 |
 | `skills snapshot export` | `skills snapshot export` | core | P1 | ✅ 已实现 | 把已安装技能导出到文件 |
 | `skills snapshot import` | `skills snapshot import` | core | P1 | ✅ 已实现 | 从文件导入并安装技能 |
 | `skills tap` | `skills tap` | core | P1 | ⬜ 待实现 | 管理技能来源（taps） |
@@ -372,7 +394,7 @@
 | `bundles create` | `bundles create` | core | P1 | ⬜ 待实现 | 创建技能包 |
 | `bundles delete` | `bundles delete` | core | P1 | ⬜ 待实现 | 删除技能包 |
 | `bundles reload` | `bundles reload` | core | P1 | ⬜ 待实现 | 重扫技能包目录并报告变化 |
-| `curator` | `curator` | ext | P1 | ⬜ 待实现 | 后台技能维护（curator） |
+| `curator` | `curator` | ext | P1 | 🟡 部分 | 后台技能维护（curator） |
 | `curator status` | `curator status` | core | P1 | ✅ 已实现 | 查看 curator 状态与技能统计 |
 | `curator usage` | `curator usage` | core | P1 | ✅ 已实现 | 查看全部技能的使用遥测 |
 | `curator run` | `curator run` | core | P1 | ✅ 已实现 | 立即触发一次 curator 复查 |
@@ -408,18 +430,28 @@
 | `pets scale` | `pets scale` | core | P1 | ⬜ 待实现 | 调整宠物尺寸 |
 | `pets remove` | `pets remove` | core | P1 | ⬜ 待实现 | 删除已安装宠物 |
 | `pets doctor` | `pets doctor` | core | P1 | ⬜ 待实现 | 检查宠物配置与终端图形支持 |
-| `mcp` | `mcp` | ext | P0 | ⬜ 待实现 | MCP 服务器管理（也可把 Agent 暴露为 MCP） |
-| `mcp serve` | `mcp serve` | core | P1 | ⬜ 待实现 | 以 MCP 服务运行 |
-| `mcp add` | `mcp add` | core | P1 | ⬜ 待实现 | 添加 MCP 服务器（先发现后安装） |
-| `mcp remove` | `mcp remove` | core | P1 | ⬜ 待实现 | 移除 MCP 服务器 |
-| `mcp list` | `mcp list` | core | P1 | ⬜ 待实现 | 列出已配置 MCP 服务器 |
-| `mcp test` | `mcp test` | core | P1 | ⬜ 待实现 | 测试 MCP 服务器连接 |
-| `mcp configure` | `mcp configure` | core | P1 | ⬜ 待实现 | 勾选工具子集 |
-| `mcp login` | `mcp login` | core | P1 | ⬜ 待实现 | 强制重新鉴权 OAuth MCP |
-| `mcp reauth` | `mcp reauth` | core | P1 | ⬜ 待实现 | 重新鉴权一个或全部 OAuth MCP |
+| `mcp` | `mcp` | ext | P0 | 🟡 部分 | MCP 服务器管理（也可把 Agent 暴露为 MCP） |
+| `mcp serve` | `mcp serve` | core | P1 | ✅ 已实现 | 以 MCP 服务运行 |
+| `mcp add` | `mcp add` | core | P1 | ✅ 已实现 | 添加 MCP 服务器（先发现后安装） |
+| `mcp remove` | `mcp remove` | core | P1 | ✅ 已实现 | 移除 MCP 服务器 |
+| `mcp list` | `mcp list` | core | P1 | ✅ 已实现 | 列出已配置 MCP 服务器 |
+| `mcp test` | `mcp test` | core | P1 | ✅ 已实现 | 测试 MCP 服务器连接 |
+| `mcp configure` | `mcp configure` | core | P1 | ✅ 已实现 | 勾选工具子集 |
+| `mcp login` | `mcp login` | core | P1 | ✅ 已实现 | 强制重新鉴权 OAuth MCP |
+| `mcp reauth` | `mcp reauth` | core | P1 | ✅ 已实现 | 重新鉴权一个或全部 OAuth MCP |
 | `mcp picker` | `mcp picker` | core | P1 | ⬜ 待实现 | 交互式目录选择器 |
 | `mcp catalog` | `mcp catalog` | core | P1 | ⬜ 待实现 | 列出可一键安装的官方 MCP |
 | `mcp install` | `mcp install` | core | P1 | ⬜ 待实现 | 按名称安装目录中的 MCP |
+| `mcp enable` | `mcp enable` | ext | P1 | ✅ 已实现 | 启用一个 MCP 服务（下次装配时连接） |
+| `mcp disable` | `mcp disable` | ext | P1 | ✅ 已实现 | 禁用一个 MCP 服务（保留配置） |
+| `mcp reload` | `mcp reload` | ext | P1 | ✅ 已实现 | 重新校验配置并清空资源索引的增量状态 |
+| `mcp resources` | `mcp resources` | ext | P1 | ✅ 已实现 | 列出已入库的 MCP 资源（chunks 表） |
+| `mcp prompts` | `mcp prompts` | ext | P1 | ✅ 已实现 | 列出 MCP 服务声明的 prompts（mcp__<服务>__<prompt>） |
+| `mcp auth` | `mcp auth` | ext | P1 | ✅ 已实现 | MCP OAuth token 的存取与过期检查（授权流程未实现） |
+| `mcp auth status` | `mcp auth status` | ext | P1 | ✅ 已实现 | 查看 token 状态与到期时间 |
+| `mcp auth set` | `mcp auth set` | ext | P1 | ✅ 已实现 | 把 access token 写进 keyring（从 stdin 读） |
+| `mcp auth clear` | `mcp auth clear` | ext | P1 | ✅ 已实现 | 删除 keyring 里的 OAuth token |
+| `mcp auth login` | `mcp auth login` | ext | P1 | ✅ 已实现 | 走完整 OAuth 授权流程（本轮未实现，如实报错） |
 | `__run-script` | `__run-script` | internal | P2 | ⬜ 待实现 | 内部：执行脚本 |
 | `__slash-worker` | `__slash-worker` | internal | P2 | ⬜ 待实现 | 内部：斜杠命令 worker |
 | `__compute-host` | `__compute-host` | internal | P2 | ⬜ 待实现 | 内部：计算宿主 |
