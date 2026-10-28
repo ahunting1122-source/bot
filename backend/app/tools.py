@@ -6,7 +6,9 @@ import logging
 import os
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass, replace
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import approvals, code_exec, egress, memory_write, terminal, tirith, toolsets
+from app import approvals, budget, code_exec, egress, memory_write, terminal, tirith, toolsets
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
-from app.storage import Artifact, Memory, Operation, Store, Task, serialize
+from app.storage import Artifact, Memory, Message, Operation, Store, Task, serialize
 
 log = logging.getLogger("orbit.tools")
 
@@ -32,6 +34,13 @@ MCP_TOOL_PREFIX = "mcp__"
 #: 需要工具名才能决定要不要包"不可信数据"标记，而它的调用点（`app/graph/nodes.py`）
 #: 是禁改区、拿不到名字。序列化前会被剥掉，**不会出现在模型上下文里**。
 TOOL_SOURCE_KEY = "_tool"
+#: 结果里携带"这条结果该 spill 到哪"的内部字段（MATRIX 5.7）。
+#:
+#: 为什么用同样的手法（挂在结果 dict 上，序列化前剥掉）：`as_tool_text` 是唯一能
+#: 拿到**完整正文**的地方，而它的调用点（禁改的 `app/graph/nodes.py`）只传结果本身，
+#: 既没有 `task_id` 也没有 `data_dir`。挂在 dict 上比开一个模块级全局变量安全——
+#: 并发/交错执行时全局变量会串味，而每条结果的上下文跟着结果自己走。
+TOOL_SPILL_KEY = "_spill_ctx"
 
 
 class Args(BaseModel):
@@ -290,6 +299,135 @@ class CodeExecArgs(Args):
             "相对路径按授权目录解析。"
         ),
     )
+
+
+#: `local_read_file` 的分页口径（与 Hermes `read_file` 的 `limit` 默认 2000 行一致）。
+#: 上限 5000 行：一次读得再多，进上下文也要被三层治理裁掉，不如让模型自己分页——
+#: 分页可预期，截断不可预期。
+READ_FILE_DEFAULT_LINES = 2_000
+READ_FILE_MAX_LINES = 5_000
+#: 单文件大小上限，与 `local_read_document` 同一档（8 MB）。
+READ_FILE_MAX_BYTES = 8 * 1024 * 1024
+#: 单行渲染宽度上限：超宽行（压缩过的 JSON、minified JS）截断，否则一行就能吃光预算。
+READ_FILE_LINE_CHARS = 2_000
+
+
+class ReadFileArgs(Args):
+    """`local_read_file` 的参数。`offset`/`limit` 是"读哪一段"的唯一说法。"""
+
+    path: str = Field(
+        description=(
+            "要读的文件路径。仅工作文件夹模式下是授权目录内的相对路径；"
+            "完全访问权限模式下可给绝对路径（例如 D:\\\\src\\\\main.py）。"
+        )
+    )
+    offset: int = Field(
+        default=1,
+        ge=1,
+        description="起始行号，**从 1 开始**。接上一次返回的 next_offset 就能接着往下读。",
+    )
+    limit: int = Field(
+        default=READ_FILE_DEFAULT_LINES,
+        ge=1,
+        le=READ_FILE_MAX_LINES,
+        description=f"最多读多少行（默认 {READ_FILE_DEFAULT_LINES}，上限 {READ_FILE_MAX_LINES}）",
+    )
+
+
+#: `local_search_files` 的三种输出形态（对齐 ripgrep 的 content / -l / -c）。
+SEARCH_OUTPUT_MODES = ("content", "files_with_matches", "count")
+#: 单个文件参与匹配的字符上限。超过就只搜前这么多——搜索要的是"哪些文件里有"，
+#: 不是把整个仓库读进内存。
+SEARCH_FILE_CHARS = 200_000
+#: 单条命中行的展示宽度（长行截断，避免一条 minified 结果吃光预算）。
+SEARCH_LINE_CHARS = 300
+
+
+class SearchFilesArgs(Args):
+    """`local_search_files` 的参数：按内容找、按名字找、只要计数。"""
+
+    pattern: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "要找的东西。target=content 时是关键词（大小写不敏感）；"
+            "target=files 时是文件名/相对路径，支持通配（*.py、src/**/*.md），"
+            "不含通配符时按子串匹配。"
+        ),
+    )
+    target: str = Field(
+        default="content",
+        description="content=搜文件内容（默认）；files=只按名字找文件。",
+    )
+    path: str = Field(
+        default="",
+        description=(
+            "搜索起点目录。仅工作文件夹模式下留空即授权目录；"
+            "完全访问权限模式下**必须给出**，否则拒绝执行。"
+        ),
+    )
+    file_glob: str = Field(
+        default="",
+        description="只在文件名匹配这个通配符的文件里搜（如 *.py、*.md），留空表示不限。",
+    )
+    output_mode: str = Field(
+        default="content",
+        description=(
+            "content=逐条命中（带行号与上下文）；files_with_matches=只列命中文件名；"
+            "count=每个文件的命中条数。不确定有多少命中时先用 count。"
+        ),
+    )
+    context: int = Field(default=0, ge=0, le=5, description="每条命中前后各带几行上下文（0-5）")
+    limit: int = Field(default=50, ge=1, le=200, description="最多返回多少条（1-200）")
+
+
+#: 后台进程日志目录（相对 data_dir）。放在数据目录里而不是临时目录：日志是
+#: "这条长任务跑到哪了"的唯一证据，重启后还要能读。
+PROCESS_LOG_SUBDIR = "processes"
+#: `process poll` 默认回多少字符的日志尾巴。
+PROCESS_POLL_TAIL = 4_000
+
+
+class ProcessArgs(Args):
+    """`process` 的参数：起一个后台长任务，然后 list / poll / kill 它。"""
+
+    action: str = Field(
+        default="list",
+        description=(
+            "start=起一个后台进程（需要 command）；list=看有哪些、还在不在跑；"
+            "poll=读某个进程的最新输出与退出码（需要 process_id）；"
+            "kill=终止某个进程及其子进程（需要 process_id）。"
+        ),
+    )
+    command: str = Field(default="", description="start 时要执行的命令（整条交给 shell）")
+    cwd: str = Field(default="", description="start 时的工作目录，留空同 run_command")
+    process_id: str = Field(default="", description="poll / kill 时必填，从 start 或 list 拿")
+    tail: int = Field(
+        default=PROCESS_POLL_TAIL,
+        ge=200,
+        le=20_000,
+        description="poll 时回多少字符的日志尾巴（默认 4000）",
+    )
+
+
+class SessionSearchArgs(Args):
+    """`session_search` 的参数：找回以前对话里的原话。"""
+
+    query: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "要找回的关键词（多个词按 AND 处理）。留空且没给 message_id 时，"
+            "列出最近几场对话（不知道关键词、只想看看聊过什么时用）。"
+        ),
+    )
+    session_id: str = Field(default="", description="只在某一场对话里搜（可选）")
+    message_id: str = Field(
+        default="",
+        description="给了就展开这条消息前后的对话（scroll），用于把命中点看全。",
+    )
+    limit: int = Field(default=3, ge=1, le=10, description="最多返回几个命中点（1-10）")
+    window: int = Field(default=5, ge=1, le=20, description="scroll 时命中点前后各展开几条消息")
 
 
 class MemoryArgs(Args):
@@ -560,16 +698,32 @@ LOCAL_TOOLS = [
         PathArgs,
     ),
     Tool(
+        "local_read_document",
+        "读取文档，最多返回 16000 字符。仅工作文件夹模式下支持 TXT、Markdown、文本型 PDF；"
+        "完全访问权限模式下任意可解码为 UTF-8 文本的文件都能读。"
+        "**要读大文件的中段、或需要反复往下读，用 local_read_file（带 offset/limit 分页）。**",
+        PathArgs,
+    ),
+    Tool(
+        "local_read_file",
+        "按行分页读一个文本文件，返回**带行号**的片段与 total_lines / next_offset。"
+        "几千行的日志、长源码用它：给 offset（起始行，从 1 开始）+ limit（行数）就能读任意一段，"
+        "接上次的 next_offset 继续往下读。要一次性看全文（短文档）用 local_read_document。",
+        ReadFileArgs,
+    ),
+    Tool(
         "local_search_text",
         "在文本文件里搜索关键词。仅工作文件夹模式下只搜授权目录的 TXT/Markdown；"
-        "完全访问权限模式下必须给出起始目录，可搜任意文本文件。",
+        "完全访问权限模式下必须给出起始目录，可搜任意文本文件。"
+        "**要按文件名找文件、要只看命中条数、或要限定 *.py 这类后缀，用 local_search_files。**",
         FindArgs,
     ),
     Tool(
-        "local_read_document",
-        "读取文档，最多返回 16000 字符。仅工作文件夹模式下支持 TXT、Markdown、文本型 PDF；"
-        "完全访问权限模式下任意可解码为 UTF-8 文本的文件都能读。",
-        PathArgs,
+        "local_search_files",
+        "递归搜索文件：content=搜内容（带行号/上下文）、files=按文件名或通配符找文件、"
+        "count=每个文件的命中条数。可限定 file_glob（如 *.py）与起始目录。"
+        "先 count 估规模，再 content 看具体命中，比逐个读文件快得多。",
+        SearchFilesArgs,
     ),
     Tool("local_write_report", "在授权目录创建 Markdown 报告，不覆盖不同内容。", ReportArgs),
     Tool(
@@ -603,6 +757,14 @@ LOCAL_TOOLS = [
         "超时（默认 30 秒）会杀掉整棵进程树。执行前会过与 run_command 同一套危险裁决。",
         CodeExecArgs,
     ),
+    Tool(
+        "process",
+        "后台进程管理。`start` 起一个长任务（起开发服务器、跑整套测试、长时间构建）并立刻返回 "
+        "process_id，**不占住这一轮对话**；之后 `poll` 读它的最新输出与退出码、`list` 看还有哪些在跑、"
+        "`kill` 终止它（连子进程一起）。日志落在数据目录的 processes/ 下，重启后仍能读。"
+        "一条几秒就结束的命令用 run_command，别用它。",
+        ProcessArgs,
+    ),
     Tool("memory_search", "按关键词搜索跨对话长期记忆。", SearchArgs),
     Tool(
         "memory_save",
@@ -619,6 +781,13 @@ LOCAL_TOOLS = [
     ),
     Tool("history_search_tasks", "查找其他对话的历史任务，用户提到以前的工作时使用。", SearchArgs),
     Tool("history_get_task", "读取选中历史任务的目标、结果产物，不载入其他对话原文。", TaskArgs),
+    Tool(
+        "session_search",
+        "找回以前对话里的**原话**：按关键词搜历史消息（多个词按 AND），命中后可用 message_id "
+        "展开前后文；什么关键词都想不起来时，留空直接列出最近几场对话。"
+        "分工：要看「当时那个任务做成什么样」用 history_*；要引用户当初的原话用 session_search。",
+        SessionSearchArgs,
+    ),
     Tool(
         "retriever_search",
         "检索此前读过的网页正文、工具结果与本地文件片段，返回带来源地址的片段。"
@@ -930,6 +1099,236 @@ def walk_text_files(base: Path, machine: bool, root: Path, visit_limit: int = 20
             yield path
 
 
+# ── 分页读文件（local_read_file）────────────────────────────────────────────
+#
+# 为什么在 `read_document` 之外再要一个：那个工具把全文塞到 16,000 字符就停，
+# **没有翻页**——几千行的日志/源码只能看到开头，而"读中间那一段"是排查问题的常规
+# 动作（看第 3000 行附近的报错）。分页靠 offset/limit 两个数说清"读的是哪一段"，
+# 模型据此能一段段往下读，而不是靠一次比一次大的 limit 撞治理层。
+
+
+def read_file_page(
+    root: Path,
+    relative: str,
+    *,
+    offset: int = 1,
+    limit: int = READ_FILE_DEFAULT_LINES,
+    machine: bool = False,
+) -> dict:
+    """按行分页读文本文件，返回带行号的片段与分页信息。
+
+    行号是**渲染进正文**的（`   12\\t内容`）而不是另开一个数组：模型引用行号时
+    要能一眼对上，数组形式还得自己数。`next_offset` 是给模型"接着读"的唯一抓手——
+    没有它，模型只能猜下一段从哪开始。
+    """
+    path = resolve_path(root, relative, machine)
+    if not path.is_file():
+        raise ValueError(f"文件不存在：{relative}")
+    if path.stat().st_size > READ_FILE_MAX_BYTES:
+        raise ValueError(
+            f"文件超过 {READ_FILE_MAX_BYTES // (1024 * 1024)} MB。"
+            "先用 local_search_files 定位到具体行，再用 offset 读那一段。"
+        )
+    # 仅工作文件夹档沿用 `read_document` 的扩展名白名单：放宽读取范围是权限决策，
+    # 不该顺手由一个"分页"工具做掉。完全访问档不限扩展名（能解码成文本就行）。
+    if not machine and path.suffix.lower() not in {".md", ".txt", ".pdf"}:
+        raise ValueError(
+            "仅工作文件夹档只支持 TXT / Markdown / 文本型 PDF。"
+            "要读源码或配置文件，请在对话页把权限级别切到「完全访问权限」。"
+        )
+    try:
+        text = extract_text(path)
+    except UnicodeDecodeError as exc:
+        raise ValueError("该文件不是 UTF-8 文本，无法按行读取") from exc
+
+    lines = text.splitlines()
+    total = len(lines)
+    start = max(1, int(offset))
+    if total and start > total:
+        raise ValueError(f"offset {start} 超过总行数 {total}；文件只有 {total} 行")
+    window = lines[start - 1 : start - 1 + max(1, int(limit))]
+    rendered = "\n".join(
+        f"{start + index:>6}\t"
+        + (line if len(line) <= READ_FILE_LINE_CHARS else line[:READ_FILE_LINE_CHARS] + "…[本行已截断]")
+        for index, line in enumerate(window)
+    )
+    end = start - 1 + len(window)
+    truncated = end < total
+    return {
+        "path": display_path(path, root, machine),
+        "offset": start,
+        "returned_lines": len(window),
+        "total_lines": total,
+        "end_line": end,
+        "truncated": truncated,
+        "next_offset": end + 1 if truncated else None,
+        "text": rendered,
+    }
+
+
+# ── 递归搜索（local_search_files）──────────────────────────────────────────
+#
+# 为什么在 `local_search_text` 之外再要一个：那个工具只回答"哪些文件里有这个词"
+# （每个文件一条摘录，最多 30 条），而实际排查要问的是另外三种问题——
+# "这个仓库里有没有 X 这个文件"、"有几个文件命中"、"第几行命中的、上下文是什么"。
+# 三种输出形态（content / files_with_matches / count）就是对着这三个问题来的，
+# 照 ripgrep 的口径：不确定规模先 `count`，再 `content`。
+
+
+def _line_hits(lines: list[str], needle: str, limit: int) -> list[int]:
+    """命中行的下标（大小写不敏感），最多收 `limit` 条。"""
+    lowered = needle.casefold()
+    hits: list[int] = []
+    for index, line in enumerate(lines):
+        if lowered in line.casefold():
+            hits.append(index)
+            if len(hits) >= limit:
+                break
+    return hits
+
+
+def search_files(
+    root: Path,
+    *,
+    pattern: str,
+    target: str = "content",
+    path: str = "",
+    file_glob: str = "",
+    output_mode: str = "content",
+    context: int = 0,
+    limit: int = 50,
+    machine: bool = False,
+) -> dict:
+    """递归搜索：按内容（带行号/上下文）、按文件名、或只要计数。
+
+    有界性靠三处：`walk_text_files` 的访问条数上限、每文件只搜前
+    :data:`SEARCH_FILE_CHARS` 字符、以及本函数的 `limit` 条命中上限。
+    搜索必须"最坏情况也有界"，否则一次 `pattern=.` 就能把整轮对话拖死。
+    """
+    needle = (pattern or "").strip()
+    if not needle:
+        raise ValueError("pattern 不能为空")
+    start = str(path or "").strip()
+    if machine and not start:
+        # 与 `local_search_text` 同一条规矩：整机递归搜索必须有起点。
+        raise ValueError("完全访问权限下搜索需要指定起始目录（如 D:\\\\notes）")
+    base = resolve_path(root, start or ".", machine)
+    if not base.is_dir():
+        raise ValueError("搜索起点必须是目录")
+    mode = output_mode if output_mode in SEARCH_OUTPUT_MODES else "content"
+    glob_pat = (file_glob or "").strip()
+    wanted = "files" if str(target or "").strip().lower() == "files" else "content"
+    has_wildcard = any(char in needle for char in "*?[")
+
+    scanned = 0
+    matched_files = 0
+    total_hits = 0
+    entries: list[dict] = []
+    counts: list[dict] = []
+    truncated = False
+
+    for candidate in walk_text_files(base, machine, root):
+        scanned += 1
+        name = candidate.name
+        relative = display_path(candidate, root, machine)
+        if glob_pat and not fnmatch(name, glob_pat):
+            continue
+
+        if wanted == "files":
+            # 通配符走 fnmatch（同时比对文件名与相对路径，`src/**/*.py` 这类才有效）；
+            # 不带通配符按子串匹配——模型常直接给 "config"，不是 "*.config"。
+            folded = needle.casefold()
+            if has_wildcard:
+                hit = fnmatch(name, needle) or fnmatch(relative, needle)
+            else:
+                hit = folded in name.casefold() or folded in relative.casefold()
+            if not hit:
+                continue
+            matched_files += 1
+            entries.append({"path": relative})
+            if len(entries) >= limit:
+                truncated = True
+                break
+            continue
+
+        try:
+            text = extract_text(candidate)[:SEARCH_FILE_CHARS]
+        except (OSError, UnicodeError, ValueError):
+            # 二进制/坏编码/加密 PDF：跳过而不是报错——一次搜索撞上一个坏文件
+            # 不该让整次搜索失败（否则整机上永远搜不出东西）。
+            continue
+        lines = text.splitlines()
+        # count 模式要的是**真实条数**，所以每文件上限放得很宽（否则报出来的数字
+        # 只是"被 limit 截过的条数"，比不报更误导）；content 模式才按 limit 收。
+        hits = _line_hits(lines, needle, 10_000 if mode == "count" else limit)
+        if not hits:
+            continue
+        matched_files += 1
+        total_hits += len(hits)
+        if mode == "count":
+            counts.append({"path": relative, "count": len(hits)})
+            if len(counts) >= limit:
+                truncated = True
+                break
+            continue
+        if mode == "files_with_matches":
+            entries.append({"path": relative})
+            if len(entries) >= limit:
+                truncated = True
+                break
+            continue
+        for index in hits:
+            entry: dict[str, Any] = {
+                "path": relative,
+                "line": index + 1,
+                "text": lines[index].strip()[:SEARCH_LINE_CHARS],
+            }
+            if context > 0:
+                low = max(0, index - context)
+                high = min(len(lines), index + context + 1)
+                entry["context"] = [
+                    f"{number + 1}: {lines[number].strip()[:SEARCH_LINE_CHARS]}"
+                    for number in range(low, high)
+                    if number != index
+                ]
+            entries.append(entry)
+            if len(entries) >= limit:
+                truncated = True
+                break
+        if truncated:
+            break
+
+    payload: dict[str, Any] = {
+        "pattern": needle,
+        "target": wanted,
+        "output_mode": mode,
+        "path": display_path(base, root, machine),
+        "files_scanned": scanned,
+        "matched_files": matched_files,
+        # `count` 的口径随模式变：content/count 模式是**命中行数**，files 模式是
+        # **命中文件数**（那里没有"行"这个概念，硬报 0 会让模型以为没搜到）。
+        "count": matched_files if wanted == "files" else total_hits,
+        "truncated": truncated,
+    }
+    if wanted == "files":
+        payload["files"] = entries
+    elif mode == "count":
+        payload["counts"] = counts
+    else:
+        payload["matches"] = entries
+    if not matched_files:
+        payload["notice"] = (
+            f"在 {payload['path']} 下扫了 {scanned} 个文件，没有命中「{needle}」。"
+            "可以换关键词、放宽 file_glob，或确认搜索起点是否正确。"
+        )
+    elif truncated:
+        payload["notice"] = (
+            f"结果已达上限 {limit} 条（共扫 {scanned} 个文件、{matched_files} 个文件命中）。"
+            "要看全就先缩小 file_glob 或换个更具体的关键词。"
+        )
+    return payload
+
+
 # ── 任务清单（todo）的落盘 ──────────────────────────────────────────────────
 #
 # 状态放 `<data_dir>/todos/<task_id>.json`：`app/storage.py` 是禁改区（不能加表），
@@ -1060,6 +1459,11 @@ class ToolRegistry:
         #: 路由到远程 prompt 正文。无 MCP 时保持 None（测试/降级路径）。
         self.mcp: Any = None
         self._retriever: Any = None
+        #: 后台进程登记表（`process` 工具）。**故意只放内存**：它记的是"本进程起过的
+        #: 子进程"，重启之后那些进程要么已随父进程一起死了、要么成了孤儿——两种情况下
+        #: 假装"还记得它"都比不记得更糟（模型会去 poll 一个不存在的 pid）。
+        #: 日志本身落在 `<data>/processes/<id>.log`，重启后仍可读。
+        self._processes: dict[str, dict[str, Any]] = {}
         #: 已注销但原 owner 仍需记住的工具名（`name -> source`）。
         #:
         #: 存在的唯一理由：堵住"先 unregister_source 再 register"绕过遮蔽门禁的路。
@@ -1400,6 +1804,12 @@ class ToolRegistry:
                 # 工具名（调用点是禁改的 nodes.py）。来源判断（是否要包"不可信数据"
                 # 标记）只能靠这个字段，序列化前会被剥掉，不进模型上下文。
                 result.setdefault(TOOL_SOURCE_KEY, name)
+                # 同理挂上 spill 需要的落点信息（MATRIX 5.7）：`as_tool_text` 只拿得到
+                # 结果本身，拿不到 task_id / data_dir。**这一处挂、那一处剥**，成对出现。
+                result.setdefault(
+                    TOOL_SPILL_KEY,
+                    {"task_id": task_id, "data_dir": str(self.settings.data_dir)},
+                )
         except ExecutionRefused as exc:
             # 执行前裁决的拒绝（tirith 组合扫描 / egress 出站策略）。载荷形状照
             # 需求方约定：`{"status": "refused", "error": ...}`，**不带 data**——
@@ -1490,6 +1900,197 @@ class ToolRegistry:
                 f"确认要放行就执行 `orbit egress allow {host}`（或写进 data/egress.json）。"
             )
 
+    async def _approve_command(
+        self, task_id: str, tool: str, text: str, *, egress_check: bool = True
+    ) -> None:
+        """执行前裁决的统一入口：tirith 组合扫描 → approvals 两级裁决 → egress 出站策略。
+
+        抽成一个方法而不是在 `run_command` / `code_execution` / `process` 里各抄一遍：
+        这三条路都能把机器搞坏，抄三份必然漂移，而**漂移的安全边界比没有更危险**
+        （`app/tools.py` 里 `dangerous_command` 那段注释已经为同一件事留过话）。
+
+        顺序的语义见 :meth:`_tirith_gate` 的 docstring，改顺序前先读它。
+
+        `egress_check` 只对 `code_execution` 关掉：代码正文里的 host 不是"这条命令
+        要连的目标"（代码可能只是**打印**了一个 URL），按命令行口径解析会误拦。
+        """
+        await self._tirith_gate(task_id, tool, text)
+        mode = approvals.resolve_mode(self.settings)
+        allowlist: tuple[str, ...] = ()
+        if mode != "off":
+            allowlist = approvals.AllowList.load(
+                Path(self.settings.data_dir) / "approvals.json"
+            ).rules
+        verdict = approvals.classify(
+            text,
+            mode=mode,
+            allowlist=allowlist,
+            env_type="local",
+            hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
+            machine_wide=self.settings.machine_wide,
+        )
+        if verdict.verdict != approvals.VERDICT_ALLOW:
+            raise ValueError(_refusal(verdict, self.settings.machine_wide, mode))
+        if egress_check:
+            self._egress_gate(text)
+
+    # ── 后台进程（`process` 工具）────────────────────────────────────────────
+
+    async def manage_processes(self, args: dict, task_id: str) -> dict:
+        """`process` 的实现：start / list / poll / kill。
+
+        为什么需要它：`run_command` 是**同步**的——一条 `npm run dev` 或整套测试会把
+        这一轮对话卡到超时上限。要"起一个长任务、过一会儿看它跑到哪"，就必须有个地方
+        记着 pid。这里的选择是**进程内登记表 + 落盘日志**：
+
+        * 日志写 `<data>/processes/<id>.log`，进程输出**直接重定向到文件**而不是管道——
+          管道要有人一直读，读的人一走进程就阻塞（或者缓冲区写满），后台任务会假死；
+        * 登记表只在内存里：重启后 `list` 是空的，如实告诉模型"没记着"，而不是让它去
+          poll 一个早已不存在的 pid；
+        * `start` 走与 `run_command` **完全同一套闸**（tirith → approvals → egress），
+          否则后台执行就成了绕开审批的后门。
+        """
+        action = str(args.get("action") or "list").strip().lower()
+        if action == "start":
+            command = str(args.get("command") or "").strip()
+            if not command:
+                raise ValueError("start 需要给 command：要放到后台跑的那条命令")
+            await self._approve_command(task_id, "process", command)
+            root = self.settings.workspace.resolve()
+            machine = self.settings.machine_wide
+            start = str(args.get("cwd") or "").strip()
+            if machine:
+                cwd = resolve_path(root, start or str(Path.home()), True)
+            else:
+                cwd = resolve_path(root, start or ".", False)
+            if not cwd.is_dir():
+                raise ValueError(f"工作目录不存在：{cwd}")
+            # 起进程是阻塞调用（Popen 本身很快，但开文件/建目录要碰盘），扔线程里做。
+            return await asyncio.to_thread(self._spawn_background, command, cwd)
+
+        if action == "list":
+            rows = [self._describe_process(pid, entry) for pid, entry in self._processes.items()]
+            return {
+                "count": len(rows),
+                "processes": rows,
+                "notice": (
+                    "登记表只在内存里：重启后这里会是空的（日志文件仍留在数据目录）。"
+                    if rows
+                    else "当前没有本进程起过的后台任务。用 action=start 起一个。"
+                ),
+            }
+
+        process_id = str(args.get("process_id") or "").strip()
+        entry = self._processes.get(process_id)
+        if entry is None:
+            raise ValueError(
+                f"没有 process_id={process_id!r} 的后台进程。先 action=list 看有哪些在跑"
+                "（重启后登记表会清空，这是预期的）。"
+            )
+        if action == "poll":
+            row = self._describe_process(process_id, entry)
+            row["output"] = self._process_output(entry, int(args.get("tail") or PROCESS_POLL_TAIL))
+            if not row["running"]:
+                row["notice"] = (
+                    f"进程已结束（exit_code={row['exit_code']}）。output 是日志尾部，"
+                    f"完整日志在 {row['log_path']}。"
+                )
+            return row
+        if action == "kill":
+            process = entry["process"]
+            was_running = process.poll() is None
+            terminate_tree(process)
+            self._close_process_log(entry)
+            row = self._describe_process(process_id, entry)
+            row["killed"] = was_running
+            row["notice"] = (
+                "已终止整棵进程树。" if was_running else "这个进程本来就已经结束了，什么都没做。"
+            )
+            return row
+        raise ValueError(f"未知 action：{action}（可选 start / list / poll / kill）")
+
+    def _spawn_background(self, command: str, cwd: Path) -> dict:
+        """真的起一个后台进程。同步实现，由 :meth:`manage_processes` 放进线程跑。"""
+        directory = Path(self.settings.data_dir) / PROCESS_LOG_SUBDIR
+        directory.mkdir(parents=True, exist_ok=True)
+        process_id = f"proc-{uuid.uuid4().hex[:8]}"
+        log_path = directory / f"{process_id}.log"
+        handle = log_path.open("wb")
+        try:
+            child = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=str(cwd),
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=(os.name != "nt"),
+            )
+        except OSError as exc:
+            handle.close()
+            raise ValueError(f"后台进程起不来：{exc}") from exc
+        self._processes[process_id] = {
+            "process": child,
+            "command": command,
+            "cwd": str(cwd),
+            "log": log_path,
+            "handle": handle,
+            "started": time.time(),
+        }
+        log.info("后台进程已启动：%s pid=%s", process_id, child.pid)
+        return {
+            "process_id": process_id,
+            "pid": child.pid,
+            "command": command,
+            "cwd": str(cwd),
+            "log_path": str(log_path),
+            "running": True,
+            "notice": (
+                "已在后台启动，**不会阻塞这一轮**。过一会儿用 action=poll 读输出与退出码；"
+                "不再需要时用 action=kill 收掉它。"
+            ),
+        }
+
+    def _describe_process(self, process_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+        """一条后台进程的当前状态（`list` / `poll` / `kill` 共用同一份字段）。"""
+        process = entry["process"]
+        code = process.poll()
+        if code is not None:
+            self._close_process_log(entry)
+        return {
+            "process_id": process_id,
+            "pid": process.pid,
+            "command": entry["command"],
+            "cwd": entry["cwd"],
+            "running": code is None,
+            "exit_code": code,
+            "seconds": round(time.time() - float(entry["started"]), 2),
+            "log_path": str(entry["log"]),
+        }
+
+    @staticmethod
+    def _close_process_log(entry: dict[str, Any]) -> None:
+        """进程结束后关掉日志句柄（重复调用安全）。不关的话文件句柄会一直占着。"""
+        handle = entry.get("handle")
+        if handle is None:
+            return
+        try:
+            handle.close()
+        except OSError:  # 已经关了 / 被系统回收：不该影响状态查询
+            pass
+        entry["handle"] = None
+
+    @staticmethod
+    def _process_output(entry: dict[str, Any], tail: int) -> str:
+        """读日志的尾巴。**每次 poll 都重新读盘**，因为后台进程还在往文件里写。"""
+        path = Path(entry["log"])
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        limit = max(0, int(tail))
+        return text[-limit:] if limit and len(text) > limit else text
+
     async def local(self, name: str, args: dict, task_id: str, messages=None):
         root = self.settings.workspace.resolve()
         machine = self.settings.machine_wide
@@ -1530,6 +2131,32 @@ class ToolRegistry:
             return entries
         if name == "local_read_document":
             return await asyncio.to_thread(read_document, root, args["path"], machine)
+        if name == "local_read_file":
+            return await asyncio.to_thread(
+                functools.partial(
+                    read_file_page,
+                    root,
+                    args["path"],
+                    offset=int(args.get("offset") or 1),
+                    limit=int(args.get("limit") or READ_FILE_DEFAULT_LINES),
+                    machine=machine,
+                )
+            )
+        if name == "local_search_files":
+            return await asyncio.to_thread(
+                functools.partial(
+                    search_files,
+                    root,
+                    pattern=args["pattern"],
+                    target=str(args.get("target") or "content"),
+                    path=str(args.get("path") or ""),
+                    file_glob=str(args.get("file_glob") or ""),
+                    output_mode=str(args.get("output_mode") or "content"),
+                    context=int(args.get("context") or 0),
+                    limit=int(args.get("limit") or 50),
+                    machine=machine,
+                )
+            )
         if name == "local_search_text":
             start = str(args["path"]).strip()
             if machine and not start:
@@ -1635,31 +2262,15 @@ class ToolRegistry:
             if not command:
                 raise ValueError("命令不能为空")
             start = str(args.get("cwd") or "").strip()
-            # 执行前裁决，四道，顺序有语义（改顺序前先读 `_tirith_gate` 的 docstring）：
+            # 执行前裁决四道，顺序有语义（改顺序前先读 `_tirith_gate` 的 docstring）：
             #   ① tirith 组合扫描——跨管道/跨 `&&` 的组合语义，不受审批模式影响；
             #   ② approvals 单条命令的两级裁决（硬地板 / 危险模式），判据在 `app/approvals.py`；
             #   ③ egress 出站策略——`curl`/`wget` 的目标 host 允不允许出去；
             #   ④ 交给终端后端真正执行。
-            # **两档都走 ①②**：硬地板是否在完全访问档也生效由 `hardline_in_machine`
-            # 决定（默认关，尊重 Orbit 既有的"machine 档不设限"决策）。
-            await self._tirith_gate(task_id, "run_command", command)
-            mode = approvals.resolve_mode(self.settings)
-            allowlist: tuple[str, ...] = ()
-            if mode != "off":
-                allowlist = approvals.AllowList.load(
-                    Path(self.settings.data_dir) / "approvals.json"
-                ).rules
-            verdict = approvals.classify(
-                command,
-                mode=mode,
-                allowlist=allowlist,
-                env_type="local",
-                hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
-                machine_wide=machine,
-            )
-            if verdict.verdict != approvals.VERDICT_ALLOW:
-                raise ValueError(_refusal(verdict, machine, mode))
-            self._egress_gate(command)
+            # 前三道统一收在 `_approve_command` 里（`process` 复用同一套，否则后台
+            # 就成了绕开审批的后门）。**两档都走 ①②**：硬地板是否在完全访问档也生效
+            # 由 `hardline_in_machine` 决定（默认关，尊重 Orbit 既有的决策）。
+            await self._approve_command(task_id, "run_command", command)
             if machine:
                 # 完全访问档：不限工作目录，默认落用户主目录（比工作目录更"像整机"）。
                 cwd = resolve_path(root, start or str(Path.home()), True)
@@ -1680,6 +2291,8 @@ class ToolRegistry:
             # （`ApplyResult`）当上下文去反推 `to_thread` 的泛型，复用名字就会连带推断出错。
             terminal_result = await asyncio.to_thread(runner)
             return terminal_result.as_dict()
+        if name == "process":
+            return await self.manage_processes(args, task_id)
         if name == "code_execution":
             code = str(args["code"])
             start = str(args.get("cwd") or "").strip()
@@ -1687,23 +2300,8 @@ class ToolRegistry:
             # 代码正文也过 approvals：`os.system("rm -rf /")` 正是这条链要拦的形状。
             # 代价是"字符串里恰好出现同类字面量"会误拦，拒绝信息里会点名命中的规则，
             # 用户可以改写代码或拆成两步——比放过一条真破坏命令好。
-            await self._tirith_gate(task_id, "code_execution", code)
-            mode = approvals.resolve_mode(self.settings)
-            allowlist = ()
-            if mode != "off":
-                allowlist = approvals.AllowList.load(
-                    Path(self.settings.data_dir) / "approvals.json"
-                ).rules
-            verdict = approvals.classify(
-                code,
-                mode=mode,
-                allowlist=allowlist,
-                env_type="local",
-                hardline_in_machine=approvals.resolve_hardline_in_machine(self.settings),
-                machine_wide=machine,
-            )
-            if verdict.verdict != approvals.VERDICT_ALLOW:
-                raise ValueError(_refusal(verdict, machine, mode))
+            # 唯一的差别是不跑 egress：代码里的 host 不是"这条命令要连的目标"。
+            await self._approve_command(task_id, "code_execution", code, egress_check=False)
             if machine:
                 cwd = resolve_path(root, start or str(Path.home()), True)
             else:
@@ -1846,6 +2444,64 @@ class ToolRegistry:
                 "goal": task.goal,
                 "status": task.status,
                 "artifacts": [serialize(a) for a in artifacts],
+            }
+        if name == "session_search":
+            from app.session_search import SessionSearch
+
+            searcher = SessionSearch(self.store)
+            message_id = str(args.get("message_id") or "").strip()
+            if message_id:
+                # scroll：把命中点前后的对话展开。搜索给的是"锚点"，锚点周围才是
+                # 人真正要看的东西（一句话离开上下文经常读不出意思）。
+                view = await searcher.anchored_view(
+                    message_id, window=int(args.get("window") or 5)
+                )
+                # `anchored_view` 的 anchor 形状是给模型看的消息视图，**不含**
+                # conversation_id，所以"这是哪场对话"要自己查一次——后续想继续
+                # 在这条会话里搜（session_id）时，这个值就是唯一的抓手。
+                anchor_row = await self.store.get(Message, message_id)
+                return {
+                    "mode": "scroll",
+                    "session_id": anchor_row.conversation_id if anchor_row is not None else "",
+                    "anchor": view["anchor"],
+                    "window": view["window"],
+                    "before": view["before"],
+                    "after": view["after"],
+                }
+            query = str(args.get("query") or "").strip()
+            if query:
+                anchors = await searcher.discover(
+                    query,
+                    conversation_id=str(args.get("session_id") or "").strip() or None,
+                    limit=int(args.get("limit") or 3),
+                )
+                found: dict[str, Any] = {
+                    "mode": "search",
+                    "query": query,
+                    "count": len(anchors),
+                    "anchors": [anchor.as_dict() for anchor in anchors],
+                }
+                if anchors:
+                    found["notice"] = (
+                        "命中点是**锚**，不是全部上下文：要看那一段对话请带 message_id "
+                        "再调一次（mode=scroll）。"
+                    )
+                else:
+                    found["notice"] = (
+                        f"没有会话消息命中「{query}」。换个关键词试试，"
+                        "或留空 query 先列出最近几场对话。"
+                    )
+                return found
+            sessions = await searcher.browse(limit=max(1, int(args.get("limit") or 3)))
+            return {
+                "mode": "browse",
+                "count": len(sessions),
+                "sessions": sessions,
+                "notice": (
+                    "这是最近几场对话（不含关键词）。想到某个词时用 query 搜具体消息。"
+                    if sessions
+                    else "本地还没有任何历史会话。"
+                ),
             }
         if name == "skill_load":
             from app.skills import load_skill
@@ -1998,9 +2654,9 @@ class ToolRegistry:
         """按关键词在**当前暴露的工具**里检索，返回名字/说明/toolset。
 
         为什么需要它（Hermes 的 `tool_search`）：工具一多，把全部 schema 塞进每次
-        请求既贵又稀释注意力。有了检索，模型可以"先找再调"。Orbit 现在只有 15 个
-        内置工具，全塞得下，所以这一步暂时是**为规模准备**的——但接口先立起来，
-        以后工具涨到几十个时不用改模型的行为约定。
+        请求既贵又稀释注意力。有了检索，模型可以"先找再调"。Orbit 的内置工具已经从
+        十几个涨到三十几个，逐个读 schema 已经不现实，所以这一层从"为规模准备"变成了
+        日常路径——但接口没变：按名字/说明/toolset 命中打分。
 
         只搜**已暴露**的：搜到却调不了的工具比搜不到更糟。
         """
@@ -2060,15 +2716,47 @@ def as_tool_text(result: dict, name: str = "") -> str:
     其次读 :data:`TOOL_SOURCE_KEY`（`ToolRegistry.execute` 挂上去的）。两者都没有
     就不包：宁可漏包一条，也不要把 `memory_search` 这类"用户自己的内容"也标成
     不可信，那样模型会对一切都半信半疑，真该警惕的那段反而被稀释掉。
+
+    ## hook 上下文落盘（MATRIX 5.7）接在哪、为什么只接这一处
+
+    序列化之后、注入包裹之前过一遍 :func:`app.budget.spill_safe`：超过 10,000 字符的
+    结果落盘，上下文里只留头尾 500 + 一句"中间被截了、完整内容在哪个文件"的提示。
+
+    **只在 `as_tool_text` 接**，不在 `ToolRegistry.execute` / `govern` / 各工具内部再截一次：
+    这个函数是模型侧最后一道、也是唯一一道出口（`app/graph/nodes.py` 的四个调用点都
+    走它）。多接一处就会出现"两次截断"——第二次截的是第一次的预览，于是提示行和文件
+    路径被剪掉，模型看到一段没头没尾的文本，还以为是工具返回了全部内容。
+
+    顺序上它排在 `govern`（三层治理，`app/policies.py`）**之后**：三层治理按结果大小
+    分级（100K / 200K / 1.5K 预览），本层按上下文预算裁剪（10K）。先分级、再裁剪，
+    两层各自只截一次，账也各记各的。理由详见 `app/budget.py::spill_safe`。
     """
     from app import redact, untrusted
 
     payload = result
     source = (name or "").strip()
-    if isinstance(result, dict) and TOOL_SOURCE_KEY in result:
-        source = source or str(result[TOOL_SOURCE_KEY] or "")
-        payload = {key: value for key, value in result.items() if key != TOOL_SOURCE_KEY}
+    spill_ctx: dict[str, Any] = {}
+    if isinstance(result, dict):
+        if TOOL_SOURCE_KEY in result:
+            source = source or str(result[TOOL_SOURCE_KEY] or "")
+        raw_ctx = result.get(TOOL_SPILL_KEY)
+        if isinstance(raw_ctx, dict):
+            spill_ctx = raw_ctx
+        payload = {
+            key: value
+            for key, value in result.items()
+            if key not in {TOOL_SOURCE_KEY, TOOL_SPILL_KEY}
+        }
     text = json.dumps(redact.redact_obj(payload), ensure_ascii=False, default=str)
+    if spill_ctx:
+        # 没有 spill 上下文（比如 `errors_retry` 自己造的载荷）就原样返回：
+        # 那一侧拿不到 data_dir，硬塞一个默认落点会把文件写到不该写的地方。
+        text = budget.spill_safe(
+            text,
+            task_id=str(spill_ctx.get("task_id") or ""),
+            tool=source,
+            data_dir=spill_ctx.get("data_dir"),
+        )
     if untrusted.is_high_risk(source):
         findings = untrusted.scan(text)
         if findings:

@@ -9,6 +9,12 @@ Design notes:
   to start is reported with its error and does not stop the others.
 - Secrets never live in ``mcp.json``: values written as ``keyring:<name>`` are resolved
   from the system credential store under ``mcp:<server>:<name>``.
+- **Tool schemas are cached on disk** (``app/mcp_schema_cache.py``): the ``tools/list``
+  round-trip is skipped when a fresh entry exists. What is cached is the *schema*, never a
+  call result — a stale tool result is a wrong answer, a stale schema only costs one
+  re-list. Invalidation is three-way (connection fingerprint / server-reported version /
+  tools fingerprint), so editing ``command`` or upgrading the server cannot silently keep
+  a manifest that no longer matches.
 - **Liveness is a background concern, not a user-facing one.** A vanished server used to be
   permanent until someone clicked "重新连接"; now each one runs its own heartbeat, and a
   detected loss unregisters its tools and starts an exponential-backoff reconnect. The failure
@@ -31,6 +37,7 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 
+from app.mcp_schema_cache import SchemaCache
 from app.tools import Tool
 
 log = logging.getLogger("orbit.mcp")
@@ -110,6 +117,76 @@ def tool_name(server: str, remote: str) -> str:
     return f"mcp__{sanitize(server)}__{sanitize(remote)}"[:MAX_TOOL_NAME]
 
 
+def _explicit_fields(obj) -> dict:
+    """只取**服务真的发过**的字段（``model_dump(exclude_unset=True)``）。
+
+    与 :func:`dumped` 的区别是"默认值算不算数"：``dumped`` 会把 pydantic 的默认值一起
+    摊出来，而判断"服务有没有给某个提示"时必须只看显式字段。拿不到 ``exclude_unset``
+    （非 pydantic 对象、老 SDK）就退回 ``dumped``——那只是失去区分能力，不该抛。
+    """
+    try:
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump(exclude_unset=True)
+    except Exception:  # noqa: BLE001 - 同 dumped：坏载荷不该打断连接
+        return {}
+    return dumped(obj)
+
+
+def tool_shapes(tools) -> list[dict]:
+    """把 SDK 的工具对象摊平成 ``[{name, description, input_schema}]``。
+
+    这个形状是**两条路共用**的：真去 ``tools/list`` 拿到的清单、以及磁盘缓存里存着的
+    清单，都要先变成它，注册工具的那段代码才只有一份。少一份就等于多一处会分叉的地方
+    ——缓存路径注册出来的工具与在线路径不一致，是这类缓存最典型的坑。
+    """
+    rows: list[dict] = []
+    for remote in tools:
+        payload = dumped(remote)
+        label = str(payload.get("name") or "tool")
+        rows.append(
+            {
+                "name": label,
+                "description": str(payload.get("description") or label)[:1000],
+                "input_schema": schema_of(remote),
+            }
+        )
+    return rows
+
+
+def cache_hints(listing) -> tuple[float | None, str]:
+    """读 ``tools/list`` 结果里的 SEP-2549 提示：``(ttl_ms, cache_scope)``。
+
+    **必须区分"服务没给 ttlMs"和"服务给了 0"**：SDK 的 ``ListToolsResult.ttl_ms`` 默认值
+    就是 ``0``，普通 ``model_dump()`` 把两者都摊成 ``0``。而这两件事的后果完全相反——
+    没给提示时该用兜底 TTL（Hermes 的做法是"永不过期"，我们加了 24 小时上限），给了 0
+    时是 SEP-2549 明说的"别缓存"。混为一谈会让**所有不实现 SEP-2549 的服务**（今天的
+    绝大多数，尤其本地 stdio 服务）永远命中不了缓存，整个功能等于没做。
+
+    所以这里走 ``model_dump(exclude_unset=True)``：只有服务真的发过这个键，它才会出现。
+    """
+    payload = _explicit_fields(listing)
+    ttl = payload.get("ttl_ms")
+    return (
+        float(ttl) if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) else None,
+        str(payload.get("cache_scope") or ""),
+    )
+
+
+def server_version(client) -> str:
+    """服务自报的版本（``initialize`` 的 ``serverInfo.version``），拿不到返回空串。
+
+    空串在缓存层意味着"无从比较"——**不参与**失效判定。2026 之后的服务可以不报身份，
+    把"这次没报"当成"版本变了"会让缓存永远命中不了。
+    """
+    try:
+        info = client.server_info
+    except Exception:  # noqa: BLE001 - 老连接/半连接都可能没有这个属性
+        return ""
+    if info is None:
+        return ""
+    return str(dumped(info).get("version") or "")
+
+
 def _supports_listen(client) -> bool:
     """订阅流是 2026-07-28 起才有的能力；老连接只能轮询。
 
@@ -170,6 +247,9 @@ class MCPManager:
         #: 由装配层注入；None = 不索引（测试/降级路径）。
         self.indexer = indexer
         self.status: dict[str, dict] = {}
+        #: 工具 schema 的磁盘缓存（矩阵 8.7）。**缓存的是 schema，不是调用结果**：
+        #: 省掉的是 ``tools/list`` 这一次往返，执行工具仍然需要活的 client。
+        self.schema_cache = SchemaCache.for_settings(settings)
         self._clients: dict[str, Any] = {}
         self._routes: dict[str, tuple[str, str]] = {}
         self._entries: dict[str, dict] = {}
@@ -333,7 +413,7 @@ class MCPManager:
         try:
             async with asyncio.timeout(limit):
                 client = await inner.enter_async_context(self._client(entry))
-                listing = await client.list_tools()
+                shapes = await self._tool_shapes(entry, client)
                 prompts = await self._fetch_prompts(name, client)
         except TimeoutError:
             await inner.aclose()
@@ -353,14 +433,13 @@ class MCPManager:
             return False
         self._stack.push_async_callback(inner.aclose)
         tools = []
-        for remote in listing.tools:
-            shape = dumped(remote)
-            label = str(shape.get("name") or "tool")
+        for shape in shapes:
+            label = shape["name"]
             tool = Tool(
                 name=tool_name(name, label),
-                description=str(shape.get("description") or label)[:1000],
+                description=shape["description"],
                 confirmation=not bool(entry.get("auto_approve")),
-                parameters=schema_of(remote),
+                parameters=shape["input_schema"],
                 source=f"mcp:{name}",
             )
             tools.append(tool)
@@ -375,6 +454,35 @@ class MCPManager:
             task = asyncio.create_task(self._index_resources(name, client))
             self._resource_tasks[name] = task
         return True
+
+    async def _tool_shapes(self, entry: dict, client) -> list[dict]:
+        """取工具清单：**先读磁盘缓存，未命中才真去 ``tools/list``**。
+
+        缓存的是 schema 不是结果——这里省掉的只是"列清单"这一次往返，工具调用仍然走
+        :meth:`execute` 的真连接。三条失效判据（配置指纹 / 服务版本 / schema 指纹）由
+        :class:`~app.mcp_schema_cache.SchemaCache` 负责，本方法只负责"按结果做决定"。
+
+        未命中时顺手把新清单写回缓存：``ttl_ms`` / ``cache_scope`` 原样带上（服务说了算），
+        服务没给就交给缓存层的兜底 TTL。
+        """
+        name = str(entry["name"])
+        version = server_version(client)
+        cached = self.schema_cache.get(name, config=entry, server_version=version)
+        if cached is not None:
+            log.debug("MCP %s 命中 schema 缓存：%d 个工具（跳过 tools/list）", name, len(cached.tools))
+            return [dict(item) for item in cached.tools]
+        listing = await client.list_tools()
+        shapes = tool_shapes(listing.tools)
+        ttl_ms, cache_scope = cache_hints(listing)
+        self.schema_cache.put(
+            name,
+            shapes,
+            server_version=version,
+            config=entry,
+            ttl_ms=ttl_ms,
+            cache_scope=cache_scope,
+        )
+        return shapes
 
     async def _fetch_prompts(self, server: str, client) -> list[dict]:
         """拉取服务声明的 prompts，映射成技能字典（多源技能的第二来源）。
@@ -784,6 +892,9 @@ async def probe(settings, entry: dict, *, limit: float | None = None) -> dict:
         "prompts": [],
         "resources": [],
         "templates": [],
+        #: schema 缓存这一侧发生了什么（``refreshed`` + 工具数）。`mcp test` 会显示它，
+        #: 否则"缓存到底有没有在起作用"只能靠猜。
+        "cache": {},
     }
     manager = MCPManager(settings)
     inner = AsyncExitStack()
@@ -791,13 +902,22 @@ async def probe(settings, entry: dict, *, limit: float | None = None) -> dict:
         async with asyncio.timeout(limit):
             client = await inner.enter_async_context(manager._client(entry))
             listing = await client.list_tools()
+            shapes = tool_shapes(listing.tools)
             report["tools"] = [
-                {
-                    "name": str(dumped(tool).get("name") or ""),
-                    "description": str(dumped(tool).get("description") or ""),
-                }
-                for tool in listing.tools
+                {"name": shape["name"], "description": shape["description"]} for shape in shapes
             ]
+            # 体检命令**必须看真实结果**（读缓存等于自己骗自己），但顺手刷新缓存是有益的：
+            # 这是唯一一个"人主动要求重列清单"的入口，刷新后下一次装配就不用再等往返。
+            ttl_ms, cache_scope = cache_hints(listing)
+            manager.schema_cache.put(
+                name,
+                shapes,
+                server_version=server_version(client),
+                config=entry,
+                ttl_ms=ttl_ms,
+                cache_scope=cache_scope,
+            )
+            report["cache"] = {"refreshed": True, "tools": len(shapes)}
             if _capability(client, "prompts"):
                 prompts = await client.list_prompts()
                 report["prompts"] = [
@@ -1068,3 +1188,75 @@ def write_servers(manager: "MCPManager", servers: list[dict]) -> list[dict]:
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return manager.servers()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# W8 追加区：OAuth 授权流程的"本地那一半"（矩阵 8.3 收尾）
+#
+# 为什么落在 ``app/mcp_oauth_flow.py`` 而不是这里：那边全是纯函数（PKCE / URL 拼装 /
+# 请求体 / 响应解析 / 过期判定），可以脱离网络与 keyring 单测；本模块是**装配层**，
+# 只做"从 settings + 服务配置里取出需要的东西，交给纯函数，再把结果翻译成 CLI 能打的
+# 报告"。把它塞进这里会让 1160 行的 mcp.py 再长 300 行，而它服务的是 CLI 的
+# `login` / `reauth` 两条命令。
+#
+# 两个函数都用函数内 import：本段是追加区，不新增文件级 import（同 W7 段首说明）。
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def oauth_login_report(settings, entry: dict, *, now: float | None = None) -> dict:
+    """`mcp login` / `mcp reauth` 的**本地**报告：令牌现状 + 能刷新吗 + 授权 URL。
+
+    能真做的三件事都在这里：读已有令牌、判过期、拼出"真流程会打开的那条 authorize
+    URL"（含真 PKCE challenge）。真正的换 token 需要出网 + 浏览器 + 本地回调服务器，
+    由 ``mcp_oauth_flow.run_flow`` 如实抛 ``NetworkUnavailable``——**不在这里假装**。
+
+    返回的 ``code_verifier`` 是秘密（PKCE 的另一半），只在本次调用里存在，不落盘。
+    """
+    from app.mcp_oauth_flow import login_report
+
+    return login_report(settings, entry, now=now)
+
+
+def oauth_refresh(settings, entry: dict, *, transport=None, now: float | None = None) -> dict:
+    """尝试用 refresh token 续期（`mcp reauth` 的第二步）。
+
+    三种"不用刷新"的情形直接返回结论而不是报错：没令牌、令牌还有效、没有 refresh
+    token。真去刷新时若没有注入 ``transport``，``mcp_oauth_flow.refresh_token`` 会抛
+    ``NetworkUnavailable``（本机无网络）——调用方负责把它原样打给用户。
+    """
+    from app.mcp_oauth_flow import TokenStore, is_expired, refresh_token
+
+    name = str(entry.get("name") or "")
+    store = TokenStore.for_settings(settings, name)
+    token = store.load()
+    if token is None:
+        return {"ok": False, "server": name, "reason": "missing", "refreshed": False}
+    if not is_expired(token, now=now):
+        return {
+            "ok": True,
+            "server": name,
+            "reason": "valid",
+            "refreshed": False,
+            "expires_at": token.expires_at,
+        }
+    if not token.refresh_token:
+        return {"ok": False, "server": name, "reason": "no_refresh_token", "refreshed": False}
+    fresh = refresh_token(
+        {
+            "url": entry.get("url") or "",
+            "client_id": entry.get("client_id") or "",
+            "scope": entry.get("scope") or "",
+            "token_endpoint": entry.get("token_endpoint") or "",
+            "redirect_uri": entry.get("redirect_uri") or "",
+        },
+        token,
+        transport=transport,
+        store=store,
+    )
+    return {
+        "ok": True,
+        "server": name,
+        "reason": "refreshed",
+        "refreshed": True,
+        "expires_at": fresh.expires_at,
+    }

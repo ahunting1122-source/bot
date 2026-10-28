@@ -83,6 +83,14 @@ ARCHIVE_MIN_SUCCESS_RATE = 0.5
 #: 成功率低 = 长期信号（archived）。
 ARCHIVE_MIN_SAMPLES = 3
 
+#: 「缺了就跑不动」的技能：**任何**自动迁移都不能碰（Hermes `ESSENTIAL_SKILLS`
+#: 的对应物，原文「Load-bearing bundled built-ins the curator must NEVER archive or
+#: consolidate, regardless of `curator.prune_builtins`, pin state, or LLM judgment」）。
+#: Orbit 目前没有"本体技能"（它自己就是 exe 里的代码，不靠 SKILL.md 启动），所以这份
+#: 名单是空的。保留常量而不是省掉这个判断，是为了让"这条为什么永不被归档"有一个
+#: 唯一的落点——将来真加了本体技能，只需要在这里加名字，不必回头改 `prune`。
+ESSENTIAL_NAMES: frozenset[str] = frozenset()
+
 # ── 文件布局 ────────────────────────────────────────────────────────────────
 
 #: 每技能一份使用遥测（sidecar，与 SKILL.md 解耦）。
@@ -841,13 +849,41 @@ class Curator:
             self._save_states(states)
         return transitions
 
-    def prune(self, *, days: int | None = None, dry_run: bool = False) -> list[dict[str, Any]]:
+    def prune(
+        self,
+        *,
+        days: int | None = None,
+        dry_run: bool = False,
+        prune_builtins: bool = True,
+        consolidate: bool = False,
+    ) -> list[dict[str, Any]]:
         """批量归档闲置 ≥ N 天的技能（``--days`` 默认 90，Hermes CLI 同值）。
 
         与 `run()` 的区别：`prune` **只看闲置**，不看成功率、不看 stale；
         它是用户显式发起的"清一清"，判据单一才解释得清。
+
+        三个默认值逐条对齐 Hermes（调研 04 §5.2 的可证事实）：
+
+        - ``days=None`` → 取 ``archive_days``（**90**），出处是
+          `hermes curator prune --help` 原文「idle for at least N days (default: 90)」。
+        - ``prune_builtins=True`` → **内置技能也参与 prune**。Hermes 的
+          `skill_usage.py:250-266` 读 `curator.prune_builtins`，默认 `True`；写死成
+          `False` 会让"播种进来的 88 条技能永不被治理"，它们会一直占着索引预算。
+          **唯一例外**是 `_essential_names()` 那批"缺了就跑不动"的技能，Hermes 明确
+          写着 regardless of prune_builtins——本实现的对应物是 `ESSENTIAL_NAMES`。
+        - ``consolidate=False`` → LLM 合并轮是 **opt-in**（`configuration.md:22` 写
+          `consolidate` (false, opt-in)）。本实现没有把 aux 模型接进治理路径，所以
+          ``consolidate=True`` **明确报未实现**，而不是假装做了一轮合并：一次"看起来
+          合并过"的空操作会让用户以为技能已经去重了。
         """
+        if consolidate:
+            raise CuratorError(
+                "consolidate 未实现：把重叠技能合并成 umbrella 需要 aux 模型参与判断，"
+                "本机没有可用的辅助模型通道。请先 `orbit curator run --dry-run` 看清单，"
+                "再手动 `orbit skills diff` / 编辑技能"
+            )
         threshold = self.archive_days if days is None else int(days)
+        builtin = frozenset() if prune_builtins else self._builtin_names()
         now = self.now()
         states = self._load_states()
         result = self.index.index()
@@ -857,6 +893,12 @@ class Curator:
             usage = self.read_usage(skill_dir)
             current = self._state_from(states, record.name)
             if usage.pinned or current == STATE_ARCHIVED:
+                continue
+            if record.name in ESSENTIAL_NAMES:
+                # Hermes: "Load-bearing bundled built-ins the curator must NEVER
+                # archive … regardless of curator.prune_builtins, pin state"
+                continue
+            if record.name in builtin:
                 continue
             idle_days = usage.idle_days(now)
             # 从未用过 ≠ 陈旧：没有使用记录就没有"闲置"可言
@@ -874,6 +916,17 @@ class Curator:
                 except CuratorError as exc:
                     archived[-1]["reason"] = f"{reason}（归档失败：{exc}）"
         return archived
+
+    def _builtin_names(self) -> frozenset[str]:
+        """播种进来的技能名（= `prune_builtins=False` 要保护的那批）。
+
+        判定来源是 `app/skill_seed.py` 的播种清单，而不是"名字在种子目录里"：
+        用户手写一条同名技能时，它不该被当成内置技能保护起来。惰性 import 是为了
+        不让每个 `import app.curator` 都去解析那份 1 MB 的种子模块。
+        """
+        from app import skill_seed
+
+        return skill_seed.builtin_names(self.data_dir)
 
     # —— 报表 ——
 

@@ -51,7 +51,7 @@ UNCLASSIFIED = "unclassified"
 TOOLSETS: dict[str, str] = {
     "core": "对话骨架：提问（ask_user）、选择题（clarify）、任务清单（todo）、工具检索",
     "files": "本地文件读写与检索（local_*、apply_patch）",
-    "shell": "在本机执行系统命令（run_command）",
+    "shell": "在本机执行系统命令与后台进程（run_command、process）",
     # 代码执行（MATRIX 5.17）。**单独立一个 toolset**，不并进 shell：两者风险面不同。
     # `shell` 是"跑一条系统命令"，`code` 是"跑一段模型自己写的代码"——后者能在一个
     # 进程里做任意事，收窄暴露面时往往想单独关掉它（保留 run_command 做构建/查询）。
@@ -62,6 +62,10 @@ TOOLSETS: dict[str, str] = {
     "github": "GitHub 只读检索（github_*）",
     "memory": "跨会话长期记忆（memory_*）",
     "history": "历史任务检索（history_*）",
+    # 会话召回（MATRIX 5.14）。**与 `history` 分开**：`history_*` 看的是"任务"这条
+    # 记录（目标、状态、产物），`session_search` 找的是**对话原文**。两者查的表不同、
+    # 泄漏面也不同（原文里可能有用户随口说的私事），所以必须能分别关。
+    "session": "历史会话召回（session_search：按关键词找回以前对话的原话）",
     "retrieval": "已读内容回看（retriever_search）",
     "skills": "技能库读取与沉淀（skill_*）",
     "web": "联网搜索与正文抓取（web_search / web_extract）",
@@ -85,12 +89,21 @@ TOOL_TOOLSET: dict[str, str] = {
     "local_list_files": "files",
     "local_search_text": "files",
     "local_read_document": "files",
+    # 分页读（MATRIX 5.14，对齐 Hermes `read_file` 的 offset/limit 口径）：与
+    # `local_read_document` 同一个域、同一套权限档，差别只在"能不能读中间那一段"。
+    "local_read_file": "files",
+    # 递归搜索（MATRIX 5.14，对齐 Hermes `search_files` 的 content/files/count 三形态）。
+    "local_search_files": "files",
     "local_write_report": "files",
     "local_write_file": "files",
     # 结构化补丁编辑（MATRIX 5.16）：改文件的另一种方式，所以归 files。
     "apply_patch": "files",
     # shell
     "run_command": "shell",
+    # 后台进程管理（MATRIX 5.14，对齐 Hermes `process`）。归 shell 而不是新开一个
+    # toolset：它起的就是同一种东西（系统命令），只是不等它结束。用户想"别让模型
+    # 在我机器上乱跑命令"时，要一次关掉的正是这两个。
+    "process": "shell",
     # code（MATRIX 5.17）：显式登记而不是靠前缀——`code_execution` 没有 `code_` 前缀
     # 之外的习惯可循，靠猜前缀归类正是这张表要防的那件事。
     "code_execution": "code",
@@ -117,6 +130,8 @@ TOOL_TOOLSET: dict[str, str] = {
     # history
     "history_search_tasks": "history",
     "history_get_task": "history",
+    # session（MATRIX 5.14，对齐 Hermes `session_search`）
+    "session_search": "session",
     # retrieval
     "retriever_search": "retrieval",
     # skills
@@ -332,6 +347,7 @@ TOOL_REQUIREMENTS: dict[str, str] = {
     "github_": "github_token",  # GitHub API 没 token 会被限流/拒绝
     "web_": "search_provider",  # 搜索要至少一个可用 provider
     "run_command": "shell",  # 要有可执行的 shell
+    "process": "shell",  # 后台进程同样要 shell（起的是同一种东西，只是不等它结束）
 }
 
 

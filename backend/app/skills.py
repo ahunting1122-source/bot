@@ -29,6 +29,24 @@ CATALOG_LIMIT = 20
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
+def _unquote(value: str) -> str:
+    """剥掉 YAML 的成对引号（``"a: b"`` → ``a: b``）。
+
+    为什么需要它：本解析器只看单行 ``key: value``，而**合法的 YAML 里含 ``: `` 的
+    标量必须加引号**（否则会被解析成嵌套映射）。从 Hermes 抄来的技能、以及
+    `app/skill_seed.py` 播种的技能都遵守这条规则，于是 description 里会带引号——
+    引号会被原样注入系统提示，变成 `"Manage Notes via memo CLI: create, search"`。
+    这里只做**成对引号的剥离**，不试图实现完整的 YAML 解析（那是 skill_index 的活）。
+    """
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        inner = text[1:-1]
+        if text[0] == '"':
+            return inner.replace('\\"', '"').replace("\\\\", "\\")
+        return inner.replace("''", "'")
+    return text
+
+
 def _parse_yamlish(raw: str) -> dict[str, Any]:
     """解析 SKILL.md 头部那段简化 YAML（key: value / key:\n  - item），只取已知键。
 
@@ -42,7 +60,7 @@ def _parse_yamlish(raw: str) -> dict[str, Any]:
             continue
         if line.startswith((" ", "\t")):
             if current_list and line.strip().startswith("-"):
-                item = line.strip()[1:].strip()
+                item = _unquote(line.strip()[1:].strip())
                 if item:
                     meta.setdefault(current_list, []).append(item)
             continue
@@ -52,7 +70,7 @@ def _parse_yamlish(raw: str) -> dict[str, Any]:
         key = key.strip()
         value = value.strip()
         if value:
-            meta[key] = value
+            meta[key] = _unquote(value)
             current_list = None
         else:
             current_list = key

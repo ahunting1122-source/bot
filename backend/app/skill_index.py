@@ -69,6 +69,20 @@ MAX_SKILL_FILE_BYTES = 1_048_576
 INDEX_CACHE_TTL_SECONDS = 30.0
 #: 扫描时只读前 4000 字符做 frontmatter 判定（`skills_tool.py:791`）。
 FRONTMATTER_SCAN_CHARS = 4000
+#: 同一会话内"重复查看去重"的上限（`_SKILL_VIEW_DEDUP_CAP = 200`）。
+#: 为什么要有上限：一个长会话可以把同一批技能反复 load 几百次，去重表本身会变成
+#: 内存泄漏；超过上限就整体清空重来（Hermes 的做法），代价只是多读几次文件。
+VIEW_DEDUP_CAP = 200
+
+#: 「停用」名单文件名。`orbit skills config --disable` 写它，索引据此**不装载**该技能。
+#: 为什么用独立文件而不是 frontmatter：停用是**本机偏好**，改 frontmatter 会让它跟着
+#: 技能目录一起被同步/分享出去，于是"我在自己机器上关掉的技能"在同事那里也消失了。
+DISABLED_FILENAME = "skills-disabled.json"
+#: 「技能源」（tap）登记文件名。`orbit skills tap add <目录>` 写它，每个 tap 是一个
+#: **本地目录**形式的额外技能根（外部级优先级）。远端仓库要 clone 到本地再登记，
+#: 理由同 `skill_hub.install_remote()`：本机无网络。
+TAPS_FILENAME = "skills-taps.json"
+
 
 # ── tier（加载根优先级）──────────────────────────────────────────────────────
 
@@ -331,6 +345,9 @@ class IndexResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     shadowed: list[dict[str, Any]] = field(default_factory=list)
     untrusted: list[str] = field(default_factory=list)
+    #: 被 `orbit skills config --disable` 停用的技能名。**单列出来**而不是静默丢弃：
+    #: 「我明明装了却没生效」和「我停用了它」在现象上一模一样，只有列出来才分得清。
+    disabled: list[str] = field(default_factory=list)
 
     @property
     def skills(self) -> list[dict[str, Any]]:
@@ -550,6 +567,8 @@ class SkillIndex:
         self.ttl = ttl
         #: 签名 → (monotonic 时间戳, 结果)。只留最新一份：无界增长比不缓存更糟。
         self._cache: dict[str, tuple[float, IndexResult]] = {}
+        #: 重复查看去重表（`view()` 用）。跟着实例走 = 跟着一次会话走。
+        self.dedup = SkillViewDedup()
 
     # —— 信任 ——
 
@@ -619,7 +638,12 @@ class SkillIndex:
     # —— 扫描 ——
 
     def active_roots(self) -> list[tuple[str, Path]]:
-        """当前生效的 (tier, 根) 列表，顺序即优先级。不存在的根直接跳过。"""
+        """当前生效的 (tier, 根) 列表，顺序即优先级。不存在的根直接跳过。
+
+        顺序：project → user → external → **taps**。taps 排在最后（最低优先级）：
+        它们是用户额外登记的来源，不该盖掉本机自己的技能。同一个 tap 目录被登记两次
+        只算一次——重复的根会让签名与"条目数"翻倍，看起来像"技能变多了"。
+        """
         roots: list[tuple[str, Path]] = []
         if self.project_root.is_dir() and self.project_trusted():
             roots.append((TIER_PROJECT, self.project_root))
@@ -627,6 +651,16 @@ class SkillIndex:
             roots.append((TIER_USER, self.user_root))
         if self.external_root.is_dir():
             roots.append((TIER_EXTERNAL, self.external_root))
+        seen = {_normalize(path) for _tier, path in roots}
+        for row in read_taps(self.data_dir):
+            tap = Path(str(row.get("path") or ""))
+            if not tap.is_dir():
+                continue
+            key = _normalize(tap)
+            if key in seen:
+                continue
+            seen.add(key)
+            roots.append((TIER_EXTERNAL, tap))
         return roots
 
     def _untrusted_roots(self) -> list[str]:
@@ -692,6 +726,7 @@ class SkillIndex:
     def _scan_all(self) -> IndexResult:
         """按 tier 顺序扫全部根，同名 first-wins，被压住的进 ``shadowed``。"""
         result = IndexResult(untrusted=self._untrusted_roots())
+        disabled = read_disabled(self.data_dir)
         seen: dict[str, SkillRecord] = {}
         for tier, root in self.active_roots():
             for path in self._iter_skill_files(root):
@@ -700,6 +735,10 @@ class SkillIndex:
                     result.errors.append(error)
                     continue
                 assert record is not None  # _read_entry 的契约：两者必有一为 None
+                if record.name in disabled:
+                    # 停用是**本机偏好**：不装载，但必须留痕（否则与"文件坏了"同现象）
+                    result.disabled.append(record.name)
+                    continue
                 winner = seen.get(record.name)
                 if winner is not None:
                     # 静默覆盖是最难排查的一类问题，所以这里必须留痕
@@ -729,6 +768,9 @@ class SkillIndex:
         （Hermes `skills_tool.py:134-137` 记过这个 Windows 坑）。
         """
         digest = hashlib.sha1()
+        # 停用名单也进签名：改了名单却没失效缓存，会让"刚停用的技能还在提示里"
+        # 持续最多一个 TTL（30 秒），而这 30 秒里模型可能又用它一次。
+        digest.update(("disabled:" + ",".join(sorted(read_disabled(self.data_dir)))).encode())
         for tier, root in self.active_roots():
             digest.update(f"{tier}:{root}".encode())
             for dirpath, dirnames, filenames in os.walk(root):
@@ -791,6 +833,52 @@ class SkillIndex:
             "ok": report.ok,
             "error": report.error,
             "warnings": list(report.warnings),
+        }
+
+    def view(self, name: str, *, session: str = "", file_path: str = "") -> dict[str, Any]:
+        """按需读全文，并做**同一会话内的重复查看去重**（Hermes §4.3）。
+
+        返回 ``{name, path, body, deduped, count_view}``：
+
+        - ``deduped=True`` 表示这份内容在本会话里已经发过且磁盘没变，``body`` 是
+          一段 stub 而不是全文（省掉的就是那 ~286k tokens 的重复）。
+        - ``count_view=True`` 表示这次该给 ``view_count`` 记一次。**同一技能被多个
+          view 引用只算一次**——否则"被引用 12 次"会在报表里长得跟"真用了 12 次"一样。
+
+        ``session`` 默认空串：单次调用（CLI、测试）没有会话概念，空串就是它自己的
+        会话。绝不在这里推断"当前会话"——推断错了会让两个会话共享去重表。
+        """
+        record = self.index().find(name)
+        if record is None:
+            raise SkillIndexError(f"技能不存在：{name}")
+        target = record.path if not file_path else record.path.parent / file_path
+        if not target.is_file():
+            raise SkillIndexError(f"技能文件不存在：{target}")
+        try:
+            text = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise SkillIndexError(f"技能文件读不出来：{target}（{exc}）") from exc
+        try:
+            stat = target.stat()
+            signature = f"{stat.st_mtime_ns}:{stat.st_size}"
+        except OSError:
+            signature = hashlib.sha1(text.encode("utf-8")).hexdigest()
+        key = "" if not file_path else file_path
+        counted = self.dedup.count_view(session, record.name)
+        if not self.dedup.should_send(session, record.name, signature, key):
+            return {
+                "name": record.name,
+                "path": str(target),
+                "body": self.dedup.stub(record.name, file_path),
+                "deduped": True,
+                "count_view": counted,
+            }
+        return {
+            "name": record.name,
+            "path": str(target),
+            "body": text,
+            "deduped": False,
+            "count_view": counted,
         }
 
     def check(self, name: str | None = None) -> list[dict[str, Any]]:
@@ -957,6 +1045,140 @@ def _normalize(path: Path | str) -> str:
     return os.path.normcase(os.path.abspath(str(path)))
 
 
+# ── 停用名单 / 技能源（tap）：`skills config` 与 `skills tap` 的持久层 ──────────
+
+
+def disabled_path(data_dir: Path | str) -> Path:
+    return Path(data_dir) / DISABLED_FILENAME
+
+
+def read_disabled(data_dir: Path | str) -> frozenset[str]:
+    """读停用名单。坏文件当空名单——读不出来时**宁可多装载**（少装才是更难查的故障）。"""
+    try:
+        payload = json.loads(disabled_path(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    items = payload.get("disabled") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        return frozenset()
+    return frozenset(str(item).strip() for item in items if str(item).strip())
+
+
+def write_disabled(data_dir: Path | str, names: frozenset[str] | set[str]) -> None:
+    path = disabled_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"version": 1, "disabled": sorted(str(item) for item in names)},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def taps_path(data_dir: Path | str) -> Path:
+    return Path(data_dir) / TAPS_FILENAME
+
+
+def read_taps(data_dir: Path | str) -> list[dict[str, Any]]:
+    """读技能源登记表：``[{name, path, added_at}]``。
+
+    只登记**本地目录**。远端仓库（``owner/repo``）在 `skills tap add` 就被拒掉并
+    给出"先 clone 到本地"的做法——本机无网络，登记一个永远拉不下来的源等于撒谎。
+    """
+    try:
+        payload = json.loads(taps_path(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    rows = payload.get("taps") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return []
+    return [dict(row) for row in rows if isinstance(row, dict) and row.get("path")]
+
+
+def write_taps(data_dir: Path | str, rows: list[dict[str, Any]]) -> None:
+    path = taps_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"version": 1, "taps": rows}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+# ── 重复查看去重（Hermes §4.3）─────────────────────────────────────────────────
+
+
+@dataclass
+class SkillViewDedup:
+    """同一会话内的「重复查看」去重表。
+
+    两个独立的问题，都在这里解决：
+
+    1. **省 token**：同一会话里第二次 load 同一份文件、且磁盘内容没变 → 只回一段
+       stub，不再重发全文。Hermes 的实测动机写得很直白：一个 40 万消息的窗口里
+       有约 **286k tokens** 是逐字重复的 `skill_view` 内容。
+    2. **别把计数吹大**：同一个技能被多个 view 引用时，``view_count`` **只算一次**。
+       否则"被引用 12 次"和"真的用了 12 次"在报表里长得一样，curator 的
+       `activity_count` 判据会被噪声带偏。
+
+    会话键是调用方给的（``session``），本类不做"当前会话"的推断——推断错了会让
+    不同会话共享去重表，于是 A 会话以为看过、B 会话拿到 stub 却从没看过全文。
+    """
+
+    cap: int = VIEW_DEDUP_CAP
+    #: ``(session, name, file_path)`` → 内容签名
+    _seen: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    #: 已计过数的 ``(session, name)``
+    _counted: set[tuple[str, str]] = field(default_factory=set)
+
+    def should_send(self, session: str, name: str, signature: str, file_path: str = "") -> bool:
+        """是否要发全文。首次 / 内容变了 → True；同一签名重复查看 → False。"""
+        key = (str(session), str(name), str(file_path))
+        if self._seen.get(key) == signature:
+            return False
+        if len(self._seen) >= self.cap:
+            # 到上限整体清空（Hermes 同做法）：去重表本身不能变成泄漏源
+            self._seen.clear()
+            self._counted.clear()
+        self._seen[key] = signature
+        return True
+
+    def count_view(self, session: str, name: str) -> bool:
+        """这次查看是否该**计一次** view_count（同一技能在同一会话里只算一次）。"""
+        key = (str(session), str(name))
+        if key in self._counted:
+            return False
+        if len(self._counted) >= self.cap:
+            self._counted.clear()
+        self._counted.add(key)
+        return True
+
+    def stub(self, name: str, file_path: str = "") -> str:
+        """重复查看时返回的短提示。必须说清"内容没变"，否则模型会以为读失败。"""
+        where = f"（{file_path}）" if file_path else ""
+        return (
+            f"[已在本会话中加载过 {name}{where}，磁盘内容未变，正文不再重复发送。"
+            "需要复核请直接引用上文，或先修改文件使其变化。]"
+        )
+
+    def clear(self, session: str | None = None) -> int:
+        """清空去重表（上下文压缩时该调）。返回清掉的条数。"""
+        if session is None:
+            count = len(self._seen) + len(self._counted)
+            self._seen.clear()
+            self._counted.clear()
+            return count
+        view_keys = [key for key in self._seen if key[0] == str(session)]
+        for view_key in view_keys:
+            self._seen.pop(view_key, None)
+        counted_keys = [key for key in self._counted if key[0] == str(session)]
+        for counted_key in counted_keys:
+            self._counted.discard(counted_key)
+        return len(view_keys) + len(counted_keys)
+
+
 def build_index(data_dir: Path | str, *, cwd: Path | str | None = None) -> SkillIndex:
     """CLI 用的便捷构造：数据目录 + 当前工作目录。"""
     return SkillIndex(data_dir, cwd=cwd)
@@ -964,6 +1186,7 @@ def build_index(data_dir: Path | str, *, cwd: Path | str | None = None) -> Skill
 
 __all__ = [
     "ALLOWED_FRONTMATTER_FIELDS",
+    "DISABLED_FILENAME",
     "EXCLUDED_DIR_NAMES",
     "FRONTMATTER_SCAN_CHARS",
     "INDEX_CACHE_TTL_SECONDS",
@@ -974,6 +1197,7 @@ __all__ = [
     "MAX_SKILL_CONTENT_CHARS",
     "MAX_SKILL_FILE_BYTES",
     "SEVERITY_RANK",
+    "TAPS_FILENAME",
     "TIERS",
     "TIER_EXTERNAL",
     "TIER_LABELS",
@@ -981,17 +1205,25 @@ __all__ = [
     "TIER_USER",
     "THREAT_PATTERNS",
     "THREAT_PATTERN_COUNT",
+    "VIEW_DEDUP_CAP",
     "FrontmatterReport",
     "IndexResult",
     "SkillIndex",
     "SkillIndexError",
     "SkillRecord",
+    "SkillViewDedup",
     "ThreatFinding",
     "build_index",
     "check_content_size",
+    "disabled_path",
     "index_description",
     "parse_triggers",
+    "read_disabled",
+    "read_taps",
     "scan_skill",
     "scan_text",
+    "taps_path",
     "validate_frontmatter",
+    "write_disabled",
+    "write_taps",
 ]

@@ -64,6 +64,47 @@ def _print_backend_table(context: Context, rows: list[dict[str, Any]]) -> None:
     )
 
 
+def run_tools_catalog(context: Context, args: Any) -> int:
+    """`orbit tools catalog`：Hermes 94 个内置工具在 Orbit 的覆盖情况与缺口。
+
+    为什么单独一条命令：`tools list` 回答「模型现在能看见哪些工具」，
+    这条回答「Hermes 有 94 个，我们覆盖了哪些、缺的为什么缺」。读者不同
+    （一个是暴露面，一个是排期依据），混在一起两边都不好用。
+    """
+    from app import tool_catalog
+
+    coverage = tool_catalog.orbit_coverage()
+    if getattr(args, "json", False):
+        context.emit(
+            {
+                "hermes_total": len(tool_catalog.HERMES_TOOLS),
+                "covered": list(coverage.covered),
+                "missing": list(coverage.missing),
+                "orbit_only": list(coverage.orbit_only),
+                "by_domain": [
+                    {
+                        "domain": item.domain,
+                        "label": item.label,
+                        "covered": len(item.covered),
+                        "total": item.total,
+                        "missing": list(item.missing),
+                    }
+                    for item in coverage.domains.values()
+                ],
+            }
+        )
+        return 0
+    if getattr(args, "domain", None):
+        wanted = str(args.domain).strip().lower()
+        rows = [item for item in coverage.domains.values() if item.domain == wanted]
+        if not rows:
+            known = "、".join(coverage.domains)
+            raise CliError(f"没有名为 {wanted} 的功能域（可选：{known}）")
+        context.out(tool_catalog.report())
+        return 0
+    context.out(tool_catalog.report())
+    return 0
+
 def run_tools_backends(context: Context, args: Any) -> int:
     """`orbit tools backends`：命令能跑在哪几个后端里，各自此刻能不能用。
 
@@ -365,6 +406,19 @@ def _extra_subcommands() -> dict[str, list[Command]]:
     """按父命令分组的新增子命令。每条都带 `hermes=`（`parity_rows` 要求每行有对标依据）。"""
     return {
         "tools": [
+            Command(
+                name="catalog",
+                help="Hermes 94 个内置工具在 Orbit 的覆盖情况与逐条缺口原因",
+                handler=run_tools_catalog,
+                group="ext",
+                hermes="tools catalog",
+                parity="P2",
+                state="done",
+                options=[
+                    to_option("--json", "以 JSON 输出（给排期/对账用）"),
+                    to_option("--domain DOMAIN", "只看某一个功能域"),
+                ],
+            ),
             Command(
                 name="backends",
                 help="列出命令执行后端（本机 / WSL / 容器）与可用性",

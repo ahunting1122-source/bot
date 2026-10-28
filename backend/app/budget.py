@@ -10,6 +10,15 @@
 第三层 TurnBudget   一次 assistant 轮次内所有结果合计超预算 → 按大小降序强制落盘
 ```
 
+**另有一层不属于上面这条管线**：`spill_output` / `spill_safe`（MATRIX 5.7，对齐 Hermes 的
+`hook_output_spill.py`）。上面三层按**结果大小分级**（100K / 200K / 1.5K 预览），这一层按
+**上下文预算**裁剪（10K 字符上限，头尾各 500）。两者叠加时的顺序是
+**先分层治理、再按上下文预算裁剪**，理由写在 :func:`spill_safe` 的 docstring 里：
+分层治理已经在 `app/policies.py` 里跑过一遍，`as_tool_text` 是模型侧最后一道出口，
+它看到的是"治理后的正文"，此时再按上下文预算裁剪才不会把同一段内容截两次——
+两次截断会让"被截过"这件事从模型视野里消失（第二次截断的是第一次的预览，
+文件路径和原始大小都可能被剪掉）。
+
 为什么三层都要有，而不是一个 `TOOL_RESULT_LIMIT`：
 
 * 单阈值只能**砍掉尾巴**——构建日志的结论、报错的堆栈都在尾部，砍掉尾巴等于
@@ -24,6 +33,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import os
@@ -80,6 +90,27 @@ _MAX_TOOL_STEM = 40
 #: 单行截断标记：留个显式记号，模型才不会把"被截断的行"当成完整内容
 LINE_MARKER = "…[本行已截断]"
 
+# ── hook 上下文落盘（MATRIX 5.7）：按上下文预算裁剪的默认值 ──────────────────
+#
+# 数字逐个照抄 Hermes `hook_output_spill.py` 的 `DEFAULT_MAX_CHARS` /
+# `DEFAULT_PREVIEW_HEAD` / `DEFAULT_PREVIEW_TAIL`（也等于 `config.yaml` 的
+# `hooks.output_spill` 默认段）。为什么是 10,000 而不是上面那套 100,000：
+# 两层的**目的不同**。100K 那套问的是"这条结果大到该不该落盘"，10K 这套问的是
+# "这条结果占掉多少上下文预算"——一次对话里几十条工具结果各占 10K，上下文就满了。
+#: 超过这个字符数就在进上下文前落盘（只留头尾预览）
+DEFAULT_SPILL_LIMIT = 10_000
+#: 预览头部字符数
+DEFAULT_SPILL_HEAD = 500
+#: 预览尾部字符数
+DEFAULT_SPILL_TAIL = 500
+#: 落盘子目录（相对 data_dir）：`<data>/spill/<task>/<tool>-<n>.txt`。
+#: 与上面第二层的 `cache/spillover` **分开放**：那层的文件是"按大小分级"的产物，
+#: 这一层是"按上下文预算"的产物，混在一个目录里之后清理策略就没法分别调。
+HOOK_SPILL_SUBDIR = Path("spill")
+#: 单目录里同名工具最多允许的编号（`<tool>-<n>.txt`）。到顶就复用最后一个文件：
+#: 编号无限涨会让目录里堆出几万个文件，而模型只关心"最新那份在哪"。
+MAX_SPILL_INDEX = 9_999
+
 #: 已按目录做过一次过期清理的目录集合（进程级）。对齐 Hermes 的
 #: `_prune_spillover_once`：每次落盘都扫一遍目录在大目录上不划算，
 #: 但完全不扫又会让纯本地进程（没有后台 housekeeping）的落盘文件永久堆积。
@@ -116,12 +147,25 @@ class Cut:
 
 @dataclass(frozen=True)
 class SpillResult:
-    """一次落盘的结果：文件在哪、上下文里留了什么、原文多大。"""
+    """一次落盘的结果：文件在哪、上下文里留了什么、原文多大。
 
-    path: Path
+    同一形状服务两件事，靠 :attr:`spilled` 区分：
+
+    * 第二层 `spill()`（按结果大小分级）——一定落过盘，`spilled=True`；
+    * MATRIX 5.7 的 `spill_output()`（按上下文预算裁剪）——没超阈值时**原样返回**，
+      `spilled=False`、`path=None`、`preview` 就是原文。调用方据此判断"要不要把
+      预览换成正文"，不必自己比长度。
+    """
+
+    path: Path | None
     preview: str
     bytes: int
     cut: Cut
+    #: 是否真的写了文件。`False` 只出现在"没超阈值、什么都没做"那一条分支上。
+    spilled: bool = True
+    #: 原文的**字符**数。提示行要报它（`bytes` 是 UTF-8 字节数，中文一字 3 字节，
+    #: 报字节数会让模型对"到底截掉了多少"判断偏三倍）。
+    chars: int = 0
 
 
 @dataclass(frozen=True)
@@ -390,7 +434,226 @@ def spill(
         tail_kept=len(tail),
         bytes_cut=max(0, raw_bytes - len(preview.encode("utf-8"))),
     )
-    return SpillResult(path=path, preview=preview, bytes=raw_bytes, cut=cut)
+    return SpillResult(path=path, preview=preview, bytes=raw_bytes, cut=cut, chars=total)
+
+
+def spill_notice(total: int, head_kept: int, tail_kept: int, path: Path | None, *, error: str = "") -> str:
+    """超限时插在上下文里的那一行提示。**措辞是这一层最重要的东西**。
+
+    为什么这么啰嗦（"原文共 N 字符"+"中间 M 字符不在上下文里"+文件路径+"用什么读"）：
+    模型看到的是一段头 + 一段尾，中间的缺失**在文本上不可见**——它只会读到
+    "前半段…后半段"，然后当成完整内容来推理。所以提示行必须同时回答三个问题：
+
+    1. **被截了吗**：明写"已截断"和"中间 N 字符不在上下文里"，而不是"已省略"这种
+       可以被理解成"省略了几个空行"的说法；
+    2. **原文多大**：报字符数（不是字节数），模型据此决定"要不要去读文件"；
+    3. **去哪看**：给出**绝对文件路径**，并点名可以用哪个工具读（`local_read_file`），
+       否则模型只会回一句"内容被截断了"然后放弃。
+
+    落盘失败时（`path is None`）第三点换成"找不回来"——这比给一个不存在的路径好：
+    模型会去读一个不存在的文件，然后得出"工具坏了"的错误结论。
+    """
+    middle = max(0, total - head_kept - tail_kept)
+    where = (
+        f"完整内容已写入 {path}，需要时用 local_read_file 读它"
+        if path is not None
+        else f"中间 {middle} 字符**没有落盘、找不回来**（{error or '落盘不可用'}）"
+    )
+    return (
+        f"…[输出过长已截断：原文共 {total} 字符，这里只保留开头 {head_kept} + 结尾 "
+        f"{tail_kept} 字符，中间 {middle} 字符不在上下文里；{where}]…"
+    )
+
+
+def _spill_target(data_dir, task_id: str) -> Path:
+    r"""`<data>/spill/<task>` 目录，并确保它真的落在 data_dir 里。
+
+    威胁模型与第二层 `spill()` 相同（见 `_inside`）：这个路径是可预测、可发现的，
+    目录树里任何一级被换成符号链接都会把写入重定向到用户的关键文件。`task_id`
+    先过 `_safe_stem` 收敛（去掉斜杠、反斜杠、`..`），再用 `resolve()` 复核一次。
+    """
+    if data_dir is None:
+        raise ValueError("没有 data_dir，无法落盘")
+    directory = _inside(data_dir, HOOK_SPILL_SUBDIR.name, _safe_stem(task_id or "no-task"))
+    directory.mkdir(parents=True, exist_ok=True)
+    # `mkdir(exist_ok=True)` 对"已存在的符号链接目录"也会静默成功，所以创建完必须
+    # 重新解析确认它真的还在 data_dir 里（与 `spill()` 同一处理）。
+    if directory.resolve() != directory:
+        raise PermissionError(f"落盘目录是符号链接：{directory}")
+    return directory
+
+
+def _next_spill_path(directory: Path, tool: str) -> Path:
+    """`<tool>-<n>.txt` 里第一个还没被占用的编号。
+
+    为什么按编号而不是按内容哈希（第二层 `spill()` 用的是哈希）：这一层是按
+    **上下文预算**裁剪，同一段内容被重复裁剪时，后一次应当**覆盖前一次**（模型要的是
+    "最近这次输出在哪"），哈希命名会让同名内容永远指向第一次的旧文件。编号到顶
+    （:data:`MAX_SPILL_INDEX`）就复用最后一个位置，避免目录无限膨胀。
+    """
+    stem = _safe_stem(tool)
+    for index in range(1, MAX_SPILL_INDEX + 1):
+        candidate = directory / f"{stem}-{index}.txt"
+        if not candidate.exists():
+            return candidate
+    return directory / f"{stem}-{MAX_SPILL_INDEX}.txt"
+
+
+def spill_output(
+    text: str,
+    *,
+    task_id: str,
+    tool: str,
+    data_dir,
+    limit: int = DEFAULT_SPILL_LIMIT,
+    head: int = DEFAULT_SPILL_HEAD,
+    tail: int = DEFAULT_SPILL_TAIL,
+) -> SpillResult:
+    """MATRIX 5.7：超过 `limit` 就把正文落盘，上下文里只留 `head` + 提示行 + `tail`。
+
+    对齐 Hermes `hook_output_spill.py::spill_if_oversized`，但落点换成
+    `<data>/spill/<task>/<tool>-<n>.txt`（Hermes 是 `<HERMES_HOME>/hook_outputs/<session>`）。
+    按任务分目录的理由与 Hermes 按会话分目录一致：一个任务里几十条大输出落在一起，
+    出问题时要能"按任务打包看"，而不是在一万个文件里翻。
+
+    三条行为：
+
+    1. **没超阈值 → 原样返回**（`spilled=False`，`preview` 就是原文）。绝大多数结果
+       走这条，必须一个字节都不动。
+    2. **超阈值 → 原子写 + 返回头尾预览**（提示行见 :func:`spill_notice`）。
+    3. **写不了（没有 data_dir / 路径逃逸 / 磁盘错误）→ 抛异常**，由 :func:`spill_safe`
+       决定退化为内联截断。这里不静默降级，理由与第二层 `spill()` 相同：悄悄不落盘
+       而提示行还写着路径，等于把模型指向一个不存在的文件。
+    """
+    body = text or ""
+    total = len(body)
+    head_n = max(0, int(head))
+    tail_n = max(0, int(tail))
+    if limit <= 0 or total <= limit:
+        return SpillResult(
+            path=None,
+            preview=body,
+            bytes=len(body.encode("utf-8")),
+            cut=Cut(head_kept=total, tail_kept=0),
+            spilled=False,
+            chars=total,
+        )
+
+    directory = _spill_target(data_dir, task_id)
+    path = _next_spill_path(directory, tool)
+    # 落盘正文补一个换行：`tail -f` / 编辑器读到最后一行没换行会显示"缺行尾"，
+    # 而模型读到半截行也会困惑（Hermes 同样补 `\n`）。
+    _write_atomic(path, body if body.endswith("\n") else body + "\n")
+    _prune_hook_once(data_dir)
+
+    head_chunk = body[:head_n]
+    tail_chunk = body[total - tail_n :] if tail_n and total > head_n else ""
+    notice = spill_notice(total, len(head_chunk), len(tail_chunk), path)
+    preview = f"{head_chunk}\n{notice}" + (f"\n{tail_chunk}" if tail_chunk else "")
+    return SpillResult(
+        path=path,
+        preview=preview,
+        bytes=len(body.encode("utf-8")),
+        cut=Cut(
+            head_kept=len(head_chunk),
+            tail_kept=len(tail_chunk),
+            bytes_cut=max(0, len(body.encode("utf-8")) - len(preview.encode("utf-8"))),
+        ),
+        spilled=True,
+        chars=total,
+    )
+
+
+def spill_safe(
+    text: str,
+    *,
+    task_id: str = "",
+    tool: str = "",
+    data_dir=None,
+    limit: int = DEFAULT_SPILL_LIMIT,
+    head: int = DEFAULT_SPILL_HEAD,
+    tail: int = DEFAULT_SPILL_TAIL,
+) -> str:
+    """`:func:`spill_output` 的**格式安全外壳**：不抛异常、也不把结果形状改坏。
+
+    这是 `app/tools.py::as_tool_text` 唯一接进来的入口（MATRIX 5.7）。三条行为：
+
+    1. **没超阈值 → 逐字返回**。绝大多数工具结果走这条，零成本、零风险。
+    2. **超阈值且原文是 JSON**（`as_tool_text` 序列化出来的就是 JSON）→ 返回**仍然合法
+       的 JSON 信封**：`_spilled` 说"被截了"、`_spill_path` 指路、`_chars` 报原始大小、
+       `_notice` 是给人看的那句话、`head`/`tail` 留头尾。为什么不直接拼一段文本：
+       `as_tool_text` 的产出在下游被当 JSON 读（`app/errors_retry.py`、观测面、
+       `untrusted.wrap` 的包裹体），把一个 JSON 对象从中间劈开会让"被截断"表现成
+       "工具返回了坏数据"，比截断本身更难排查——这就是"不破坏已有格式"的具体含义。
+
+       代价要说清：信封**替换**掉原来的对象，所以 `status` / `data` 这些键在超限时
+       不再出现在上下文里（完整原文在 `_spill_path` 指向的文件里，一个字都没丢）。
+       这是刻意的取舍——留着 `status: ok` 而正文是截断的，比"明说被截了"更容易误导。
+    3. **落盘失败（没有 data_dir / 写盘异常）→ 内联截断 + 明说"找不回来"**。
+       永不抛异常：这一层在模型侧最后一道出口上，抛出去等于整条工具结果丢失。
+
+    ## 与三层治理的叠加顺序（重要）
+
+    `app/policies.py` 的三层治理（50,000 / 100,000 / 1,500 预览）**先**跑，本函数**后**跑，
+    因为两层回答的不是同一个问题：三层治理按**结果大小分级**（"这条大到该落盘了吗"），
+    本层按**上下文预算裁剪**（"这条占掉多少预算"）。顺序反过来（先 spill）会出两个错：
+
+    * 三层治理会把本层已经裁成"头尾 + 文件路径"的预览当成新正文再判一次大小，
+      于是**同一段内容被截两次**，第二次截掉的是第一次的提示行——模型再也看不到
+      "原文多大、去哪看"，只看到一段没头没尾的文本；
+    * 本层落盘的文件路径会随第二次落盘失效，模型按提示行去读文件会扑空。
+
+    所以：治理在前（它会算出 `spilled` / `truncated` 记账），本层在后（它只负责
+    "这一条别撑爆上下文"）。两层都落盘时，模型看到的是**后者**的路径（最近一次输出）。
+    """
+    body = text or ""
+    if limit <= 0 or len(body) <= limit:
+        return body
+
+    head_n = max(0, int(head))
+    tail_n = max(0, int(tail))
+    total = len(body)
+    head_chunk = body[:head_n]
+    tail_chunk = body[total - tail_n :] if tail_n and total > head_n else ""
+
+    path: Path | None = None
+    notice = ""
+    try:
+        result = spill_output(
+            body,
+            task_id=task_id,
+            tool=tool,
+            data_dir=data_dir,
+            limit=limit,
+            head=head_n,
+            tail=tail_n,
+        )
+        path = result.path
+        notice = spill_notice(total, len(head_chunk), len(tail_chunk), path)
+    except (OSError, ValueError) as exc:
+        log.warning("hook 上下文落盘失败（退化为内联截断）：%s", exc)
+        notice = spill_notice(
+            total, len(head_chunk), len(tail_chunk), None, error=f"{type(exc).__name__}: {exc}"
+        )
+
+    plain = f"{head_chunk}\n{notice}" + (f"\n{tail_chunk}" if tail_chunk else "")
+    # 只有**对象**才包信封：JSON 数组/标量被包成对象会改变语义（模型可能真的需要
+    # 一个数组），这类原文退回纯文本预览。
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        return plain
+    if not isinstance(parsed, dict):
+        return plain
+    envelope = {
+        "_spilled": True,
+        "_spill_path": str(path) if path is not None else None,
+        "_chars": total,
+        "_notice": notice,
+        "head": head_chunk,
+        "tail": tail_chunk,
+    }
+    return json.dumps(envelope, ensure_ascii=False)
 
 
 def cleanup_spillover(data_dir, *, max_age_hours: int = SPILLOVER_MAX_AGE_HOURS) -> int:
@@ -414,6 +677,61 @@ def cleanup_spillover(data_dir, *, max_age_hours: int = SPILLOVER_MAX_AGE_HOURS)
         except OSError:  # 单个文件删不掉（被占用/权限）不该中断整轮清理
             continue
     return removed
+
+
+def cleanup_hook_spills(data_dir, *, max_age_hours: int = SPILLOVER_MAX_AGE_HOURS) -> int:
+    """删掉 `<data>/spill/**` 下超过 `max_age_hours` 的文件，返回删除数。
+
+    为什么单独一个清理函数而不是复用 `cleanup_spillover`：两层的目录不同
+    （`cache/spillover` 按内容哈希命名、`spill/<task>` 按编号命名），混在一个函数里
+    会让"只清其中一层"变成不可能——而调阈值时恰恰需要分开试。
+    清完文件顺手删空的任务目录：任务目录本身也是可回收的（一个任务跑完就没有新写入）。
+    """
+    root = Path(data_dir) / HOOK_SPILL_SUBDIR
+    cutoff = time.time() - (max_age_hours * 3600)
+    removed = 0
+    try:
+        task_dirs = [item for item in root.iterdir() if item.is_dir()]
+    except OSError:
+        return 0
+    for task_dir in task_dirs:
+        try:
+            entries = list(task_dir.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+                    removed += 1
+            except OSError:
+                continue
+        try:
+            if not any(task_dir.iterdir()):  # 空目录一并回收
+                task_dir.rmdir()
+        except OSError:
+            continue
+    return removed
+
+
+#: 已做过一次 hook spill 过期清理的 data_dir 集合（进程级）。
+#: 与 `_PRUNED_DIRS` 同一个理由：每次落盘都扫一遍目录在大目录上不划算，但完全不扫
+#: 会让纯本地进程（没有后台 housekeeping）的 spill 文件永久堆积。
+_PRUNED_HOOK_DIRS: set[str] = set()
+
+
+def _prune_hook_once(data_dir) -> None:
+    """首次往某个 data_dir 落 hook spill 时顺手清一次过期文件（尽力而为）。"""
+    key = str(data_dir)
+    if key in _PRUNED_HOOK_DIRS:
+        return
+    _PRUNED_HOOK_DIRS.add(key)
+    try:
+        removed = cleanup_hook_spills(data_dir)
+        if removed:
+            log.debug("清理过期 hook spill 文件 %d 个", removed)
+    except OSError as exc:  # 清理失败绝不能影响落盘本身
+        log.debug("清理过期 hook spill 文件失败（忽略）：%s", exc)
 
 
 def _inline_truncate(body: str, cfg: BudgetConfig) -> str:
@@ -574,7 +892,11 @@ __all__ = [
     "DEFAULT_MCP_RESULT_SIZE",
     "DEFAULT_PREVIEW_SIZE",
     "DEFAULT_RESULT_SIZE",
+    "DEFAULT_SPILL_HEAD",
+    "DEFAULT_SPILL_LIMIT",
+    "DEFAULT_SPILL_TAIL",
     "DEFAULT_TURN_BUDGET",
+    "HOOK_SPILL_SUBDIR",
     "MCP_TOOL_PREFIX",
     "PINNED_THRESHOLDS",
     "SPILLOVER_MAX_AGE_HOURS",
@@ -584,9 +906,13 @@ __all__ = [
     "SpillResult",
     "TurnBudget",
     "cap_output",
+    "cleanup_hook_spills",
     "cleanup_spillover",
     "govern",
     "resolve_threshold",
     "spill",
+    "spill_notice",
+    "spill_output",
+    "spill_safe",
     "spillover_dir",
 ]

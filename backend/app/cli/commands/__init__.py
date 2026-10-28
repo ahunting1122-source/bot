@@ -24,6 +24,7 @@ from app.cli.commands import (  # isort: split
     gateway,
     hooks,
     mcp,
+    mcp_extra,
     memory_extra,
     memory_extra2,
     model,
@@ -59,6 +60,7 @@ from app.cli.commands import (
     hermes_parity,  # noqa: F401
     model_extra2,  # noqa: E402,F401
     session_extra,  # noqa: E402,F401
+    skill_extra2,  # noqa: E402,F401
 )
 
 # 表组装完之后要做的状态校正：`tools_extra2` 接管的 iron-proxy 生命周期命令
@@ -90,6 +92,7 @@ __all__ = [
     "gateway",
     "hooks",
     "mcp",
+    "mcp_extra",
     "memory_extra",
     "memory_extra2",
     "model",
@@ -105,6 +108,7 @@ __all__ = [
     "sessions",
     "setup",
     "skill_extra",
+    "skill_extra2",
     "skills",
     "tools",
     "tools_extra",
