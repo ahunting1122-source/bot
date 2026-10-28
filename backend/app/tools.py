@@ -1886,8 +1886,46 @@ class ToolRegistry:
         trimmed, _over = _trim_specs(result, budget)
         return trimmed
 
+    #: 懒加载开关（MATRIX 5.2）。默认开；关掉就退回「全部启动时注册」的旧行为。
+    lazy_load: bool = True
+
+    def _lazy_tool(self, name: str) -> Any:
+        """按索引试着把 `name` import 进注册表；拿不到就返回 None（不抛）。
+
+        **为什么吞掉异常**：这里处在「未知工具」的兜底路径上，原始错误
+        「未知工具：x」才是用户该看到的；懒加载失败只是补充信息。
+        把 `DiscoveryError` 抛出去会让一个拼错的工具名变成一段索引报错。
+        """
+        if not self.lazy_load:
+            return None
+        from app import tool_discovery
+
+        try:
+            loaded = tool_discovery.ensure_loaded(name, self)
+        except Exception as exc:  # noqa: BLE001 —— 见 docstring
+            log.debug("懒加载 %s 失败（按未知工具处理）：%s", name, exc)
+            return None
+        if not loaded:
+            return None
+        return self.tools.get(name)
+
     def validate(self, name: str, args: dict) -> dict:
         tool = self.tools.get(name)
+        if tool is None:
+            # 懒加载（MATRIX 5.2）：模型报了一个当前注册表里没有的工具名时，
+            # 先试着按索引把它 import 进来再查一次。
+            #
+            # **之前 `ensure_loaded()` 零外部调用方**——`tools_extra3.py` 只用
+            # `discover` / `describe` / `index_path` 三个报告函数，所以「按需 import」
+            # 这件事从没发生过：工具全在启动时一次性 import 完。
+            #
+            # **能做什么、不能做什么（如实说）**：
+            # 只有 `LOCAL_MODULES`（`app.tools`）里的工具能在没有执行器的情况下
+            # 进注册表并由 `ToolRegistry.local` 分发；其它模块（`app.browser` /
+            # `app.web` / `app.connectors`）的工具**必须由装配层传 executor**，
+            # 本方法拿不到——**编一个假执行器只会换来"工具调了但什么也没发生"，
+            # 比报错难查得多**，所以那种情况如实报原因，不假装加载成功。
+            tool = self._lazy_tool(name)
         if tool is None:
             raise ValueError(f"未知工具：{name}")
         if tool.parameters is not None:

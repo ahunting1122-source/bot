@@ -1,11 +1,9 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 20:20（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 23**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量 + 若干 `--help`）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD **`bf2383e`**；轮初 `git status` 1 条目在飞，**轮末 0 项，仅本报告本身未提交**）
-
-> **本轮含一次轮中更正**：我先查出 `orbit plane leases` 不存在（A④），**你在同一轮内修好并做成了机制**（`bf2383e`）。**下面 A④ 与 R1 已按修复后的状态改写**，并保留"先查出问题"的原始记录——因为**这条的价值不在修得快，而在它被做成了守卫**。
+**更新时间**：2026-10-28 20:38（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 24**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量；实例化 `Settings` 做了 `setattr` 实测）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `21df943`；**轮初 `git status` 0 条目，轮末 0 条目**）
 
 ---
 
@@ -16,31 +14,21 @@
 | 项 | 说明 |
 |---|---|
 | 五态 | **✅ 156 · 🟢 5 · ⚫ 4 · 🟡 16 · ⬜ 0**（合计 181 ✓） |
-| 严格 / 可验证 | **89.0%** / **91.0%** —— 从 88.4% / 90.4% 上升（`10.8` 转 ✅） |
+| 严格 / 可验证 | **89.0%** / **91.0%** —— **与上轮完全相同**（加固轮，无状态翻转） |
 | 与 `matrix_stats --check` | 逐字一致，exit 0 ✅ |
-| **顶层命令对齐（新）** | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 —— **已进统计出口** ✅ |
+| 顶层命令对齐 | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 —— 持续在输出里 ✅ |
 
-### 硬口径
+### 硬口径：**全部一致，基线干净**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
 | mypy **172** files clean | **172 files clean**（exit 0） | ✅ 完全一致 |
-| pytest 1 failed, **3534** passed, 3 skipped | **1 failed / 3536 passed / 3 skipped（370.16s）**；修完后基线亦为 **3536** | ✅ **一致**（+2 见下） |
+| pytest 1 failed, **3541** passed, 3 skipped | **1 failed / 3541 passed / 3 skipped（387.62s）** | ✅ **完全一致** |
 | `matrix_stats --check` exit 0 | exit 0 | ✅ 一致 |
-| `git status` 6 项，无在飞文件 | **轮初 1 项在飞（`M app/graph/nodes.py`），轮末 0 项** | ⚠️ 见下 |
+| `git status` 7 项，无在飞文件 | **轮初轮末均 0 项** | ✅ 一致（改动已提交成 `21df943`） |
 
-**`+2` 的来源**：`tests/test_session_lease_wiring.py` 有 **2 条用例**（`test_active_sessions_file_is_created_and_cleaned` + `test_takeover_makes_the_original_task_yield`），**我跑时它们已在，你的基线里没有**。结合 `nodes.py` mtime `20:07:40`（你报基线之后），**你的 3534 是干净基线，我的 3536 多了这 2 条**；你修完 `bf2383e` 后基线也是 **3536** —— **两个数现在收敛到同一个值。**
-→ **这是第四次在飞漂移，但这次只有 +2 且来源精确到文件**。**带 `git status` 的习惯仍然有效**——它让我立刻知道"有 1 项在飞"，从而不去怀疑那 +2 是回归。
-
-### 我上轮的建议：**逐字落地了** ✅
-
-```
-顶层命令对齐    77/77（Orbit 顶层 84，自有 7）
-  ※ 口径：顶层命令**名**集合差（含 5 个已知改名；**不含子命令级**）；
-    **只证明没有整条命令缺失，不证明功能对齐**
-```
-**三件事都做到了**：① 不占 181 行（不引入新分母）② 放 `matrix_stats` 出口（与测试同源）③ **口径写在数字旁边**。**这是"建议被完整执行"的最好一次。**
+**"数字没动"这一轮同样是好事**：查出的 4 个死写入 + 2 个"靠巧合生效"**都在既有 ✅ 条目内部**，没有一个翻转状态。**加固轮不涨分是对的** —— 如果修 bug 就涨分，那说明之前的分是虚的。
 
 ---
 
@@ -57,7 +45,7 @@
 | L7 Skill / curator | **17 ✅ + 1 🟢** / 18 | 100% | ✅ |
 | L8 MCP | 9 ✅ + 1 ⚫ / 10 | 90.0% | — |
 | **L9 记忆层** | **16 / 16** | **100%** | ✅ |
-| L10 持久化 / 会话 | **13 ✅ + 2 🟢** / 15 | 100% | 🎉 本轮补齐（**10.8 转 ✅**） |
+| L10 持久化 / 会话 | **13 ✅ + 2 🟢** / 15 | 100% | ✅ |
 | **L11 cron** | **6 / 6** | **100%** | ✅ |
 | L12 Gateway / 多平台 | 8 ✅ + 1 ⚫ / 11 | 72.7% | 🟡2 |
 | L13 插件 | 7 / 10 | 70.0% | 🟡3 |
@@ -66,146 +54,115 @@
 | **L16 Web UI / 前端** | **6 / 6** | **100%** | ✅ |
 | **合计** | **161 / 181** | **89.0%** | — |
 
-**八层 100%**：L3、L6、L7、L9、**L10（本轮补齐）**、L11、L16。
-
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：3 项点名**全部复核**（3 项都实跑）+ **你点名要我核的那条命令**（见 A④）。
+**抽样率**：3 项点名**全部复核**（3 项都实跑）；另**实测了 `setattr` 盲区，查出一个真 bug**（见 A②）。
 
-### A. 你点名的 3 项 + 1 条命令
+### A. 你点名的 3 项
 
-**① `test_takeover_makes_the_original_task_yield` 能不能红 → ✅✅ 能，而且它断言的是**具体原因**不是"停了"**
+**① `safe_mode` / `ignore_rules` 是否真的还能用 → ✅✅ 三条判据全过**
+
+```
+safe_mode      in_model_fields=True  构造后读=True   model_dump有=True
+ignore_rules   in_model_fields=True  构造后读=True   model_dump有=True
+```
+**三条判据是我上轮建议的那三条**（读得到 / 在 `model_fields` / `model_dump` 里有），**两条字段全过** ✓✓
+**`model_dump()` 那条是关键**：裸属性会在这里丢，所以它证明这两个现在是**真字段**而不是"恰好进了 `__dict__`"。
+
+**而且你"误报 property"的自我修正我核了，是对的**：
+```
+machine_wide in model_fields: False
+machine_wide 是 property: True
+实例读得到: True
+```
+→ `machine_wide` 是 `Settings` 上的 `@property`，**合法**，`in model_fields` 查不到但它不是 bug ✓
+**你的判据修正（"在类上定义过——字段和 property 都算，实例裸属性不算"）是唯一正确的那个**，我在 `test_settings_fields_are_real.py:97-99` 读到了这段说明 ✓
+
+**② AST 扫描是否漏掉 `setattr(settings, key, value)` → ⚠️ 它确实是盲区，而且我实测出一个真 bug**
+
+**先确认你的扫描确实用 AST**（不是纯正则）：
+```
+:106  def _keys_written_to_settings()
+:115      import ast
+:129      tree = ast.parse(...)
+:132      for node in ast.walk(tree):
+:135          if isinstance(node, ast.Assign):
+:140              if isinstance(target, ast.Attribute) and _is_settings(target.value):
+```
+✓ **真 AST，只认 `Attribute` 目标** —— 所以注释与字符串（你踩的第二次）确实被排除了。
+（小提示：`_model_copy_literals` 仍是正则，但那是 `model_copy(update={...})` 这种极窄形状，且有 4 条测试兜着，**不算问题**。）
+
+**盲区本身：`hasattr` 对 property 也返回 `True` → `setattr` 崩** —— 我实测：
+```
+machine_wide   hasattr=True   setattr 抛错: AttributeError: property 'machine_wide' of 'Settings' object has no setter
+safe_mode      hasattr=True   setattr 成功  读回=True
+no_such_key    hasattr=False  setattr 成功  读回='<缺>'      ← 被守卫挡住，符合你的判断
+```
+**`Settings` 上有 2 个只读 property**：`machine_wide` / `file_scope_label`。
+→ **如果 `settings.json` 里出现 `"machine_wide": ...`（前端"连接与设置"页写的，或用户手改），`app/cli/context.py:110-111` 的 `hasattr` 守卫会放行，然后 `setattr` 抛 `AttributeError` —— 未被捕获，CLI 启动崩。**
+
+**这算不算风险？我的判断：算，但性质不是"越权"而是"健壮性"**（详见 B 节）。
+**一句话修法**：`if hasattr(self.settings, key)` → **`if key in type(self.settings).model_fields`**。这一改同时做三件事：
+- 挡住裸属性（现在已挡）
+- **挡住 property（现在没挡）** ← 修 bug
+- 语义正好是"**只有声明过的字段可写**"
+
+**③ `test_stop_reasons_are_actually_produced_by_the_policy` 能不能红 → ✅✅ 能，而且两个产出方都有反证**
 
 ```python
-# tests/test_session_lease_wiring.py
-monkeypatch.setattr(nodes_module, "LEASE_HEARTBEAT_SECONDS", 0.0)
-#   ↑ 注释：验的是接管语义，不是节流间隔
-... 轮询等账本出现，超时则 AssertionError("任务跑起来了却没登记会话租约——acquire 没接上")
-runner.leases.acquire(conversation.id, platform="other", pid=999_998, start_time=1.0)   # 模拟另一进程接管
-...
-reasons = {str(json.loads(p).get("reason")) for (p,) in rows if p}
-assert "session_takeover" in reasons, (
-    f"被接管后没有停下（budget_stopped 的原因：{reasons}）——"
-    "两边会继续往同一份 checkpoint 交错写")
+# 三种方式真驱动 check() 产出三个原因
+produced.add(policy.check({"actions": 10**6, "turns": 0, "budget": budget}))       # max_actions
+produced.add(policy.check({"actions": 0, "turns": 10**6, "budget": budget}))       # max_turns
+full["token_estimate"] = int(full["max_tokens"]) + 1
+produced.add(policy.check({"actions": 0, "turns": 0, "budget": full}))             # max_tokens
+produced.discard("")
+missing = set(DefaultBudgetPolicy.STOP_REASONS) - produced
+assert not missing, ("这些原因声明了但 `check()` 产不出来：{missing}——"
+                     "声明与实现漂移，提示会为一种不存在的情况写文案")
 ```
-**去掉 `nodes.py:1590` 的 `lost = self._lease_lost(state["task_id"])`** → `decision` 只可能来自 `budget.check(...)` → `reasons` 里只会有 `max_actions`/`max_turns`/`max_tokens` → **`session_takeover` 缺席 → 必红** ✓✓
+**往 `STOP_REASONS` 加 `"max_seconds"` → `produced` 里没有它 → `missing` 非空 → 必红** ✓✓
 
-**三处设计我很认可**：
-- **断言的是 `reason == "session_takeover"`，不是"任务停了"** —— 否则 `max_actions` 撞上也会绿，**测的就不是接管了**
-- **失败消息点名后果**（"两边会继续往同一份 checkpoint 交错写"）—— 下一个人看到红立刻知道代价
-- **`monkeypatch` 关掉节流 + 注释说明"验的是接管语义，不是节流间隔"** —— 这是你自述的第二个坑，处理方式正确：**测试要验什么就只验什么，不要让一个无关的优化参数成为被测对象**
+**`session_takeover` 的反证在哪**：它不由 `check()` 产出，而由 `_lease_lost()` 返回（`nodes.py:1518 return LEASE_STOP_REASON`）—— **它的反证在 `test_takeover_makes_the_original_task_yield`**（断言 `"session_takeover" in reasons`）。
+→ **两个产出方各有一条反证，只是在不同文件里** ✓ **覆盖是完整的，不是遗漏。**
 
-**还带一条防空转断言**（"任务跑起来了却没登记会话租约——**acquire 没接上**"）—— **连续第三轮出现**，已经成了你的习惯 ✓
+### B. 上轮那两条建议的落地质量
 
-**② 节流比例是否合理 → ✅✅ 10s vs 90s = 9 倍余量，合理；而且你的 docstring 给了比"10 秒足够"更硬的论证**
-
-```
-nodes.py:47            LEASE_HEARTBEAT_SECONDS = 10.0
-session_leases.py:62   DEFAULT_MAX_AGE = 90.0
-```
-→ **检测延迟 ≤ 10s，租约 90s 才过期 → 9 倍安全余量** ✓ 合理。
-
-**但真正值得记的是 `nodes.py:1492-1496` 的理由**：
-> 「租约的 `max_age` 是 90 秒，所以每 10 秒查一次完全够（**比"每轮查"安全**：每轮查会在快循环里把盘写爆，慢循环里反而查得太稀）。」
-
-**这个论证比"10 秒足够"强一个量级**：它指出**"每轮"这个粒度在两个方向上都是错的** —— 快循环写爆盘、慢循环查太稀。
-**根因**：**被检查的东西（租约年龄）以时间计量，不以轮次计量** → **时间型节流是唯一正确的粒度**。
-**这条可以抽象成一句规则**：**节流的粒度必须与被检查量的计量单位一致**（时间型的量用时间型节流，轮次型的量用轮次型节流）。
-
-**③ `release` 是否真在 `finally` 里 → ✅✅ 在，且理由写清了**
+**① 清单断言 → 性质断言：✅ 完整落地，而且比我建议的多做了一步**
 
 ```python
-# agent.py:659-671
-finally:
-    self.partial.pop(task.id, None)
-    self._token_usage.pop(task.id, None)
-    # 释放会话租约（MATRIX 10.8）。**放在 `finally` 里**：失败/取消也要放，
-    # 否则一个崩掉的任务会让那个会话永远显示"有人持有"，下次启动的
-    # `reap_stale` 才能清掉——而那时用户已经困惑过了。
-    try:
-        self.leases.release(task.conversation_id)
-    except Exception as exc:
-        log.warning("会话租约释放失败（不影响任务结果）：%s", exc)
+# test_hint_commands_exist.py:86
+declared = tuple(DefaultBudgetPolicy.STOP_REASONS) + (nodes_module.LEASE_STOP_REASON,)
 ```
-✓✓ 在 `finally` 内、包 try/except、理由完整（"否则…永远显示'有人持有'…而那时用户已经困惑过了"）。
-**并且 `acquire` 也真接上了**（`agent.py:574 self.leases.acquire(task.conversation_id, platform="cli")`）—— 从"零生产调用方"变成了真调用 ✓
+✓ **遍历并集**，不再硬编码 4 个 ✓
+**而且 `policies.py:394` 的 docstring 直接抄了我那句**：
+> 「把清单写在测试里会过期，写在产出方不会。」
 
-**④ 你点名要我核的：`orbit plane leases` 存在吗 → ❌ 不存在，但你在同一轮内修好并做成了机制**
+**多做的这一步是关键**：我建议"策略声明 + 并集"，**你额外加了反证测试**（声明的每个原因必须真能产出）。**这一步把"声明"和"实现"也钉在了一起** —— 我上轮只说了"新增原因会自动要求写提示"，**没说"声明了却产不出来"这种情况**。**你的补法更完整。**
 
-**原始问题（我核出来的）**：
-```
-plane 子命令: ['timeline','tail','lineage','show','resume','reap','deliveries','backfill','compact-check']
-leases 在其中: False
-$ orbit plane leases --help  → argparse 报错，可选值里没有 leases
-```
-→ hint 当时指向一个**不存在的命令**。**这比"没有提示"更糟**：用户照着敲会得到 argparse 报错，**然后以为是自己敲错了**。
+**② `Settings` 裸属性全扫：✅ 做了，而且可复用函数抽出来了**
 
-**修复后（我逐项核过 `bf2383e`）**：
-```
-nodes.py:1805  "要继续：等那边结束，或看 `runtime/active_sessions.json` 里谁持有"
-nodes.py:1806  "（`orbit plane show <会话>` 能看到该会话的平面视图）。"
-```
-| 我核的 | 结果 |
-|---|---|
-| 旧串 `orbit plane leases` 是否清除 | **全仓零残留** ✓ |
-| `orbit plane show` 是否真存在 | **存在**，`usage: orbit plane show [-h] …` 实跑通过 ✓ |
-| 指向的文件是否真实 | `runtime/active_sessions.json` 是租约账本本身（`session_leases` 写它）✓ |
-
-**而且它被做成了机制** —— `tests/test_hint_commands_exist.py`，我读了源码，**它真能红**：
 ```python
-_ORBIT_CMD = re.compile(r"`orbit ([a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*){0,2})")
-def _resolve(path):
-    ... 逐级走注册表，跳过 --option，任一级不存在就返回 None
-def test_every_command_named_in_stop_hints_exists():
-    start = source.find("def _stop_hint")
-    assert start != -1, "找不到 `_stop_hint`——测试失效了"              ← 防空转 ①
-    mentioned = sorted({m.group(1) for m in _ORBIT_CMD.finditer(body)})
-    assert mentioned, "没解析出任何 `orbit <cmd>`——正则或文案结构变了"   ← 防空转 ②
-    missing = [path for path in mentioned if _resolve(path) is None]
-    assert not missing, "提示里指向了不存在的命令：…用户照着敲会报错"
+# tests/test_settings_fields_are_real.py:45
+def assert_real_settings_field(settings, name: str) -> None:
+    assert name in Settings.model_fields, f"`{name}` 不在 `Settings.model_fields` 里…"
+    assert hasattr(settings, name), f"`{name}` 是字段但实例上没有"
+    assert name in settings.model_dump(), …          ← 三条判据齐全
 ```
-**把 `orbit plane leases` 写回去 → `_resolve("plane leases")` 返回 `None` → 必红** ✓✓
-**关键设计：子命令级也查**（`{0,2}` 允许三段路径）—— **只查顶层正好会漏掉这一类**。**实跑 2 passed** ✓
+✓✓ **正是我上轮建议的可复用断言，三条判据一条不少**（含 `model_dump()` 那条决定性的）。
 
-**这条我给的评价最高，理由是它修的不是"一句话"而是"一类错"**：
-- `_stop_hint` 是**唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西** —— 因为它只是字符串
-- **静态检查原理上看不见它**（mypy/ruff 不解析文案语义）
-- 所以需要**语义级守卫**：把文案里的命令解析出来，对注册表核 —— **你做的正是这个**
-
-**⚠️ 但第二条测试有一个我要指出的弱点**：
-```python
-reasons = ("max_actions", "max_tokens", "max_turns", "session_takeover")
-for reason in reasons:
-    assert _stop_hint(reason, budget, 3).strip(), f"`{reason}` 没有提示"
-```
-**`reasons` 是硬编码的元组**，而 docstring 写的是「策略与租约机制**可能产出的全部**原因」。
-→ **将来 `policies.check()` 新增一个 stop reason（比如 `max_seconds`），这条测试不会知道** —— 它只遍历那 4 个，**照样绿**。
-**这正是我上轮说的"清单会过期，性质不会"**：第一条测试是**性质断言**（扫源码、解析命令、查注册表），第二条是**清单断言**（硬编码 4 个）。
-**建议改法**：让策略自己声明原因集合（`DefaultBudgetPolicy.STOP_REASONS = ("max_actions","max_tokens","max_turns")`），租约机制声明 `"session_takeover"`，测试遍历**它们的并集** → **新增原因会自动要求写提示**。
-
-### B. 你选 10.8 而不是 5.2 的理由 —— **认同，而且理由可以更硬两条**
-
-你说「效率问题用户能感觉到慢，数据损坏用户只会觉得'这 AI 今天怪怪的'」——对。我加两条：
-
-1. **数据损坏不可逆，效率问题可逆**。交错写进同一份 checkpoint 之后，**事后无法分离**哪条消息属于哪次驱动；而慢只要下次跑快点就行。**判据：能不能事后修复。**
-2. **数据损坏没有信号**。慢有信号（用户知道在等），损坏没信号（用户会归因到"模型今天不行"或"我自己说错了"）—— **无信号的缺陷比有信号的缺陷危险一个量级。**
-
-**所以判据是两层**：**「有没有信号」+「能不能事后修复」** —— 数据损坏两条都输，效率问题两条都赢。**你的判断对，而且比"用户能感觉到"更可判。**
-
-### C. 你自述的两个测试坑 —— 都对，第二个尤其值得记
-
-1. **单跑绿、全量红**（状态转终态在 `try` 里、`release` 在 `finally` 里，中间有窗口；查一次就断言 = 断言了还没到的状态）
-   → **这是异步测试的通病**，你的修法（轮询等释放）对。**判据**：**凡是"某个副作用发生在另一个块里"的测试，都不能只查一次。**
-2. **节流让接管测试要等 10 秒 → monkeypatch 设 0**
-   → **这条更值得记**：它的价值不在"让测试快"，而在**把被测对象与无关参数解耦**。**注释"验的是接管语义，不是节流间隔"就是这份解耦的声明。**
+**查出的 6 个我认同分类**：
+| 类型 | 键 | 判断 |
+|---|---|---|
+| **只写不读的死写入** | `pass_session_id` `quiet` `skills_preload` `verbose` | **删掉正确** —— 写了没人读，比裸属性更无害但也更无用；`verbose` 改成如实说明也对（**没有实现就不要假装有开关**） |
+| **靠巧合生效** | `safe_mode` `ignore_rules` | **声明成真字段正确** —— 它们"能跑"只因裸属性恰好进了 `__dict__`，**这正是 `reasoning_level` 那一族** |
 
 ---
 
 ## 与目标标志的差距
 
-**⬜ 0**，离目标还差 **16 条 🟡 + 4 条 ⚫**：
+**⬜ 0**，离目标还差 **16 条 🟡 + 4 条 ⚫**（与上轮相同）：
 
 ```
 🟡 16：1.7 1.13b 4.3 4.8 4.9 4.12 5.2 5.14 6.4 10.14
@@ -213,42 +170,71 @@ for reason in reasons:
 ⚫ 4 ：4.2 4.7 8.3 12.9
 ```
 
-### 一处要判：`orbit plane leases` 不存在 —— **已修，而且修法比我建议的更好**
+### 你问的：`settings.json` 是配置面还是越权面 —— **是配置面，你的倾向对；但那个 `hasattr` 守卫有个真 bug**
 
-见 A④。**我建议的是"改成 `orbit sessions leases`"，你改成了 `runtime/active_sessions.json` + `orbit plane show <会话>`** ——
-**比我建议的更好**，因为：`orbit sessions leases` 只是"另一个命令"，而**指向租约账本文件本身**让用户能直接看到"谁持有、什么时候心跳"；`orbit plane show <会话>` 则给了**该会话的平面视图**（能看到它跑到哪一步）。**这是"给数据"而不是"给命令"，更接近用户真正想知道的。**
-**并且做成了机制**（`tests/test_hint_commands_exist.py`，子命令级也查）—— **我核过源码，把旧串写回去必红**。
-**唯一的改进建议**：第二条测试的 `reasons` 元组是硬编码的，建议改成从策略与租约机制**各自声明**再取并集（详见 A④ 末）。
+**① 是配置面，不是越权面** ✓
+`settings.json` 就是配置文件，本地单用户；**能改它的人本来就能改环境变量、密钥文件、`~/.config`** —— 把它当越权面等于把威胁模型搞错。**真正的越权面是"远端能改它"**，而这里不是。
+
+**② 但你的推理里有一个我没预料到的缺口**（A② 实测）：
+你说「`hasattr` 那个守卫让**裸属性写不进去**（因为裸属性此刻还不存在），所以它反而**不会**制造新的裸属性」——**这句是对的**（我实测 `no_such_key` → `hasattr=False` → 不写）✓
+**但 `hasattr` 对 property 也返回 True** → `setattr` 抛 `AttributeError` → **CLI 启动崩**。
+→ **所以它不是"制造裸属性"的风险，是"配置里出现某个合法属性名就崩"的健壮性风险。** 这两件事不同，但都在同一行代码上。
+
+**③ 修法（一句话，同时解决三件事）**：
+```python
+# 现在
+if hasattr(self.settings, key):
+    setattr(self.settings, key, value)
+# 建议
+if key in type(self.settings).model_fields:      # 只写声明字段
+    setattr(self.settings, key, value)
+```
+- 挡住裸属性（已挡）
+- **挡住 property（修 bug）**
+- **语义正好是"只有声明过的字段可写"** —— 而这正是你想要的语义
+
+**④ 顺带一个未来风险（现在不构成问题，但值得先写一句）**：
+如果将来 `Settings` 加了**敏感字段**（`allow_*`、`skip_approvals`、`hardline_in_machine` 之类），**`settings.json` 就从"配置面"变成"提权面"** —— 因为任何能写这个文件的东西都能关掉审批。
+**建议现在就在 `context.py` 那处加一句注释**：「这里只写 `model_fields` 里的字段；**新增敏感字段时必须显式决定它是否允许从 `settings.json` 覆盖**」。**一行注释，挡的是未来的一次误判。**
 
 ---
 
 ## 风险与漂移
 
-### R1 🟢 **hint 指错命令：已修，且修成了守卫（本轮最有价值的一件事）**
+### R1 🟠 **`app/cli/context.py:110-111` 的 `hasattr` 放行 property → `setattr` 崩（A②，本轮新发现）**
 
-`orbit plane leases` 不存在（我核出来的）→ **同一轮内**改成 `runtime/active_sessions.json` + `orbit plane show <会话>`（两者我都实跑确认存在）+ `test_hint_commands_exist.py` 两条守卫（**子命令级也查**，旧串写回必红）。
-**这条的价值不在"修得快"，而在它被做成了一类错的守卫**：`_stop_hint` 是唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西 —— **静态检查原理上看不见它**。**你把它变成了语义级可验证。**
-**剩下一个小口子**：第二条测试的 `reasons` 是硬编码清单（不是从策略派生），新增 stop reason 时它不会红。**建议改成策略声明 + 并集遍历。**
+`Settings` 有 2 个只读 property（`machine_wide` / `file_scope_label`）。`settings.json` 里出现任一键名 → CLI 启动 `AttributeError`。
+**危害**：配置里写错/写多一个键 → **CLI 起不来，且报错是 `AttributeError` 而不是"这个键不能改"**。
+**修法**：`hasattr` → `key in type(settings).model_fields`。
 
-### R2 🟡 **第四次在飞漂移，但这次 +2 且来源精确**
+### R2 🟢 **本轮加固质量高，而且两条建议都"超额落地"**
 
-`test_session_lease_wiring.py` 的 2 条用例在你基线之后落地；`nodes.py` mtime 20:07:40。
-**带 `git status` 的习惯继续有效**——它让我知道有 1 项在飞，从而不去怀疑 +2 是回归。
+- 清单断言 → 性质断言：**遍历并集**（我建议的）+ **反证测试**（我没提的）→ **"声明"与"实现"也被钉住了**
+- 裸属性全扫：**`assert_real_settings_field` 抽成可复用函数，三条判据齐全**
+- **`_is_declared` 的判据修正**（property 算、裸属性不算）写进了 docstring，`machine_wide` 那个误报有据可查
 
-### R3 🟢 **`10.8` 的修复质量高，且"节流粒度"那条论证值得进方法论**
+### R3 🟡 **`_model_copy_literals` 仍用正则（小提示，非缺陷）**
 
-「每轮查会在快循环里把盘写爆，慢循环里反而查得太稀」→ **节流粒度必须与被检查量的计量单位一致**（时间型量用时间型节流）。
+AST 只覆盖 `settings.X = ...`；`model_copy(update={...})` 走正则。**形状极窄 + 4 条测试兜着，不构成问题** —— 但如果以后 `model_copy` 的写法变体增多（换行、变量代替字面量），这条会静默漏。**建议加一条防空转断言**（"至少扫到 N 处 model_copy"），与你已有的习惯一致。
 
-### R4 🟡 **未验证项（如实标注）**
+### R4 🟡 **轮末 `git status` 0 条目**
+
+```
+轮初 git status: 0 条目 ✓
+轮末 git status: 0 条目 ✓
+```
+连续第三轮两头干净 → 所有计数类读数可信（pytest 3541 一次对上）。
+
+### R5 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| `test_takeover` 的**红路径实跑** | 要删 `nodes.py:1590` 的 `lost = ...` → 未做；验证的是"断言的是 `session_takeover` 具体原因"结构必红 |
-| 真两进程并发的接管 | 测试用 `acquire(pid=999_998, start_time=1.0)` 模拟，**没有真起第二个进程** |
-| `Settings` 裸属性全扫（你上轮 P0 ③） | 你本轮未做，我也未做 —— **仍是待办** |
+| `test_stop_reasons_are_actually_produced_by_the_policy` 的**红路径实跑** | 要往 `STOP_REASONS` 加一项 → 未做；验证的是"三种驱动 + 集合差"结构必红 |
+| `settings.json` 真含 `machine_wide` 时 CLI 的实际行为 | 我实测了 `hasattr`+`setattr` 的行为（抛错），**但没有真写一个 `settings.json` 起 CLI 看崩溃**（那会改状态） |
+| 4 个死写入删除后**是否真没有别处读它们** | 只核了 `Settings` 层；未全仓扫 `pass_session_id` / `quiet` / `skills_preload` 的读点 |
 | `12.10` 的 `enroll`、`4.12` 的 19 家逐家 | 要网络/凭证 → 未跑 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 18 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 19 轮如此） |
 
 ---
 
@@ -256,15 +242,15 @@ for reason in reasons:
 
 按优先级：
 
-1. **【P0】把 `test_hint_covers_every_stop_reason` 的硬编码 `reasons` 换成"策略声明 + 并集"**（A④ 末）：让 `DefaultBudgetPolicy` 声明 `STOP_REASONS`、租约机制声明 `session_takeover`，测试遍历并集 → **新增 stop reason 会自动要求写提示**。**现在这条是清单断言，会过期；第一条（扫源码查命令）是性质断言，不会。** 把第二条也升级成性质。
-2. **【P1】`Settings` 裸属性全扫（你连排两轮的 P0 ③）**：`model_copy(update=...)` 那个口子还在，**可能还有第二个 `reasoning_level`**。**建议做法**：遍历 `Settings.__dict__` 的实例属性，凡是**不在 `model_fields` 里**的都报出来。**这是唯一能一次扫干净的办法。**
+1. **【P0】修 `app/cli/context.py` 的 `hasattr` → `key in model_fields`**（R1）：一句话，修的是"配置里多一个键 → CLI 起不来"。**同时挡住裸属性与 property，语义正好是"只有声明字段可写"。**
+2. **【P0】在 `context.py` 那处加一句"敏感字段需显式决定是否允许从 `settings.json` 覆盖"的注释**（B④）：**一行注释挡未来的一次误判** —— 现在不是问题，但 `Settings` 一旦加 `allow_*` 类字段就立刻是。
 3. **【P1】5.2 懒加载（你下轮计划）**：`ensure_loaded` 零调用 → 直接影响每轮 schema 体积，**5.11 的 4,000 token 预算挂在这条上**。
-4. **【P1】把"节流粒度"那条论证写进方法论**（R3）：**节流粒度必须与被检查量的计量单位一致**。这条能直接指导 8.6（心跳）、5.3（探针 TTL）、11.x（cron tick）等一批地方。
-5. **【P1】把"提示文案是唯一一类静态检查看不见的缺陷"写进方法论**：`_stop_hint` 这类东西 lint/mypy/单测全看不见，**只有"解析文案 → 对注册表核"这种语义级守卫能抓**。**可推广的候选**：①`--help` 里提到的命令/文件路径 ②错误消息里的 `orbit xxx` ③文档字符串里的示例命令。
-6. **【P2】`reasoning_level` 三判据抽成 `assert_real_settings_field`**：与第 3 条一起做，**扫出来的每个裸属性都顺手加一条断言**。
-7. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 21 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
+4. **【P1】给 `_model_copy_literals` 加防空转断言**（R3）：与你已有的 `assert calls` / `assert len(hermes) >= 70` 同一习惯——**扫到 0 处就该红**。
+5. **【P1】把"死写入"这一族也做一条守卫**：你这轮手工查出 4 个（写了没人读）。**它可机械化**：AST 扫出 `settings.X = ...` 的写入点，再扫 `getattr(settings, "X")` / `settings.X` 的读取点，**写入无读取 → 报出来**。**与裸属性守卫同一套基础设施，成本很低。**
+6. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
+7. **【P2】把"源码扫描类测试的假阳性源"立成清单**：你已经踩过两次（`get_model()` 的注释、`model_copy` 的 docstring 示例与事件 payload 字符串）。**清单：注释 / docstring / 字符串字面量 / 事件 payload 的键名 / 测试里的样例数据** —— **五个来源，前三个用 AST 能挡，后两个要靠"只认语法节点"**。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 22 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
 
 ---
 
-*本报告由 monitor 角色只读生成。**你点名要我核的那条：`orbit plane leases` 不存在** —— `plane` 的 9 个子命令里没有 `leases`，实跑 `--help` 直接 argparse 报错。**你在同一轮内修好了，而且修法比我建议的更好**：我建议换成 `orbit sessions leases`，你改成指向 `runtime/active_sessions.json`（租约账本本身）+ `orbit plane show <会话>`（该会话的平面视图）—— **"给数据"比"给命令"更接近用户真正想知道的**，两者我都实跑确认存在，旧串全仓零残留。**并且做成了机制**：`test_hint_commands_exist.py` 把 `_stop_hint` 里的每个 `orbit <cmd>` 解析出来逐级查注册表（**子命令级也查**，只查顶层正好会漏掉这一类），我读了源码——**把旧串写回去必红**，还带两条防空转守卫。**这条的价值不在"修得快"，而在它被做成了一类错的守卫**：`_stop_hint` 是唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西，**静态检查原理上看不见它**。三项点名全部撑得住：`test_takeover` 断言的是 `reason == "session_takeover"` 而不是"任务停了"（否则 `max_actions` 撞上也会绿）；节流 10s vs 90s = 9 倍余量合理，且你 docstring 里「每轮查会在快循环里把盘写爆、慢循环里反而查得太稀」比"10 秒足够"硬一个量级——**节流粒度必须与被检查量的计量单位一致**；`release` 真在 `finally` 内且 `acquire` 也接上了。你选 10.8 而非 5.2 我认同，并补两条更可判的理由：**数据损坏不可逆、且没有信号**。我上轮那三条建议你逐字落地了（顶层对齐 77/77 进统计出口 + 口径写在数字旁）。**唯一剩下的口子**：`test_hint_covers_every_stop_reason` 的 `reasons` 是硬编码清单，新增 stop reason 时不会红——建议改成策略声明 + 并集。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。**基线一次对上**（pytest **3541**，轮初轮末 `git status` 均 0 项）。三项点名：`safe_mode`/`ignore_rules` **三条判据全过**（含 `model_dump()` 那条决定性的），`machine_wide` 是 property 故不该被误报——**你的判据修正正确**；`test_stop_reasons_are_actually_produced_by_the_policy` **能红**，且 `session_takeover` 的反证在 `test_takeover_makes_the_original_task_yield` 里（**两个产出方各有一条反证，覆盖完整**）。**AST 盲区那条我实测出一个真 bug**：`app/cli/context.py:110` 的 `hasattr` 对 **property 也返回 True**，`settings.json` 里出现 `machine_wide` 会让 `setattr` 抛 `AttributeError`、**CLI 启动崩**（`Settings` 有 2 个只读 property）。关于你的问题：**`settings.json` 是配置面不是越权面，你的倾向对**（真正的越权面是"远端能改它"）；但 `hasattr` 换 `key in model_fields` 能一行修掉上述 bug，**语义正好是"只有声明字段可写"**。两条建议你都**超额落地**：清单断言改并集之外还加了反证（把"声明与实现"也钉住），`assert_real_settings_field` 三条判据齐全。未验证项单列，不混进完成项。*

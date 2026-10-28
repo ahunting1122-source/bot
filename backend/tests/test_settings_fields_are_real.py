@@ -216,3 +216,61 @@ def test_the_four_known_bare_attributes_are_gone():
         assert name not in Settings.model_fields, (
             f"`{name}` 被加成了真字段，但没有任何地方读它——加字段前先确认有人读"
         )
+
+
+def test_settings_json_with_a_readonly_property_name_does_not_crash(tmp_path):
+    """**真 bug 的回归测试**：`settings.json` 里写一个只读属性名，CLI 不能崩。
+
+    原来 `app/cli/context.py::hydrate()` 的守卫是 `hasattr(self.settings, key)`。
+    **`hasattr` 对 property 也返回 True**，而 `Settings` 上有：
+    - 自己的只读 property：`machine_wide` / `file_scope_label`
+    - **pydantic 自带的**：`model_extra` / `model_fields_set`
+
+    这 4 个 `hasattr` 全是 True，`setattr` 却抛
+    `AttributeError: property '...' has no setter` —— **未捕获，CLI 启动直接崩**。
+    用户只是往配置文件里写了一个合法但只读的属性名，拿到的错误却是
+    「property 没有 setter」，与「你的配置写错了」毫无关系。
+
+    修法：`hasattr(...)` → `key in type(settings).model_fields`。
+    语义正好是「只有声明字段可写」，同时挡裸属性 + property + pydantic 内置属性。
+    """
+    import json
+
+    from app.cli.context import Context
+    from app.config import Settings
+
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {
+                "machine_wide": True,
+                "file_scope_label": "x",
+                "model_extra": 1,
+                "model_fields_set": ["a"],
+                "no_such_field": 2,
+                "model": "keep-me",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(data_dir=tmp_path, workspace=tmp_path)
+    context = Context(settings=settings, data_dir=tmp_path)
+
+    # **不崩就是主要断言**（修之前这里会抛 AttributeError）
+    context.hydrate()
+    # 注意断言 `context.settings` 而不是传进去的那个对象：`Context.__init__` 在给了
+    # `data_dir` 时会 `model_copy` 出一个新实例，两者不是同一个。
+    assert context.settings.model == "keep-me", "合法的声明字段应该被写进去"
+
+
+def test_the_model_copy_scanner_is_not_vacuous():
+    """防空转：`_model_copy_literals` 至少要扫到几处。
+
+    与 `assert calls` / `assert len(hermes) >= 70` 同一个习惯：
+    **源码扫描类断言一旦扫不到东西，就会永远绿。**
+    """
+    total = 0
+    for path in APP.rglob("*.py"):
+        total += len(_model_copy_literals(path.read_text(encoding="utf-8", errors="ignore")))
+    # 阈值是 1 而不是 3：本轮删掉 4 个死写入之后，字面量 model_copy(update={...}) 本来就
+    # 只剩少数几处。这条守的是「扫描还活着」，不是「写入点有多少」。
+    assert total >= 1, f"一处 model_copy(update={{...}}) 都没扫到（{total}）——正则失效了"

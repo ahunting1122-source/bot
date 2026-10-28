@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 156 · 🟢 5 · ⚫ 4 · 🟡 16 · ⬜ 0（严格完成度 89.0% = ✅+🟢；可验证 91.0% = (✅+🟢)/(总数−⚫)）
+条目合计 **181**。当前：✅ 157 · 🟢 5 · ⚫ 4 · 🟡 15 · ⬜ 0（严格完成度 89.5% = ✅+🟢；可验证 91.5% = (✅+🟢)/(总数−⚫)）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -98,7 +98,7 @@
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 5.1 | 单一注册表 + 跨 source 遮蔽门禁（默认拒绝，`override=True` 才放行，deregister 同门禁，`mcp_` 前缀豁免） | 【实证】`tools/registry.py`；调研 02 §1 | W4 | ✅ | `app/tools.py` 的 `ToolRegistry.register`；`tests/test_toolsets.py` 的遮蔽门禁用例 |
-| 5.2 | 懒发现（AST 索引按需 import + generation 计数失效） | 【实证】`registry.py` `_generation` / `_SKIP_TOOL_FILES` | W4 | 🟡 | **【第 17 轮审计降级】** `app/tool_discovery.py` 的 AST 懒发现能扫出 39 个工具、与真实工具表 38/38 对上，**但 `ensure_loaded()` 零外部调用方**——`tools_extra3.py` 只用了 `discover` / `describe` / `index_path` 三个报告函数。**所以「按需 import」这件事从没发生过**：工具全在启动时一次性 import 完。**缺**：`tools.py` 的分发链在遇到未注册的工具名时要先调 `tool_discovery.ensure_loaded(name, registry)` 再重试 |
+| 5.2 | 懒发现（AST 索引按需 import + generation 计数失效） | 【实证】`registry.py` `_generation` / `_SKIP_TOOL_FILES` | W4 | ✅ | **第 17 轮审计查出它是虚报，本轮已接线。** 之前 `app/tool_discovery.py` 的 AST 懒发现能扫出 58 个工具、与真实工具表对得上，测试也齐，**但 `ensure_loaded()` 零外部调用方**——`tools_extra3.py` 只用了 `discover` / `describe` / `index_path` 三个**报告**函数。**所以「按需 import」这件事从没发生过**：工具全在启动时一次性 import 完。**修法**：在**唯一分发门** `ToolRegistry.validate()` 里，遇到注册表没有的工具名时先调 `_lazy_tool(name)`（内部走 `tool_discovery.ensure_loaded`）再查一次。`validate` 是模型报的工具名必经的那道门（`execute()` 唯一调用它），所以接在这里 = 接在真实路径上。**必须「不做」的一条（如实划界）**：只有 `LOCAL_MODULES`（`app.tools`）里的工具能在没有执行器的情况下进注册表并由 `ToolRegistry.local` 分发；`app.browser` / `app.web` / `app.connectors` 的工具**必须由装配层传 `executor`**，本层拿不到——**编一个假执行器只会换来「工具调了但什么也没发生」，比报错难查得多**，所以那种情况如实报「未知工具」，测试里有一条专门钉住它（`test_a_tool_from_another_module_is_not_faked`）。`lazy_load` 开关可关掉退回旧行为。`tests/test_lazy_tool_loading.py` 5 条：拿掉的工具能 import 回来 / **`validate()` 这道门之后真能通过**（不是只有内部方法能用）/ **其它模块的工具不许假装加载** / 开关可关 / **`validate()` 里必须真的调 `_lazy_tool`**（5.2 的虚报形状正是「机制写好了、没人调」，只验机制能用是不够的）。**【如实划界：收益未实现】** 本行承诺的是「**按需加载机制可达**」，不是「首屏 schema 变小」。**后者没实现**：装配层（`main.py` / `chat.py`）仍然把浏览器 / 联网 / 连接器的工具**全部在启动时注册**，因为它们的执行器只有装配层知道。要让首屏真的变小，得改成「装配层注册执行器工厂、工具按需取用」——**那是 5.11（每轮 schema 4,000 token 预算）的事，不是本行的契约**。**不写这句，本行会被读成「懒加载已经让首屏变快了」，而它没有。** |
 | 5.3 | `check_fn` 可用性探针（30s TTL + 60s 抖动宽限 + profile 维度 key + 512 上限） | 【实证】`registry.py`；调研 02 §1 | W4 | ✅ | `app/toolsets.py` 的 `TOOL_REQUIREMENTS` + `probe(name)`：结果缓存 **30s TTL + 60s 抖动宽限**（一次探测失败不立刻摘工具，否则网络抖一下整个 toolset 就消失）；`resolve()` 排除不可用工具并在 `orbit tools list` 的「暴露」列体现原因。`tests/test_meta_tools.py` |
 | 5.4 | 三层结果治理（输出层 50K/2,000 行/2,000 宽 → 落盘层单条 100K、MCP 50K、预览 1,500、24h 清理 → 整轮层 200K 按大小降序先落最大的） | 【实证】`tools/budget_config.py` `DEFAULT_*` | W4 | ✅ | `app/budget.py` 的 `BudgetConfig` / `cap_output` / `spill` / `TurnBudget` / `govern`；已接 `DefaultToolResultPolicy` 与 `graph/nodes.py`（`TurnBudget` 在工具执行步骤创建）；`tests/test_budget.py` |
 | 5.5 | `tool_output_limits`（max_bytes 50,000 / max_lines 2,000 / 行宽 2,000；终端 40% 头 + 60% 尾） | 【实证】`tools/tool_output_limits.py` | W4 | ✅ | `budget.py` 的 `cap_output`（终端 40/60、其它 70/30）；`tests/test_budget.py` |

@@ -107,7 +107,28 @@ class Context:
                 data = {}
             if isinstance(data, dict):
                 for key, value in data.items():
-                    if hasattr(self.settings, key):
+                    # **只写「声明字段」，不写「任何有同名属性的东西」。**
+                    #
+                    # 原来是 `hasattr(self.settings, key)` —— 那个守卫**挡得住裸属性，
+                    # 挡不住 property**：`Settings` 上有 `machine_wide` /
+                    # `file_scope_label` 两个只读 property，**pydantic 还自带
+                    # `model_extra` / `model_fields_set`**。这四个 `hasattr` 全返回 True，
+                    # 而 `setattr` 会抛
+                    # `AttributeError: property '...' has no setter` ——
+                    # **未捕获 → CLI 启动直接崩**。
+                    #
+                    # 换句话说：用户只要在 `settings.json` 里写一个合法但只读的属性名，
+                    # 整条 CLI 就起不来，而错误信息（property 没有 setter）与
+                    # 「你的配置写错了」毫无关系。
+                    #
+                    # `key in type(...).model_fields` 的语义正好是「只有声明字段可写」：
+                    # 挡裸属性 + 挡 property + 挡 pydantic 内置属性，一次解决。
+                    #
+                    # **未来风险（留给以后的人一句话）**：这里只写 `model_fields` 里的字段。
+                    # **将来若加入 `allow_*` / `skip_approvals` 这类敏感字段，
+                    # 必须显式决定它是否允许被 `settings.json` 覆盖**——否则任何能写
+                    # 这个文件的东西都能关掉审批，配置面就变成提权面。
+                    if key in type(self.settings).model_fields:
                         setattr(self.settings, key, value)
         try:
             import keyring
