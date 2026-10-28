@@ -66,21 +66,51 @@ def _stub_stack(tmp_path, monkeypatch, *, answer: str = "替身回答"):
     return store, runner
 
 
-# ── 未实现的 flag 必须报错 ─────────────────────────────────────────────────
+# ── 非法 flag 值必须报错（合法值不再报"未实现"）──────────────────────────
 
 
 @pytest.mark.parametrize(
     ("args", "needle"),
     [
-        (["--reasoning", "high"], "MATRIX 4.4"),
-        (["--toolsets", "core"], "orbit tools disable"),
+        # 合法值（low/medium/high）现在真的生效，所以拿非法值来验校验
+        (["--reasoning", "超强"], "未知的推理力度"),
+        (["--toolsets", "不存在的工具集"], "未知工具集"),
         (["--provider", "不存在的供应商"], "未知供应商"),
+        (["--max-turns", "0"], "正整数"),
+        (["--run-budget", "-5"], "正整数"),
     ],
 )
-def test_unimplemented_flags_fail_loudly(tmp_path, capsys, args, needle):
+def test_illegal_flag_values_fail_loudly(tmp_path, capsys, args, needle):
     code = main(["--data-dir", str(tmp_path / "data"), "chat", *args])
     assert code == 1
     assert needle in capsys.readouterr().err
+
+
+def test_reasoning_accepts_the_three_real_levels(tmp_path, monkeypatch):
+    """`low` / `medium` / `high` 是**合法值**，不该再报"未实现"。
+
+    这条存在的理由：上一版把 `--reasoning` 整个当成未实现，于是"能不能传"这件事
+    从来没被验证过。现在它真的会改 `settings.reasoning_level`，所以要有一条
+    正向用例——否则下次有人把它改回去也不会红。
+    """
+    from app import reasoning
+    from app.cli.context import CliError
+
+    captured: dict = {}
+
+    def _boom(context):
+        # 记下改过的 settings，然后**主动抛一个具体异常**——不要用裸 Exception，
+        # 那会把「任何失败」都当成预期结果（ruff B017 拦得对）。
+        captured["settings"] = context.settings
+        raise CliError("测试用：栈不真的搭起来")
+
+    monkeypatch.setattr("app.cli.commands.chat._build_stack", _boom)
+    # `main()` 会把 CliError 转成退出码 1（打印消息），不会往外抛——所以断言退出码，
+    # 不断言异常。`_boom` 已经被调用过，说明 flag 处理走到了搭栈这一步。
+    code = main(["--data-dir", str(tmp_path / "data"), "chat", "--reasoning", "high", "-z", "hi"])
+    assert code == 1
+    assert captured.get("settings") is not None
+    assert captured["settings"].reasoning_level in reasoning.LEVELS
 
 
 def test_missing_in_dir_is_refused(tmp_path, capsys):

@@ -76,20 +76,41 @@ def build_stable(settings) -> str:
     return f"{soul}\n{SYSTEM}" if soul else SYSTEM
 
 
-def build_context_tier(settings, *, memory_text: str, profile_block: str) -> str:
-    """**Context 层**：随数据缓慢变化的部分（项目上下文 / 画像 / 长期记忆）。
+def build_context_tier(
+    settings,
+    *,
+    memory_text: str,
+    profile_block: str,
+    skills_block: str = "",
+    session_id: str = "",
+) -> str:
+    """**Context 层**：随数据缓慢变化的部分（项目上下文 / 画像 / 长期记忆 / 预载技能）。
 
     `memory_text` 由 `app/memory_prompt.py` 渲染，**自带标题行与用量**——
     这里不再加"长期记忆（数据）："之类的标签，否则同一段内容会有两个标题。
+
+    ## 三个开关（对应 `orbit chat` 的全局 flag）
+
+    * ``settings.ignore_rules`` / ``settings.safe_mode``：**不注入**项目上下文。
+      排查"是不是我的 AGENTS.md 把 agent 带歪了"时必须能一键关掉。
+    * ``skills_block``：`-s/--skills` 预载的技能正文。放 Context 层而不是 Stable 层，
+      因为它是"这次会话带了什么"，不是"这个 agent 是谁"——放错层会把提示缓存打掉。
+    * ``session_id``：`--pass-session-id` 时把会话 id 写进上下文，便于 agent 在
+      回复里引用（也让日志能和会话对上）。
     """
     blocks: list[str] = []
-    project, project_path = load_project_context()
-    if project:
-        blocks.append(f"# Project Context（{project_path}）\n{project}")
+    if not (getattr(settings, "ignore_rules", False) or getattr(settings, "safe_mode", False)):
+        project, project_path = load_project_context()
+        if project:
+            blocks.append(f"# Project Context（{project_path}）\n{project}")
+    if skills_block:
+        blocks.append(skills_block)
     if profile_block:
         blocks.append(profile_block)
     if memory_text:
         blocks.append(memory_text)
+    if session_id:
+        blocks.append(f"当前会话 id：{session_id}")
     return "\n".join(blocks)
 
 

@@ -174,6 +174,21 @@ def status_column_problems(text: str) -> list[str]:
                     f"{ident}：标了 🟢 但「差异：」段里出现 {('、'.join(hit))}——"
                     "这是环境限制，该用 ⚫（本机不可验证），不是有意差异"
                 )
+        if status == UNVERIFIABLE:
+            # ⚫ 的硬门禁：**必须证明实现真的存在**，否则它就是第二个垃圾桶——
+            # 这次收的是「压根没写」。判据是两段都得到：
+            #   `实现：<文件:行>` —— 代码在哪
+            #   `缺：<网络/凭证/硬件>` —— 差哪个外部条件才能验
+            #
+            # 这条门禁的理由：监视子agent 指出「能不能验证」与「实现在不在」是两件事。
+            # 没写的能力换什么机器都验不了，那必须留 🟡——⚫ 只能收「写好了但没法验」。
+            if "实现：" not in line:
+                problems.append(
+                    f"{ident}：标了 ⚫ 但没写「实现：<文件:行>」——没实现的能力换什么机器都验不了，"
+                    "该回 🟡 而不是 ⚫"
+                )
+            if "缺：" not in line:
+                problems.append(f"{ident}：标了 ⚫ 但没写「缺：<网络/凭证/硬件>」——不说缺什么等于没说")
     return problems
 
 
@@ -206,11 +221,12 @@ def main() -> int:
         f"⚫ {actual['unverifiable']} · 🟡 {actual['partial']} · ⬜ {actual['todo']}"
     )
     print(f"  严格完成度      {completion(actual):.1f}%  = (✅+🟢) / 总数（离目标多远）")
-    if actual["unverifiable"]:
-        print(
-            f"  可验证完成度    {verifiable_completion(actual):.1f}%  = (✅+🟢) / (总数−⚫)"
-            "（本机能验的部分做完多少）"
-        )
+    # **两个口径永远都打印**，哪怕 ⚫ = 0。只在 ⚫ > 0 时才打第二个数，读者根本不知道
+    # 有第二个口径——双口径的意义就在于"总能看到两个数"。
+    print(
+        f"  可验证完成度    {verifiable_completion(actual):.1f}%  = (✅+🟢) / (总数−⚫)"
+        f"（本机能验的部分做完多少；⚫ = {actual['unverifiable']}）"
+    )
 
     dupes = duplicate_ids(text)
     if dupes:

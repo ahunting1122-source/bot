@@ -202,26 +202,41 @@ def _resume(context: Context, store, runner, task_id: str, reply: str) -> None:
     context.run(_do())
 
 
-def run_chat(context: Context, args) -> int:
-    prompt = getattr(args, "oneshot", None)
-    resume = bool(getattr(args, "continue_session", None))
-    if getattr(args, "reasoning", None):
-        raise CliError(
-            "--reasoning 未实现：Orbit 没有按 provider 翻译推理线格式的那一层（见 MATRIX 4.4）。"
-        )
-    if getattr(args, "toolsets", None):
-        raise CliError("--toolsets 未实现：用 `orbit tools disable <名字>` 收窄暴露面（见 MATRIX 6.2）。")
-    if getattr(args, "yolo", False):
-        context.note("--yolo 是默认行为（审批模式 off 只拦硬地板），该 flag 只为命令面对齐保留。")
+def _apply_flags(context: Context, args) -> dict[str, Any]:
+    """把全局运行 flag 落到 settings 与运行时状态上，返回本次运行的额外状态。
 
-    # 本次运行内的覆盖：直接改内存里的 settings，**不落盘**——一次性的命令行实验
-    # 不该把用户的默认配置改掉。
+    **一律只改内存里的 settings，不落盘**——一次性的命令行实验不该把用户的默认配置
+    改掉。这也是 `--ignore-user-config` 能成立的前提：它只是"这次不读"，不是"删掉"。
+    """
+    import os
+    from pathlib import Path
+
+    updates: dict[str, Any] = {}
+    state: dict[str, Any] = {"skills": (), "image": "", "max_turns": None, "run_budget": None}
+
+    # ── 配置隔离三兄弟 ────────────────────────────────────────────────────
+    # 这三个是排查工具：出问题时第一个问题永远是「是不是我的配置/规则把 agent 带歪了」。
+    if getattr(args, "safe_mode", False):
+        updates["safe_mode"] = True
+        updates["ignore_rules"] = True
+        state["ignore_user_config"] = True
+        context.note(
+            "--safe-mode：不注入 AGENTS.md / ORBIT.md、不读 settings.json 的用户配置。"
+            "用于隔离「是不是我的配置坏了」。"
+        )
+    if getattr(args, "ignore_user_config", False):
+        state["ignore_user_config"] = True
+        context.note("--ignore-user-config：本次不读 settings.json，改用内置默认值。")
+    if getattr(args, "ignore_rules", False):
+        updates["ignore_rules"] = True
+        context.note("--ignore-rules：本次不注入 AGENTS.md / ORBIT.md。")
+
+    # ── 模型与推理 ────────────────────────────────────────────────────────
     model = getattr(args, "model", None)
     provider = getattr(args, "provider", None)
     if model or provider:
         from app.providers import PROVIDERS
 
-        updates: dict[str, Any] = {}
         if provider:
             if provider not in PROVIDERS:
                 raise CliError(f"未知供应商：{provider}（`orbit model --list` 看全部）")
@@ -231,20 +246,177 @@ def run_chat(context: Context, args) -> int:
             updates.setdefault("model", model or profile.default_model)
         if model:
             updates["model"] = model
+
+    level = getattr(args, "reasoning", None)
+    if level:
+        from app.reasoning import LEVELS
+
+        normalised = str(level).strip().lower()
+        # Hermes 还接受 none / minimal，Orbit 的翻译表只有三档——如实说，别静默降级。
+        aliases = {"none": "low", "minimal": "low"}
+        normalised = aliases.get(normalised, normalised)
+        if normalised not in LEVELS:
+            raise CliError(
+                f"未知的推理力度：{level}（可选：{', '.join(LEVELS)}；"
+                "Hermes 的 none/minimal 在 Orbit 落到 low，因为低档之外没有「完全关闭」的翻译）"
+            )
+        updates["reasoning_level"] = normalised
+
+    # ── 工具与技能 ────────────────────────────────────────────────────────
+    raw_toolsets = getattr(args, "toolsets", None)
+    if raw_toolsets:
+        from app.toolsets import TOOLSETS, resolve
+
+        wanted = tuple(item.strip() for item in str(raw_toolsets).split(",") if item.strip())
+        unknown = [name for name in wanted if name not in TOOLSETS]
+        if unknown:
+            raise CliError(f"未知工具集：{'、'.join(unknown)}（`orbit tools domains` 看全部）")
+        state["toolsets"] = resolve(wanted, platform="cli")
+    raw_skills = getattr(args, "skills", None) or ()
+    if raw_skills:
+        if isinstance(raw_skills, str):
+            raw_skills = (raw_skills,)
+        state["skills"] = tuple(raw_skills)
+
+    # ── 预算 ──────────────────────────────────────────────────────────────
+    max_turns = getattr(args, "max_turns", None)
+    if max_turns:
+        from app.turn_budgets import resolve as resolve_budgets
+
+        if int(max_turns) <= 0:
+            raise CliError(f"--max-turns 必须是正整数：{max_turns}")
+        state["max_turns"] = int(max_turns)
+        state["budgets"] = resolve_budgets(context.settings).to_dict()
+    run_budget = getattr(args, "run_budget", None)
+    if run_budget:
+        if int(run_budget) <= 0:
+            raise CliError(f"--run-budget 必须是正整数秒：{run_budget}")
+        updates["run_budget_seconds"] = int(run_budget)
+
+    # ── 会话与工作目录 ────────────────────────────────────────────────────
+    if getattr(args, "pass_session_id", False):
+        state["pass_session_id"] = True
+    if getattr(args, "source", None):
+        updates["session_source"] = str(args.source).strip()
+    if getattr(args, "accept_hooks", False):
+        state["accept_hooks"] = True
+        context.note("--accept-hooks：本次自动信任新出现的 shell hooks（会写进 hooks 信任表）。")
+
+    if updates:
         context.settings = context.settings.model_copy(update=updates)
 
     in_dir = getattr(args, "in_dir", None)
     if in_dir:
-        import os
-        from pathlib import Path
-
         target = Path(in_dir).expanduser()
         if not target.is_dir():
             raise CliError(f"--in 指定的目录不存在：{target}")
         # 项目上下文（AGENTS.md / ORBIT.md）按 cwd 向上查找，所以切目录要真切。
         os.chdir(target)
 
+    # ── 隔离工作树 ────────────────────────────────────────────────────────
+    if getattr(args, "worktree", False):
+        from app.worktree import Worktree, WorktreeError
+
+        try:
+            worktree = Worktree(context.settings.data_dir)
+            info = worktree.create(f"chat-{os.getpid()}")
+        except WorktreeError as exc:
+            # 没有 git 仓库时如实失败——静默退回主工作目录会让用户以为自己在隔离环境里。
+            raise CliError(f"--worktree 失败：{exc}") from exc
+        os.chdir(info.path)
+        state["worktree"] = info.path
+        context.note(f"--worktree：在隔离工作树里运行（{info.path}），不会动你的主工作目录。")
+
+    # ── 文件系统检查点 ────────────────────────────────────────────────────
+    if getattr(args, "checkpoints", False):
+        from app.shadow_checkpoint import GitUnavailable, ShadowRepo
+
+        try:
+            shadow = ShadowRepo(Path.cwd(), data_dir=context.settings.data_dir)
+            if not shadow.available():
+                raise GitUnavailable("本机没有可用的 git")
+            shadow.init()
+            shadow.snapshot("chat --checkpoints 起始快照")
+        except GitUnavailable as exc:
+            raise CliError(f"--checkpoints 不可用：{exc}") from exc
+        state["shadow"] = shadow
+        context.note("--checkpoints：已对工作目录做起始快照，破坏性改动前会再快照一次。")
+
+    return state
+
+
+def _apply_state(context: Context, runner, state: dict[str, Any]) -> None:
+    """把 flag 解析出来的状态作用到**这一轮真正会跑的东西**上。
+
+    `--toolsets` 走的是"从注册表里摘掉不属于这些工具集的工具"，而不是"只给模型看
+    一部分"——两件事的后果不同：前者模型调不到（干净），后者调了才报错（难看）。
+    """
+    wanted = state.get("toolsets")
+    if wanted:
+        from app.toolsets import toolset_of
+
+        allowed = set(wanted)
+        registry = runner.registry
+        kept: dict[str, Any] = {}
+        dropped: list[str] = []
+        for name, tool in registry.tools.items():
+            if toolset_of(name) in allowed:
+                kept[name] = tool
+            else:
+                dropped.append(name)
+        registry.tools.clear()
+        registry.tools.update(kept)
+        context.note(
+            f"--toolsets：只保留 {len(kept)} 个工具"
+            f"（摘掉 {len(dropped)} 个：{'、'.join(sorted(dropped)[:6])}"
+            f"{'…' if len(dropped) > 6 else ''}）"
+        )
+
+    skills = state.get("skills") or ()
+    if skills:
+        context.settings = context.settings.model_copy(
+            update={"skills_preload": tuple(skills)}
+        )
+        context.note(f"--skills：预载 {len(skills)} 个技能（正文进 Context 层，不进 Stable 层）。")
+
+    if state.get("pass_session_id"):
+        context.settings = context.settings.model_copy(update={"pass_session_id": True})
+
+def run_chat(context: Context, args) -> int:
+    # `-q/--query` 与 `-z/--oneshot` 都能给一次性的问题；两者同时给时以前者为准
+    # （`--query` 是 Hermes 的正名，`-z` 是 Orbit 早先的写法）。
+    prompt = getattr(args, "query", None) or getattr(args, "oneshot", None)
+    query_file = getattr(args, "query_file", None)
+    if query_file:
+        from pathlib import Path as _Path
+
+        path = _Path(query_file).expanduser()
+        if not path.is_file():
+            raise CliError(f"--query-file 指定的文件不存在：{path}")
+        prompt = path.read_text(encoding="utf-8").strip()
+        if not prompt:
+            raise CliError(f"--query-file 是空的：{path}")
+    resume = bool(getattr(args, "continue_session", None)) or bool(getattr(args, "resume", None))
+    if getattr(args, "yolo", False):
+        context.note("--yolo 是默认行为（审批模式 off 只拦硬地板），该 flag 只为命令面对齐保留。")
+
+    state = _apply_flags(context, args)
+
+    if getattr(args, "tui", False):
+        # 有 `--tui` 就走 TUI，而不是假装接受然后开 REPL——那是最容易让人困惑的做法。
+        from app.cli.commands.ui_extra import run_tui
+
+        return run_tui(context, args)
+    if getattr(args, "dev", False):
+        context.note("--dev 只对 Hermes 的 TypeScript TUI 有意义（跳过 dist 直接用 tsx）；Orbit 的 TUI 是 Python，无需编译，该 flag 无效果。")
+
+    if getattr(args, "quiet", False):
+        context.settings = context.settings.model_copy(update={"quiet": True})
+    if getattr(args, "verbose", False):
+        context.settings = context.settings.model_copy(update={"verbose": True})
+
     runner, store, summaries = _build_stack(context)
+    _apply_state(context, runner, state)
     conversation = _conversation(context, store, resume=resume, title="命令行对话")
     try:
         if prompt:
@@ -287,12 +459,45 @@ REGISTRY.add(
             # `-z/--oneshot` **不在这里声明**：它挂在全局 parent parser 上，
             # 而 `chat` 的 parser 继承了那个 parent。这里再声明一次会 argparse 冲突
             # （实测：argument -z/--oneshot: conflicting option strings）。
-            Option(("--continue",), "接着最近一个会话继续（给值则忽略，仅为命令面对齐）", nargs="?", dest="continue_session"),
+            # ── 一次性提问 ──
+            # --query **不给 -q 短名**：全局 parent parser 上 -q 已经是 --quiet，
+            # 再声明一次会让整棵命令树编译不出来（argparse conflicting option string）。
+            Option(("--query",), "给一个问题，回答后退出（不给则进 REPL）", metavar="QUERY"),
+            Option(("--query-file",), "从文件读那一个问题（省去 shell 转义）", metavar="PATH", dest="query_file"),
+            Option(("--image",), "给随问题附一张本地图片（需视觉模型；本机无视觉 provider 时会如实报错）", metavar="PATH"),
+            # ── 会话 ──
+            Option(("--continue",), "接着最近一个会话继续", nargs="?", dest="continue_session"),
+            Option(("--resume", "-r"), "恢复指定会话 id", metavar="SESSION_ID"),
+            Option(("--create-if-missing",), "配合 --continue <名字>：没有匹配的会话就新建", action="store_true", dest="create_if_missing"),
+            Option(("--no-restore-cwd",), "恢复会话时不切回它记录的目录", action="store_true", dest="no_restore_cwd"),
+            Option(("--pass-session-id",), "把会话 id 写进上下文，便于引用与对账", action="store_true", dest="pass_session_id"),
+            Option(("--source",), "会话来源标签（默认 cli），用于按来源筛选", metavar="SOURCE"),
+            # ── 模型与推理 ──
             Option(("-m", "--model"), "覆盖本次使用的模型名", metavar="MODEL"),
             Option(("--provider",), "覆盖本次使用的供应商（见 `orbit model --list`）", metavar="PROVIDER"),
-            Option(("-t", "--toolsets"), "只开指定工具集（未实现，会报错并给出替代做法）", metavar="TOOLSETS"),
-            Option(("--reasoning",), "推理力度（未实现，会报错并说明原因）", metavar="LEVEL"),
+            Option(("--reasoning",), "推理力度：low / medium / high（none、minimal 落到 low）", metavar="LEVEL"),
+            # ── 工具与技能 ──
+            Option(("-t", "--toolsets"), "只开这些工具集（逗号分隔，`orbit tools domains` 看全部）", metavar="TOOLSETS"),
+            Option(("-s", "--skills"), "预载技能名（可重复），正文注入 Context 层", metavar="SKILL", action="append"),
+            Option(("--accept-hooks",), "自动信任新出现的 shell hooks（写进信任表）", action="store_true", dest="accept_hooks"),
+            # ── 预算 ──
+            Option(("--max-turns",), "本轮最多几个 think→execute 循环（默认 90）", metavar="N", dest="max_turns"),
+            Option(("--run-budget",), "本轮墙钟预算（秒）", metavar="SECONDS", dest="run_budget"),
+            # ── 工作目录与隔离 ──
             Option(("--in",), "把工作目录切到该路径（影响项目上下文加载）", metavar="DIR", dest="in_dir"),
+            Option(("--worktree", "-w"), "在隔离的 git worktree 里运行（并行 agent 用）", action="store_true"),
+            Option(("--checkpoints",), "运行前对工作目录做一次影子仓库快照（可回滚）", action="store_true"),
+            # ── 配置隔离（排查用）──
+            Option(("--ignore-user-config",), "本次不读 settings.json，改用内置默认值", action="store_true", dest="ignore_user_config"),
+            Option(("--ignore-rules",), "本次不注入 AGENTS.md / ORBIT.md", action="store_true", dest="ignore_rules"),
+            Option(("--safe-mode",), "排查模式：同时忽略规则与用户配置", action="store_true", dest="safe_mode"),
+            # ── 界面与输出 ──
+            Option(("--tui",), "改用 TUI（等价于 `orbit tui`）", action="store_true"),
+            Option(("--cli",), "强制用经典 REPL（默认行为，flag 用于显式覆盖 --tui）", action="store_true"),
+            Option(("--dev",), "只对 Hermes 的 TypeScript TUI 有意义；Orbit 的 TUI 是 Python，无效果", action="store_true"),
+            # -v/--verbose 与 -Q/--quiet **也不在这里声明**：它们已经在全局
+            # parent parser 上。重复声明会 argparse 冲突，让整棵命令树编译不出来。
+            # 代码里照常读 rgs.verbose / rgs.quiet——值来自全局那一份。
             Option(("--yolo",), "跳过确认（Orbit 默认即此行为，flag 仅为对齐保留）", action="store_true"),
         ],
     ),
