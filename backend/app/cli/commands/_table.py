@@ -73,22 +73,37 @@ class Spec:
 
     def build(self, prefix: str = "") -> Command:
         path = f"{prefix} {self.name}".strip()
-        # 叶子命令才有 handler；有子命令的中间节点只做分组。
-        implemented = bool(not self.subcommands and path in HANDLERS)
-        if self.subcommands:
+        children = [sub.build(path) for sub in self.subcommands]
+        claimed = HANDLERS.get(path)
+        if claimed is not None:
+            # 本节点自己有动作。可能是叶子，也可能是「裸命令 + 子命令」并存的节点
+            # （`orbit dashboard` 起面板、`orbit dashboard register` 注册插件页面）。
+            # 早先的实现一律不给中间节点 handler，于是 `orbit dashboard` 只能打印帮助。
+            handler, state = claimed, "done"
+        elif children:
+            # 纯分组节点：自己不承接动作，状态由子节点汇总。
+            # 早先一律标 todo，导致「子命令全实现了的父节点仍显示未实现」——
+            # 完成度被系统性低估（`skin` 就是这么被低估的）。
+            states = {child.state for child in children}
+            if states == {"done"}:
+                state = "done"
+            elif states & {"done", "partial"}:
+                state = "partial"
+            else:
+                state = "todo"
             handler = None
         else:
-            handler = HANDLERS.get(path) or _pending(path, self.wave)
+            handler, state = _pending(path, self.wave), "todo"
         return Command(
             name=self.name,
             help=self.help,
             handler=handler,
             options=[_option(item) for item in self.options],
-            subcommands=[sub.build(path) for sub in self.subcommands],
+            subcommands=children,
             group=self.group,
             hermes=self.hermes or path,
             parity=self.parity,
-            state="done" if implemented else "todo",
+            state=state,
             aliases=self.aliases,
             needs_store=self.needs_store,
         )

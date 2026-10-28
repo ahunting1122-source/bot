@@ -692,3 +692,379 @@ class MCPManager:
         if shape.get("is_error") or shape.get("isError"):
             payload["is_error"] = True
         return payload
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# W7 追加区：单服务探测 / OAuth token 存储 / 带扩展字段的写盘
+#
+# 为什么是"追加"而不是改既有实现：上面两个入口各有它服务的调用方，语义不能动——
+#
+# - ``MCPManager.start()`` 是**常驻**入口：连接全部服务、注册工具、起看门狗和后台
+#   重连。CLI 的 `mcp test` 只需要"连一次、问清楚它有什么、断开"，走 start() 会顺带
+#   起一堆永不自行退出的 task（``close()`` 之前一直挂着），副作用远大于需求。
+# - ``save_servers()`` 是对外配置的**字段白名单**（env/headers/args/…），多余字段被
+#   有意丢弃。而 `mcp add --connect-timeout/--auth` 要落的 ``timeout`` / ``auth``
+#   恰好在这个白名单之外，所以单开一个写盘函数，而不是放宽白名单。
+#
+# 本段刻意**不新增文件级 import**（ruff 的 E402 不允许文件中部 import）：需要时间的
+# 地方走 :func:`_epoch_now`，函数内 import 一次。
+# ══════════════════════════════════════════════════════════════════════════════
+
+#: `save_servers` 白名单之外、W7 新增的服务字段（`mcp add` 要落、连接时要读）。
+EXTRA_SERVER_FIELDS = ("timeout", "auth")
+
+#: keyring 里 OAuth token 的键前缀（与 `mcp:<server>:<name>` 的密钥键区分开）。
+OAUTH_KEY_PREFIX = "oauth:"
+#: 提前多少秒把 token 判成"即将过期"：网络往返与系统时钟偏差都要留余量，
+#: 否则会在请求刚发出时过期，报出来的却是 401 —— 那是最难归因的一类失败。
+OAUTH_EXPIRY_SKEW = 60.0
+
+
+def _epoch_now() -> float:
+    """当前 epoch 秒（浮点）。
+
+    在函数内 import 而不是文件顶部：本段是追加区，不碰既有导入块（见段首说明）。
+    """
+    import time
+
+    return time.time()
+
+
+def _capability(client, name: str) -> bool:
+    """服务是否声明了某项能力（``prompts`` / ``resources``）。
+
+    先读 ``initialize_result`` 里的能力声明再决定要不要发请求——这是 Hermes 的
+    "能力声明前置"：没声明的服务被调用会抛 ``Method not found``，把它当成"空清单"
+    处理会让"服务不支持"和"服务出错了"两件事混成同一个现象。
+    """
+    try:
+        caps = client.server_capabilities
+    except Exception:  # noqa: BLE001 - 拿不到能力声明按"不支持"处理
+        return False
+    return bool(dumped(caps).get(name))
+
+
+def _prompt_arguments(prompt) -> list[dict]:
+    """把 prompt 的参数声明摊平成 ``[{name, required, description}]``。"""
+    rows: list[dict] = []
+    for item in dumped(prompt).get("arguments") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("name") or "")
+        if not label:
+            continue
+        rows.append(
+            {
+                "name": label,
+                "required": bool(item.get("required", False)),
+                "description": str(item.get("description") or ""),
+            }
+        )
+    return rows
+
+
+async def probe(settings, entry: dict, *, limit: float | None = None) -> dict:
+    """连一次某个服务，报告它提供什么，然后断开（`mcp test` / `mcp prompts` 用）。
+
+    与 :meth:`MCPManager.start` 的区别是**一次性且无残留**：自己一个 ``AsyncExitStack``，
+    不注册工具、不起看门狗、不进 ``self.status``。失败也如实返回（``ok=False`` +
+    ``error``），不抛——CLI 要把失败原因原样打给用户，而不是吞成栈。
+
+    超时优先取调用方给的 ``limit``，其次服务配置里的 ``timeout``，最后 ``CONNECT_TIMEOUT``。
+    （参数名不用 ``timeout``：ruff 的 ASYNC109 认为异步函数带这个名字是在自己造超时机制，
+    而这里统一走 ``asyncio.timeout``。）
+    """
+    name = str(entry.get("name") or "")
+    limit = float(limit or entry.get("timeout") or CONNECT_TIMEOUT)
+    report: dict = {
+        "name": name,
+        "ok": False,
+        "error": "",
+        "tools": [],
+        "prompts": [],
+        "resources": [],
+        "templates": [],
+    }
+    manager = MCPManager(settings)
+    inner = AsyncExitStack()
+    try:
+        async with asyncio.timeout(limit):
+            client = await inner.enter_async_context(manager._client(entry))
+            listing = await client.list_tools()
+            report["tools"] = [
+                {
+                    "name": str(dumped(tool).get("name") or ""),
+                    "description": str(dumped(tool).get("description") or ""),
+                }
+                for tool in listing.tools
+            ]
+            if _capability(client, "prompts"):
+                prompts = await client.list_prompts()
+                report["prompts"] = [
+                    {
+                        "name": str(dumped(prompt).get("name") or ""),
+                        "description": str(dumped(prompt).get("description") or ""),
+                        "arguments": _prompt_arguments(prompt),
+                    }
+                    for prompt in prompts.prompts
+                ]
+            if _capability(client, "resources"):
+                # 只取第一页：这是"体检"命令，翻 50 页只为报个数不值得多等几秒。
+                resources = await client.list_resources()
+                report["resources"] = [
+                    {
+                        "uri": str(dumped(item).get("uri") or ""),
+                        "name": str(dumped(item).get("name") or ""),
+                        "mime_type": str(dumped(item).get("mime_type") or ""),
+                        "size": dumped(item).get("size"),
+                    }
+                    for item in resources.resources
+                ]
+                templates = await client.list_resource_templates()
+                report["templates"] = [
+                    {
+                        "uri_template": str(dumped(item).get("uri_template") or ""),
+                        "name": str(dumped(item).get("name") or ""),
+                    }
+                    for item in templates.resource_templates
+                ]
+    except TimeoutError:
+        report["error"] = f"连接或发现工具超过 {limit:g} 秒未完成"
+        return report
+    except Exception as exc:  # noqa: BLE001 - 探测失败是预期结果，原样报给用户
+        report["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+        return report
+    finally:
+        # 顺序要紧：先关 HTTP 客户端（远程服务），再收 stdio 子进程。
+        for http_client in manager._http_clients:
+            with suppress(Exception):
+                await http_client.aclose()
+        with suppress(Exception):
+            await inner.aclose()
+    report["ok"] = True
+    return report
+
+
+class TokenRecord:
+    """一个 MCP 服务的 OAuth token。
+
+    刻意不用 ``@dataclass``：本段不新增文件级 import（见段首说明），而 keyring 里
+    存的是 JSON，字段少且都带默认值，普通类足够。
+    """
+
+    __slots__ = (
+        "server",
+        "access_token",
+        "refresh_token",
+        "token_type",
+        "expires_at",
+        "obtained_at",
+        "scope",
+    )
+
+    def __init__(
+        self,
+        server: str,
+        access_token: str,
+        *,
+        refresh_token: str = "",
+        token_type: str = "Bearer",
+        expires_at: float = 0.0,
+        obtained_at: float = 0.0,
+        scope: str = "",
+    ) -> None:
+        self.server = server
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.token_type = token_type
+        #: 绝对到期时刻（epoch 秒）。**0 = 服务没给 expires_in，即"不知道何时过期"**，
+        #: 与"已过期"是两件事，不能混（混了会把长效 token 每次判死）。
+        self.expires_at = float(expires_at or 0.0)
+        self.obtained_at = float(obtained_at or 0.0)
+        self.scope = scope
+
+    def as_dict(self) -> dict:
+        """落 keyring 的 JSON 载荷。字段名与 OAuth 令牌响应同名，便于直接对账。"""
+        return {
+            "server": self.server,
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "token_type": self.token_type,
+            "expires_at": self.expires_at,
+            "obtained_at": self.obtained_at,
+            "scope": self.scope,
+        }
+
+    @classmethod
+    def from_payload(cls, server: str, payload) -> "TokenRecord | None":
+        """从 keyring 读回的 JSON 还原。坏载荷返回 None（宁可报"未配置"也不要崩）。"""
+        if not isinstance(payload, dict):
+            return None
+        token = str(payload.get("access_token") or "")
+        if not token:
+            return None
+        try:
+            expires_at = float(payload.get("expires_at") or 0.0)
+            obtained_at = float(payload.get("obtained_at") or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return cls(
+            server,
+            token,
+            refresh_token=str(payload.get("refresh_token") or ""),
+            token_type=str(payload.get("token_type") or "Bearer"),
+            expires_at=expires_at,
+            obtained_at=obtained_at,
+            scope=str(payload.get("scope") or ""),
+        )
+
+    def seconds_left(self, now: float | None = None) -> float | None:
+        """距到期的秒数；``expires_at == 0``（未知）返回 None，不是 0。"""
+        if self.expires_at <= 0:
+            return None
+        return self.expires_at - (_epoch_now() if now is None else now)
+
+    def is_expired(self, now: float | None = None, *, skew: float = 0.0) -> bool:
+        """是否已过期（``skew`` 提前量用于"即将过期"判定）。未知到期时间 → False。"""
+        left = self.seconds_left(now)
+        return left is not None and left <= skew
+
+
+class OAuthStore:
+    """MCP OAuth token 的存储与过期检查（keyring 后端）。
+
+    **本轮只做这一半**：存取 + 过期判定。真正的授权流程（发现 authorization server
+    元数据 → PKCE → 本地回调 HTTP 服务器 → 换 token）没有做，原因写在
+    ``app/cli/commands/mcp.py`` 的 `mcp auth login` 报错文案里：它需要开监听端口并等
+    浏览器回调，本机无网络、也没有真实 OAuth 服务可联调，做出来只能是不可验证的壳。
+
+    服务名与既有密钥一致：``service = f"orbit:{data_dir}"``，于是同一个数据目录下的
+    MCP 密钥与 token 落在同一个 vault 条目下，卸载/迁移时一起走。
+    """
+
+    def __init__(self, service: str) -> None:
+        self.service = service
+
+    @classmethod
+    def for_settings(cls, settings) -> "OAuthStore":
+        """按 ``Settings`` 构造：service 名与 `MCPManager.service` 同源。"""
+        return cls(f"orbit:{Path(settings.data_dir).resolve()}")
+
+    def _key(self, server: str) -> str:
+        return f"{OAUTH_KEY_PREFIX}{server}"
+
+    def set(
+        self,
+        server: str,
+        access_token: str,
+        *,
+        refresh_token: str = "",
+        expires_in: float = 0.0,
+        token_type: str = "Bearer",
+        scope: str = "",
+        now: float | None = None,
+    ) -> TokenRecord:
+        """存一个 token。``expires_in`` 是相对秒数（OAuth 令牌响应的写法），这里换算成
+        绝对时刻再落盘——存相对值的话，进程重启后"还剩多少秒"就无从算起。"""
+        moment = _epoch_now() if now is None else now
+        try:
+            ttl = float(expires_in or 0.0)
+        except (TypeError, ValueError):
+            ttl = 0.0
+        record = TokenRecord(
+            server,
+            str(access_token),
+            refresh_token=str(refresh_token or ""),
+            token_type=str(token_type or "Bearer"),
+            expires_at=(moment + ttl) if ttl > 0 else 0.0,
+            obtained_at=moment,
+            scope=str(scope or ""),
+        )
+        keyring.set_password(self.service, self._key(server), json.dumps(record.as_dict()))
+        return record
+
+    def get(self, server: str) -> TokenRecord | None:
+        """读 token。keyring 不可用或载荷坏了都返回 None，由调用方报"未配置"。"""
+        try:
+            raw = keyring.get_password(self.service, self._key(server))
+        except Exception:  # noqa: BLE001 - 后端不可用（无 vault）不该让命令崩
+            return None
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            return None
+        return TokenRecord.from_payload(server, payload)
+
+    def clear(self, server: str) -> bool:
+        """删 token。返回是否真的删掉了一条（"本来就没有"不算失败）。"""
+        if self.get(server) is None:
+            return False
+        with suppress(Exception):
+            keyring.delete_password(self.service, self._key(server))
+            return True
+        return False
+
+    def status(
+        self, server: str, *, now: float | None = None, skew: float = OAUTH_EXPIRY_SKEW
+    ) -> dict:
+        """一个服务的 token 状态：``missing`` / ``expired`` / ``expiring`` / ``valid``。
+
+        ``expiring`` 与 ``valid`` 分开，是因为两者的处置不同：前者该续期，后者什么都不用做。
+        """
+        record = self.get(server)
+        if record is None:
+            return {"server": server, "state": "missing", "expires_at": 0.0, "seconds_left": None}
+        left = record.seconds_left(now)
+        if left is None:
+            state = "valid"
+        elif left <= 0:
+            state = "expired"
+        elif left <= skew:
+            state = "expiring"
+        else:
+            state = "valid"
+        return {
+            "server": server,
+            "state": state,
+            "expires_at": record.expires_at,
+            "seconds_left": None if left is None else round(left, 1),
+        }
+
+
+def write_servers(manager: "MCPManager", servers: list[dict]) -> list[dict]:
+    """把服务清单写回 ``mcp.json``，并保留 ``save_servers`` 白名单外的 W7 字段。
+
+    两步而不是一步，理由是把"校验"和"字段保留"分开：
+
+    1. ``manager.save_servers()`` 做全部校验（name / command-or-url）与规范化并落盘；
+    2. 再把 ``timeout`` / ``auth`` 补回文件。
+
+    为什么不给 ``save_servers`` 加字段：它是对外配置的规范化入口，放宽白名单会改变
+    既有调用方的行为（多余字段不再被丢弃），而那条语义是有意为之的。
+    """
+    manager.save_servers(servers)
+    extras: dict[str, dict] = {}
+    for entry in servers:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        picked = {
+            field: entry[field]
+            for field in EXTRA_SERVER_FIELDS
+            if entry.get(field) not in (None, "", False)
+        }
+        if name and picked:
+            extras[name] = picked
+    if not extras:
+        return manager.servers()
+    payload = json.loads(manager.path.read_text(encoding="utf-8"))
+    for record in payload.get("servers") or []:
+        extra = extras.get(str(record.get("name") or ""))
+        if extra:
+            record.update(extra)
+    manager.path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return manager.servers()

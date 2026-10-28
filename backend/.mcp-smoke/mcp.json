@@ -1,0 +1,18 @@
+{
+  "servers": [
+    {
+      "name": "rich",
+      "enabled": true,
+      "auto_approve": false,
+      "index_resources": false,
+      "command": "E:\\bbbooottt\\backend\\.venv\\Scripts\\python.exe",
+      "args": [
+        "tests/fixtures/rich_mcp_server.py"
+      ],
+      "env": {
+        "A": "1",
+        "B": "2"
+      }
+    }
+  ]
+}
