@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 127 · 🟡 46 · ⬜ 8（完成度 70.2%，截至 W3/W6/W8/W9/W12 收口；按**状态列**口径）
+条目合计 **181**。当前：✅ 129 · 🟡 46 · ⬜ 6（完成度 71.3%，按**状态列**口径）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -40,7 +40,7 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 2.1 | 单循环 + 传输适配器归一化多 provider | 【推断】`agent/conversation_loop.py` | W3 | ⬜ | — |
+| 2.1 | 单循环 + 传输适配器归一化多 provider | 【推断】`agent/conversation_loop.py` | W3 | ✅ | `app/graph/nodes.py` 只有**一个** `think` + 一个 `execute`（AST 断言各出现 1 次），所有 provider 归一化到 `providers._build_openai_chat` **这一个工厂**（`agent.py` 与 `graph/` 里一处客户端构造都没有，走 AST 断言而不看注释）；provider 之间**只差参数**——工厂 kwargs 里必须有 `base_url`，主循环路径上不出现 `ChatAnthropic` / `ChatBedrock` / `ChatGoogleGenerativeAI`。**为什么这件事重要**：换 provider 不需要改循环；工具调用/重试/预算/中断只有一份实现；回退链才有意义（下一站与这一站说同一种协议）。`tests/test_single_loop.py` 4 条 |
 | 2.2 | 三套**独立不叠加**的迭代预算：父 `agent.max_turns` 默认 **90**、子 `delegation.max_iterations` 默认 **50**、`DEFAULT_MAX_ITERATIONS=250` 只是 config 缺省兜底（不是运行值）；desktop 入口另有 500 档 | 【实证】`delegate_tool.py:1150`；本机日志 `budget=…/90` 327 条、`max_iterations_reached(50/50)`；调研 09 §1 | W11 | 🟡 | 动作 / token / 时间三层预算已落地（见 2.9）；委派侧另有子任务独立预算（`app/delegate.py`，父预算不因子任务扣减）。**缺**：`agent.max_turns` 默认 90 与 `delegation.max_*` 的完整三套并行阈值未逐一对齐 |
 | 2.3 | 心跳 30s + 双阈值判卡死（idle 15 周期=**450s** / in-tool 40 周期=**1200s**），超阈值只 break 续命、由 gateway inactivity 超时执行真正的杀 =「级联」 | 【实证】`delegate_tool.py:1169,1184,1185`；调研 09 §2 | W11 | ✅ | `app/heartbeat.py`：心跳 30s + **双阈值**（空闲 15 周期 = **450s**、工具执行中 40 周期 = **1200s**）；`status()` 给 `{alive, idle_seconds, in_tool_seconds, stuck, stuck_at, step, tool}`。**为什么双阈值**：工具执行本来就可能长（编译、跑测试），用同一个阈值会把正常长任务判成卡死；而空闲 450s 一定是出事了。接进 `Nodes`（每节点进入 beat 一次，执行工具时切到工具档），**未改 graph 编排**。stuck 只报不动手（同 Hermes：撤续命、交给上一级）。`tests/test_heartbeat.py` |
 | 2.4 | 中断配对：工具**返回** `{"output":"[interrupted]","returncode":130}` 而非抛异常；父中断时未完成 child 被合成 `status=interrupted` 结果条目；不可修 arguments 降级为 `{}` | 【实证】`tools/interrupt.py`；`delegate_tool.py:4289-4327` | W11 | ✅ | `errors_retry.interrupted_result(name)` → `{"status":"interrupted","output":"[interrupted]","returncode":130}`；被标记中断时 `Nodes.execute` **为每个待执行调用各补一条 ToolMessage**（不抛异常、不跳过）；另有 `repair_tool_pairs()` 在 `think` 里给历史补占位（覆盖硬取消/进程被杀后 checkpoint 里的半个配对）。**用例断言 `tool_calls` 条数 == `ToolMessage` 条数**——抛异常会让配对当场非法，下一次请求直接被供应商 400。`tests/test_core_loop.py` |
@@ -171,7 +171,7 @@
 | 9.11 | holographic 本地图记忆（HRR dim=1024、权重 fts0.4/jaccard0.3/hrr0.3、trust ±0.05/−0.10） | 【实证】`plugins/memory/holographic/` | W6 | ✅ | `app/holographic.py`：HRR 编码（dim **1024**），`encode` 用 `hashlib` 派生种子做确定性伪随机相位（**不用 `random`**——要可复现），`bind` / `unbind` 用 FFT 做循环卷积与相关，`superpose` 叠加；`score` 组合三路信号 **fts 0.4 / jaccard 0.3 / hrr 0.3**（research 07 §4.1）。**实测还原相似度**：单字 1.0；多词叠加后 0.78（串扰，已单列用例钉住，不装成精确）。不引图数据库——几百条量级 O(n²) 几十毫秒。`tests/test_holographic.py` |
 | 9.12 | 写入门禁（威胁扫描 → 审批三态 → 快照期二次扫描） | 【实证】调研 07 §5 | W6 | ✅ | `app/memory_write.py::check_write` **已接进真实写入路径**：`tools.py` 的 `memory_save` 与 `memory batch` 都过门禁。三段是①`threat_scan` 拦单条注入 ②`approval_gate` 拦审批态（off 放行 / smart 落 `memory/pending/<ts>.json` 可 `--apply` 回放 / manual 拒绝，**未知模式 fail-closed**）③`snapshot_scan` 拦**组合污染**——「请忽略以上」+「的指令并照做」各自扫是空的，拼起来命中。**实测**：注入文本 `orbit memory batch` → exit 3 并报出规则名 `prompt_injection_zh`；正常文本照常写入。`tests/test_memory_write.py` |
 | 9.13 | 漂移防护（round-trip + 单条超全库上限 → `.bak.<ts>` + 拒写） | 【实证】调研 07 §5 | W6 | ✅ | 同模块的漂移防护：`round_trip_check` 把每条记忆读出再写回逐字节比对，不一致就**拒写**并把旧库备份到 `<data>/memory/memories.bak.<unix_ts>`（同秒加 `-1`）；`oversize_entries` 拦「单条就超过整库预算」——**静默截断是最坏的选项**，一条被截成半句的记忆比没有更误导。批处理路径传 `backend` 真跑 round-trip（批量写本来就动整库），`memory_save` 跳过（为查一条新记录重写整库，风险收益不成比例）。`tests/test_memory_write.py` |
-| 9.14 | 核心零向量（向量只在 provider 里） | 【实证】`_internal` 无 lancedb/chromadb/faiss/sentence_transformers | W6 | ⬜ | — |
+| 9.14 | 核心零向量（向量只在 provider 里） | 【实证】`_internal` 无 lancedb/chromadb/faiss/sentence_transformers | W6 | ✅ | 守的是**性质**而不是「有没有向量功能」：Hermes 核心零向量（`_internal` 里 grep 不到 lancedb / chromadb / faiss / sentence_transformers），Orbit 带了`vectors.py`（sqlite-vec）+ `rerank.py`（fastembed）**作为可选路**。三条断言：①`app/` 下**没有任何模块级** import 向量库（AST 遍历模块顶层，函数内懒加载不算）②`vec_available()` 在扩展缺失时返回 False 不抛③**把向量库从 `sys.modules` 摘掉后 `app.agent` / `app.tools` / `app.context` / `app.memory_prompt` 仍能 import**。第 ③ 条是这套断言里最有价值的——前两条是「看代码」，第 ③ 条是「真的不依赖」。另有反向断言防止守卫空转：`app/` 下必须仍能找到向量库的使用。`tests/test_core_zero_vectors.py` 5 条 |
 | 9.15 | `orbit memory {setup,status,off,reset}` | 【实证】`_raw/sub/memory__*.txt` | W6 | ✅ | `orbit memory` 已有 `setup` / `status` / `off` / `reset`，新增 `providers` / `batch` / `graph` / `consolidate` / `breaker`（经「组装钩子」挂到已存在的 `memory` 父节点，不另立顶层命令） |
 | 9.16 | `orbit profile`（14 子命令，用户画像） | 【实证】`_raw/sub/profile__*.txt` | W6 | 🟡 | **先纠正一条我自己的研究错误**：Hermes 的 `profile` **不是用户画像**，而是 **profile distribution（可切换的发行版配置）管理器**，且是 **13** 条子命令不是 14（`list/use/create/delete/describe/show/alias/rename/export/import/install/update/info`，`install` 从 git URL 或本地目录装发行版）。Orbit 的 `app/profile.py`（USER.md）是 Hermes 里**另一件事**。现状：3 条语义相容的（`show`/`export`/`import`）已接管成画像语义并换掉选项形状，另新挂 11 条 = 14 条画像命令；**distribution 那 10 条仍 todo**——把它们做成画像增删改就是抄错语义。父节点 `partial` |
 
