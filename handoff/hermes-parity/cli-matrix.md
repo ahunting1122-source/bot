@@ -4,7 +4,7 @@
 > 重算：`cd backend; .\.venv\Scripts\python.exe ..\scripts\parity_report.py`
 
 
-命令条目合计 **449**：已实现 193、部分 16、待实现 240
+命令条目合计 **464**：已实现 219、部分 18、待实现 227
 
 | 命令 | 对标 Hermes | 归类 | 优先级 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -55,6 +55,13 @@
 | `swarm` | `swarm` | run | P1 | ✅ 已实现 | 批量并发：按 depends_on 拓扑序跑，同层并发（Hermes 侧是 agent_swarm 工具） |
 | `swarm run` | `swarm run` | run | P0 | ✅ 已实现 | 按计划文件跑一批子任务（--dry-run 只打印拓扑分层） |
 | `swarm status` | `swarm status` | run | P0 | ✅ 已实现 | 看最近跑过的 swarm（读委派账本） |
+| `shellhooks` | `shellhooks` | ops | P2 | ✅ 已实现 | 声明 shell 脚本 hook（进程外，按生命周期事件触发） |
+| `shellhooks add` | `shellhooks add` | core | P0 | ✅ 已实现 | 添加一条 hook（**添加后未授权，不会执行**） |
+| `shellhooks remove` | `shellhooks remove` | core | P0 | ✅ 已实现 | 删除一条 hook |
+| `shellhooks trust` | `shellhooks trust` | core | P0 | ✅ 已实现 | 授权一条 hook 开始执行（这是唯一入口） |
+| `shellhooks enable` | `shellhooks enable` | core | P0 | ✅ 已实现 | 启用（不改变授权状态） |
+| `shellhooks disable` | `shellhooks disable` | core | P0 | ✅ 已实现 | 停用（保留声明与授权） |
+| `shellhooks events` | `shellhooks events` | core | P0 | ✅ 已实现 | 列出全部可用事件名 |
 | `model` | `model` | core | P0 | ✅ 已实现 | 选择默认模型与供应商（含 `--list` 列出全部 provider 与模型能力） |
 | `fallback` | `fallback` | core | P0 | ✅ 已实现 | 管理主模型失败时的回退链（触发条件：429 / 529 / 503 / 连接失败） |
 | `fallback list` | `fallback list` | core | P0 | ✅ 已实现 | 查看当前回退链 |
@@ -120,6 +127,7 @@
 | `tools enable` | `tools enable` | ext | P0 | ✅ 已实现 | 启用 toolset 或 MCP 工具 |
 | `tools disable` | `tools disable` | ext | P0 | ✅ 已实现 | 禁用 toolset 或 MCP 工具 |
 | `tools post-setup` | `tools post-setup` | ext | P0 | ✅ 已实现 | 输出当前平台的启停快照（可直接贴进 data/tools.json） |
+| `tui` | `chat --tui` | run | P2 | ✅ 已实现 | 最小终端界面：三栏布局 + q/Tab/j/k/? 按键（不是 Hermes 那个完整 TUI） |
 | `portal` | `portal` | core | P1 | ⬜ 待实现 | Nous Portal 登录 / 选模型 / 工具网关 |
 | `portal login` | `portal login` | core | P1 | ⬜ 待实现 | 登录 Nous Portal 并完成设置 |
 | `portal info` | `portal info` | core | P1 | ⬜ 待实现 | 查看 Portal 鉴权与工具网关路由 |
@@ -199,7 +207,9 @@
 | `console` | `console` | run | P1 | ✅ 已实现 | 打开安全命令控制台 |
 | `dashboard` | `dashboard` | run | P1 | ✅ 已实现 | 启动 Web UI 面板 |
 | `dashboard register` | `dashboard register` | core | P1 | ⬜ 待实现 | 把自托管面板注册到 Portal |
-| `desktop` | `desktop` | run | P1 | ⬜ 待实现 | 构建并启动原生桌面应用 |
+| `dashboard pages` | `（Hermes dashboard 无此子命令：页面清单只存在于前端路由表）` | run | P2 | ✅ 已实现 | 列出 Hermes dashboard 的 18 个页面及 Orbit 的覆盖情况 |
+| `dashboard replay` | `（Hermes 无此子命令：sessions 只有列表与导出）` | run | P2 | ✅ 已实现 | 把一个会话的消息 + 任务事件按时间回放（MATRIX 16.6） |
+| `desktop` | `desktop` | run | P1 | 🟡 部分 | 构建并启动原生桌面应用 |
 | `computer-use` | `computer-use` | run | P1 | ⬜ 待实现 | 管理 Computer Use（cua-driver）后端 |
 | `computer-use install` | `computer-use install` | core | P1 | ⬜ 待实现 | 安装或修复 cua-driver |
 | `computer-use status` | `computer-use status` | core | P1 | ⬜ 待实现 | 查看 cua-driver 是否可用 |
@@ -299,11 +309,11 @@
 | `debug delete` | `debug delete` | core | P1 | ⬜ 待实现 | 删除已上传的 paste |
 | `security` | `security` | ops | P1 | ✅ 已实现 | 供应链审计（OSV.dev） |
 | `security audit` | `security audit` | core | P1 | ✅ 已实现 | 跑一次供应链审计 |
-| `hooks` | `hooks` | ops | P0 | ⬜ 待实现 | 查看与管理 shell 脚本钩子 |
-| `hooks list` | `hooks list` | core | P1 | ⬜ 待实现 | 列出钩子及其匹配器 / 超时 |
-| `hooks test` | `hooks test` | core | P1 | ⬜ 待实现 | 对匹配事件触发一次合成负载 |
-| `hooks revoke` | `hooks revoke` | core | P1 | ⬜ 待实现 | 吊销某个钩子命令 |
-| `hooks doctor` | `hooks doctor` | core | P1 | ⬜ 待实现 | 检查钩子的权限 / 白名单 / mtime |
+| `hooks` | `hooks` | ops | P0 | ✅ 已实现 | 查看与管理 shell 脚本钩子 |
+| `hooks list` | `hooks list` | core | P1 | ✅ 已实现 | 列出钩子及其匹配器 / 超时 |
+| `hooks test` | `hooks test` | core | P1 | ✅ 已实现 | 对匹配事件触发一次合成负载 |
+| `hooks revoke` | `hooks revoke` | core | P1 | ✅ 已实现 | 吊销某个钩子命令 |
+| `hooks doctor` | `hooks doctor` | core | P1 | ✅ 已实现 | 检查钩子的权限 / 白名单 / mtime |
 | `claw` | `claw` | ops | P1 | ⬜ 待实现 | OpenClaw 迁移工具 |
 | `claw migrate` | `claw migrate` | core | P1 | ⬜ 待实现 | 从 OpenClaw 迁移到 Hermes |
 | `claw cleanup` | `claw cleanup` | core | P1 | ⬜ 待实现 | 归档迁移后残留的 OpenClaw 目录 |
@@ -412,13 +422,18 @@
 | `curator rollback` | `curator rollback` | core | P1 | ⬜ 待实现 | 从快照恢复技能目录 / 单条变更 |
 | `curator ledger` | `curator ledger` | core | P1 | ✅ 已实现 | 列出逐次变更审计账本 |
 | `curator purge` | `curator purge` | core | P1 | ⬜ 待实现 | 删除超过 TTL 的归档技能 |
-| `memory` | `memory` | ext | P0 | ⬜ 待实现 | 配置外部记忆供应商 |
-| `memory setup` | `memory setup` | core | P1 | ⬜ 待实现 | 交互选择并配置供应商 |
-| `memory status` | `memory status` | core | P1 | ⬜ 待实现 | 查看当前记忆供应商配置 |
-| `memory off` | `memory off` | core | P1 | ⬜ 待实现 | 关闭外部供应商（仅用内置） |
-| `memory reset` | `memory reset` | core | P1 | ⬜ 待实现 | 清空内置记忆（MEMORY.md / USER.md） |
-| `journey` | `journey` | ext | P1 | ⬜ 待实现 | 学习到的技能与记忆的时间线 |
-| `journey list` | `journey list` | core | P1 | ⬜ 待实现 | 列出节点 id |
+| `memory` | `memory` | ext | P0 | ✅ 已实现 | 配置外部记忆供应商 |
+| `memory setup` | `memory setup` | core | P1 | ✅ 已实现 | 交互选择并配置供应商 |
+| `memory status` | `memory status` | core | P1 | ✅ 已实现 | 查看当前记忆供应商配置 |
+| `memory off` | `memory off` | core | P1 | ✅ 已实现 | 关闭外部供应商（仅用内置） |
+| `memory reset` | `memory reset` | core | P1 | ✅ 已实现 | 清空内置记忆（MEMORY.md / USER.md） |
+| `memory providers` | `memory providers` | core | P0 | ✅ 已实现 | 列出 8 个记忆供应商的可用性与安装提示 |
+| `memory batch` | `memory batch` | core | P0 | ✅ 已实现 | 原子批处理记忆（add/update/delete 混合，全有或全无） |
+| `memory graph` | `memory graph` | core | P0 | ✅ 已实现 | 记忆图谱：节点/边，或某个节点的邻居（BFS） |
+| `memory consolidate` | `memory consolidate` | core | P0 | ✅ 已实现 | 把超预算的记忆合并/裁剪到预算内 |
+| `memory breaker` | `memory breaker` | core | P0 | ✅ 已实现 | 看/复位 consolidation 熔断状态（一轮 3 次失败即熔断） |
+| `journey` | `journey` | ext | P1 | 🟡 部分 | 学习到的技能与记忆的时间线 |
+| `journey list` | `journey list` | core | P1 | ✅ 已实现 | 列出节点 id |
 | `journey delete` | `journey delete` | core | P1 | ⬜ 待实现 | 按节点 id 删除技能或记忆 |
 | `journey edit` | `journey edit` | core | P1 | ⬜ 待实现 | 用编辑器修改节点 |
 | `pets` | `pets` | ext | P2 | ⬜ 待实现 | 浏览 / 安装 / 选择 petdex 宠物 |

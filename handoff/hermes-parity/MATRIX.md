@@ -6,7 +6,7 @@
 **进度报告**：`handoff/hermes-parity/PROGRESS.md`（监视子agent 定期核对后重写）
 **排期**：`handoff/hermes-parity/ROADMAP.md`
 
-条目合计 **181**。当前：✅ 85 · 🟡 39 · ⬜ 57（完成度 47.0%，截至 W13/W14 收口）
+条目合计 **181**。当前：✅ 98 · 🟡 44 · ⬜ 39（完成度 54.1%，截至 W3/W4/W6/W12 收口）
 计数**可重算**：`backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check`
 （头部数字与表格不符时退出 1——手维护的数字必然漂移，所以给了这个门禁。
 但**最终判据仍是 `PROGRESS.md` 的抽查结论**：文档说完成、代码查无实据的，一律不计分）
@@ -20,8 +20,8 @@
 | 1.1 | 中央命令注册表 + 声明式命令面 | `hermes_cli/commands.py` 的 `CommandDef` 中央注册表 | W1 | ✅ | `backend/app/cli/spec.py` 的 `Registry` / `Command`；`app/cli/commands/` 各模块 `REGISTRY.add(...)` |
 | 1.2 | argparse 子命令树 + `--help` 版式对齐 | `hermes --help` 即 argparse 版式 | W1 | ✅ | `backend/app/cli/main.py` 的 `build_parser` / `_add_command` |
 | 1.3 | 全局 flags（`--version` / `--json` / `--quiet` / `--data-dir` / `--no-color`） | `hermes --help` options 段 | W1 | ✅ | `main.py` 的 `_global_options`（用 `SUPPRESS` 防子命令默认值覆盖父级解析） |
-| 1.4 | 顶层命令面**已登记**（**78** 个：Hermes 的 74 个 + Orbit 自有 `session-search` / `plane` / `delegate` / `swarm`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 78；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
-| 1.5 | 二级子命令面**已登记**（**332** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 449；`undocumented_options(SPECS) == 0` |
+| 1.4 | 顶层命令面**已登记**（**80** 个：Hermes 的 74 个 + Orbit 自有 `session-search` / `plane` / `delegate` / `swarm` / `tui` / `shellhooks`） | `_raw/cli-help.txt`；调研 01 §0 | W2 | ✅ | `REGISTRY.all()` == 80；`tests/test_cli.py::test_top_level_surface_covers_hermes` |
+| 1.5 | 二级子命令面**已登记**（**345** 条，选项说明 100% 覆盖） | `_raw/sub-digest.txt`；调研 01 | W2 | ✅ | `REGISTRY.parity_rows()` == 464；`undocumented_options(SPECS) == 0` |
 | 1.6 | 三级子命令面**已登记**（**39** 条 / 8 个嵌套命令组） | `_raw/sub3-digest.txt`；调研 01 | W2 | ✅ | 同上（`tests/test_cli.py::test_option_help_is_documented`） |
 | 1.7 | 全局运行 flags 完整（23 个：`-m` / `--provider` / `--resume` / `--continue` / `--in` / `--yolo` / `--skills` / `--tui` / `--cli` / `--dev` / `--safe-mode` / `--ignore-user-config` / `--ignore-rules` / `--accept-hooks` / `--worktree` / `--pass-session-id` / `--no-restore-cwd` / `--usage-file` / `--reasoning` 等） | 调研 01 §2 | W2 | 🟡 | 已实现 `-z` / `-m` / `--provider` / `--continue` / `--in` / `--yolo`（在 `chat` 上，见 1.9）；其余 flag 未实现，被调用时报错并指向 MATRIX 条目 |
 | 1.8 | oneshot 模式 `-z`（无横幅、无 spinner、只输出最终文本，供脚本管道） | `hermes --help` `-z` 说明 | W11 | ✅ | 全局 flag（`main.py` 的 `_global_options`），`orbit -z "…"` 等价 `orbit chat -z "…"`；`tests/test_chat.py::test_oneshot_prints_only_the_final_answer` / `test_global_oneshot_flag_is_equivalent` |
@@ -29,11 +29,11 @@
 | 1.10 | shell 补全脚本 | `hermes completion {bash,zsh,fish}` | W1 | ✅ | `core.py` `run_completion`（额外支持 powershell） |
 | 1.11 | `serve` headless 后端 | `cmd-73-serve.txt` | W12 | ⬜ | — |
 | 1.12 | `dashboard` Web UI 启动器 | `cmd-72-dashboard.txt` | W12 | ⬜ | — |
-| 1.13 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | ⬜ | — |
+| 1.13 | `desktop` / `gui` 原生应用 | `cmd-74/75` | W12 | 🟡 | `orbit desktop` / `orbit gui` **如实报未实现**（exit 3）并给等价做法（`orbit serve` + `orbit dashboard` + `msedge --app=…`），逐条解释 10 个 Hermes flag 为何空转。Orbit 没有原生桌面壳（无 apps/desktop、无任何 Electron/Tauri 工程）。`state=partial`，不谎报 done |
 | 1.14 | `acp` ACP 服务端 | `cmd-64-acp.txt` | W11 | ⬜ | — |
 | 1.15 | `console` 安全命令台 | `cmd-44-console.txt` | W12 | ⬜ | — |
-| 1.16 | TUI（终端 UI） | `tui/dist` | W12 | ⬜ | — |
-| 1.17 | 上述 449 条里**有真实现**的比例（当前 **193 / 449**，另有 16 条 `partial`、240 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
+| 1.16 | TUI（终端 UI） | `tui/dist` | W12 | 🟡 | `app/tui.py` 最小可用 TUI：三栏布局（左 18 / 中剩余 / 右 20，不够先收右再收左）+ 底部状态栏 + 帮助块；**ASCII 边框**（Unicode 制表符在 CJK 终端是 ambiguous 宽度会错位）；按键 `q` / `Tab` / `j,k` / `?` / Ctrl-C，EOF 不卡死；输入输出可注入（测试用 StringIO 不碰真实终端）。**不是** Hermes 那个完整 TUI：不连库、不流式刷新，格子里是占位行 |
+| 1.17 | 上述 464 条里**有真实现**的比例（当前 **219 / 464**，另有 18 条 `partial`、227 条 `todo`） | — | W2→W13 | 🟡 | `REGISTRY.parity_rows()` 的 `state` 分布；`todo` 命令调用 exit 3 并给出完整命令路径与排期波次 |
 | 1.18 | `orbit session-search {discover,scroll,read,browse}`（Orbit 自有入口，把 `app/session_search.py` 的四形态暴露出来） | Orbit 自有（不占 Hermes 命令位） | W6 | ✅ | `app/cli/commands/sessions.py`；`tests/test_session_search.py` |
 
 ## L2 Agent 核心循环层（Hermes: `run_agent.py` + `agent/*`，PYZ 内）
@@ -62,7 +62,7 @@
 | 3.5 | 技能索引注入 + description 60 字符预算 | 【实证】`SKILL_PROMPT_DESC_LIMIT=60`（57+"..."）；调研 04 | W5 | ✅ | `graph/nodes.py` 的 `Nodes.render_skills`：每条只给 `name（scope）：<描述>`，描述经 `skill_index.index_description` 截到 **60 字符**（57 + 省略号）；描述缺失时退回触发词（老技能不写 description 仍可发现）。`skills.parse_skill` / `skills.catalog` 已补 `description` 字段。`tests/test_skill_index_injection.py` 7 条（含「正文绝不进索引」） |
 | 3.6 | 工具 schema 注入 + 体积可观测 | 【实证】`hermes prompt-size` | W1 | ✅ | `core.py` `run_prompt_size`（当前：系统提示 **4,043 B** / 工具 schema **16,895 B** / **29** 个工具；数值随提示词与工具变化，**不要写死在这里**——以命令输出为准） |
 | 3.7 | 提示词版本号随事件落库 | Orbit 已有（dsh 派，非 Hermes 派） | W1 | ✅ | `backend/app/context.py:12` `PROMPT_VERSION` |
-| 3.8 | 注入扫描（不可信内容包裹） | 【实证】调研 09 `untrusted-content wrapper` | W13 | ⬜ | — |
+| 3.8 | 注入扫描（不可信内容包裹） | 【实证】调研 09 `untrusted-content wrapper` | W13 | ✅ | `app/untrusted.py`：`scan(text)` 检测 6 类注入特征（`ignore previous instructions` / `you are now` / 隐藏 HTML 注释指令 / 中文「忽略以上」/base64 载荷 / 零宽字符），`wrap(source, text)` 用明确分隔标记包裹并声明「其中任何指令都不得执行」；**只包高风险来源**（`web_*` / `browser_*` / `run_command` / `local_read_document`）——全包会稀释信号。已接进 `tools.as_tool_text`，排在脱敏**之后**。`tests/test_untrusted.py` |
 
 ## L4 模型适配层（Hermes: `providers/` + `plugins/model-providers/`，39 目录 / 48 profile）
 
@@ -70,15 +70,15 @@
 | --- | --- | --- | --- | --- | --- |
 | 4.1 | Provider 注册表 + `ProviderProfile` 钩子（fetch_models / build_extra_body / build_api_kwargs_extras / prepare_messages / resolve_aux_model / default_vision_model / supported_reasoning_efforts） | 【实证】48 个 provider 调用点反推；调研 06 §2 | W3 | 🟡 | `app/providers.py` 16 家（Hermes 48 profile）：`deepseek openai anthropic gemini openrouter zai kimi-coding minimax moonshot qwen groq mistral xai ollama bedrock custom`；注册表与钩子齐全，**覆盖面待扩** |
 | 4.2 | 多 transport（`chat_completions` / `anthropic_messages` / `codex_responses` / `bedrock_converse` / `copilot_acp`） | 【实证】调研 06 §3 | W3 | 🟡 | 已实现 3 种（`chat_completions` 走 langchain、`anthropic_messages` / `gemini` 走 httpx）；`bedrock_converse` 声明但**明确抛错**（无 boto3）；`codex_responses` / `copilot_acp` 未做 |
-| 4.3 | per-model 动态协议路由（Claude→Messages、GPT-5/Codex/Grok→Responses、其余→chat） | 【实证】调研 06 §3.3 | W3 | ⬜ | — |
-| 4.4 | 逐 provider 推理线格式翻译表（5 种落点 + 互斥/拒绝/强制规则） | 【实证】调研 06 §3.5（16 行差异） | W3 | ⬜ | — |
-| 4.5 | fallback 链（触发 429/529/503/连接失败；其它错误不切换） | 【实证】`hermes fallback --help`；调研 06 | W3 | 🟡 | `app/fallback.py` `FallbackChain` / `FAILOVER_STATUS`；`tests/test_fallback.py`。**未接线运行时**：`agent.get_model()` 仍是唯一出模型的地方，回退链只在库层 + CLI 管理面生效 |
-| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | 🟡 | `app/fallback.py` `CredentialPool` / `CredentialLease`；密钥走 keyring。**同样未接线运行时**，理由同上 |
+| 4.3 | per-model 动态协议路由（Claude→Messages、GPT-5/Codex/Grok→Responses、其余→chat） | 【实证】调研 06 §3.3 | W3 | ✅ | `app/model_router.py` 的 `route(model_name, settings)` → `RouteDecision(provider / base_url / max_context / supports_tools / supports_reasoning / supported / reason)`；数据来自 `app/providers.py` 的 `models` 与 `model_capabilities`（只读）。未知模型 → `supported=False` 且给原因，**不猜**；显式选过的 provider 不被反查覆盖。`tests/test_model_router.py` |
+| 4.4 | 逐 provider 推理线格式翻译表（5 种落点 + 互斥/拒绝/强制规则） | 【实证】调研 06 §3.5（16 行差异） | W3 | ✅ | `app/reasoning.py`：4 家（deepseek / anthropic / gemini / openai-o 系）的 `extract(response, provider)` 与 `to_request(level, provider)`（`reasoning_effort` / `thinking.budget_tokens` 等落点）；不支持的 provider 抛 `NotSupported` 并说明。`tests/test_reasoning.py` |
+| 4.5 | fallback 链（触发 429/529/503/连接失败；其它错误不切换） | 【实证】`hermes fallback --help`；调研 06 | W3 | ✅ | **已接线到运行时**：`app/agent.py::get_model()` 走 `app/fallback.py` 的 `FallbackChain`——401/429 换 key、400 换 provider、全挂给明确错误；每次切换记日志，并把**这次实际用的是谁**做成返回值 `Route`（provider / model / base_url / key_label / attempt / switched / reason），调用方与测试能直接断言，不必去 grep 日志。`tests/test_fallback_wiring.py` |
+| 4.6 | credential pool（多 key 轮转 + 耗尽标记 + `auth reset`） | 【实证】`hermes auth --help` 子命令 | W3 | ✅ | `CredentialPool` 已接线：同一 provider 的多个 key 轮转，401/429 换 key 而不是整个 provider 放弃；耗尽有标记。`tests/test_fallback_wiring.py` |
 | 4.7 | `proxy` 本地 OpenAI 兼容代理（到 OAuth provider） | 【实证】`cmd-11-proxy.txt` | W3 | ⬜ | — |
 | 4.8 | `egress` 出口凭证注入防火墙（iron-proxy） | 【实证】`cmd-08-egress.txt` | W13 | ⬜ | — |
-| 4.9 | 辅助模型 slot 18 个（`auxiliary.*`，含 vision） | 【实证】调研 06 §4 | W3 | ⬜ | — |
+| 4.9 | 辅助模型 slot 18 个（`auxiliary.*`，含 vision） | 【实证】调研 06 §4 | W3 | 🟡 | `app/aux_slots.py`：`SLOTS = (summary, title, compression, classifier)` 4 个槽位（Hermes 18 个），有专用配置用专用、没有退回主模型并标 `inherited=True` 让「其实没配」可见；`estimate_cost` 按内置单价表估算。**缺**：其余 14 个槽位（含 vision） |
 | 4.10 | 三级能力元数据（手工覆盖 → models_dev cache → 出厂 snapshot） | 【实证】调研 06 §5 | W3 | ⬜ | — |
-| 4.11 | MoA（Mixture of Agents：N reference + 1 aggregator） | 【实证】`cmd-03-moa.txt` | W3 | ⬜ | — |
+| 4.11 | MoA（Mixture of Agents：N reference + 1 aggregator） | 【实证】`cmd-03-moa.txt` | W3 | ✅ | `app/moa.py`：`MoAPlan`（多 proposer + 1 aggregator），`run(plan, prompt, call=...)` 并发跑 proposer，`call` 可注入（测试不真连模型）；单个 proposer 失败不整批失败、聚合时标注缺了谁；有单条输出与总预算上限。`tests/test_moa.py` |
 | 4.12 | TTS 11 家 / STT 8 家 + command provider | 【实证】调研 06 §4 | W3 | ⬜ | — |
 | 4.13 | 配置树可完整导出（`orbit config show` 给嵌套全树 + `config check` 查缺失/过期） | 【实证】`hermes config show/check/migrate` | W1 | ✅ | `core.py` `_config_tree` / `config_check` / `config_migrate` |
 
@@ -87,8 +87,8 @@
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 5.1 | 单一注册表 + 跨 source 遮蔽门禁（默认拒绝，`override=True` 才放行，deregister 同门禁，`mcp_` 前缀豁免） | 【实证】`tools/registry.py`；调研 02 §1 | W4 | ✅ | `app/tools.py` 的 `ToolRegistry.register`；`tests/test_toolsets.py` 的遮蔽门禁用例 |
-| 5.2 | 懒发现（AST 索引按需 import + generation 计数失效） | 【实证】`registry.py` `_generation` / `_SKIP_TOOL_FILES` | W4 | ⬜ | — |
-| 5.3 | `check_fn` 可用性探针（30s TTL + 60s 抖动宽限 + profile 维度 key + 512 上限） | 【实证】`registry.py`；调研 02 §1 | W4 | ⬜ | — |
+| 5.2 | 懒发现（AST 索引按需 import + generation 计数失效） | 【实证】`registry.py` `_generation` / `_SKIP_TOOL_FILES` | W4 | 🟡 | `check_fn` 可用性探针已落地（见 5.3），工具**暴露**层面已能按可用性收窄；**缺**：AST 索引按需 import + generation 计数失效的「懒发现」本身 |
+| 5.3 | `check_fn` 可用性探针（30s TTL + 60s 抖动宽限 + profile 维度 key + 512 上限） | 【实证】`registry.py`；调研 02 §1 | W4 | ✅ | `app/toolsets.py` 的 `TOOL_REQUIREMENTS` + `probe(name)`：结果缓存 **30s TTL + 60s 抖动宽限**（一次探测失败不立刻摘工具，否则网络抖一下整个 toolset 就消失）；`resolve()` 排除不可用工具并在 `orbit tools list` 的「暴露」列体现原因。`tests/test_meta_tools.py` |
 | 5.4 | 三层结果治理（输出层 50K/2,000 行/2,000 宽 → 落盘层单条 100K、MCP 50K、预览 1,500、24h 清理 → 整轮层 200K 按大小降序先落最大的） | 【实证】`tools/budget_config.py` `DEFAULT_*` | W4 | ✅ | `app/budget.py` 的 `BudgetConfig` / `cap_output` / `spill` / `TurnBudget` / `govern`；已接 `DefaultToolResultPolicy` 与 `graph/nodes.py`（`TurnBudget` 在工具执行步骤创建）；`tests/test_budget.py` |
 | 5.5 | `tool_output_limits`（max_bytes 50,000 / max_lines 2,000 / 行宽 2,000；终端 40% 头 + 60% 尾） | 【实证】`tools/tool_output_limits.py` | W4 | ✅ | `budget.py` 的 `cap_output`（终端 40/60、其它 70/30）；`tests/test_budget.py` |
 | 5.6 | `read_file` 阈值钉死 `inf`（防 persist→read→persist 死循环） | 【实证】`budget_config.py` `PINNED_THRESHOLDS` | W4 | ✅ | `budget.py` 的 `PINNED_THRESHOLDS` / `resolve_threshold` |
@@ -97,12 +97,12 @@
 | 5.9 | Windows 破坏性操作清单（diskpart / Format / Clear-Disk / vssadmin / bcdedit / reg delete / icacls / iwr\|iex / EncodedCommand） | 【实证】`app/approvals.py` | W13 | ✅ | 同上 |
 | 5.10 | 自终止保护（`pkill hermes\|orbit` / `hermes gateway stop` / `hermes update`） | 【实证】`app/approvals.py` `self_kill` / `self_modify` | W13 | ✅ | 同上 |
 | 5.11 | `tool_search` 分级披露（core/GUI 永不延迟；listing 4,000 token；Tier0/1/2） | 【实证】`tools/tool_search.py` | W4 | 🟡 | **检索面已实现**：`app/tools.py::ToolRegistry.search_tools`（名字 / 中文描述 / toolset 三路匹配，名字命中优先，只搜已暴露工具，空查询返回空）+ `tool_search` 工具本体（归 `core` toolset，不会被「禁用 web」连带关掉）；`tests/test_tool_search.py` 13 条。**缺分级披露**：Tier0/1/2 的延迟暴露、listing 4,000 token 预算、core/GUI 永不延迟——这些要在 `graph/nodes.py` 里按需收窄暴露面，本轮没做（Orbit 现 28 个工具全塞得下，优先级低于覆盖新功能） |
-| 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ⬜ | — |
-| 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | ⬜ | — |
+| 5.12 | `todo` 元工具 | 【实证】`tools/todo_tool.py` | W4 | ✅ | `todo` 元工具：状态落 `<data>/todos/<task_id>.json`（原子写），action = add/update/complete/remove/list/clear；上限单任务 50 条、单条 200 字符。**取舍**：Hermes 把清单注入上下文，Orbit 的 `graph/*` 是禁改区，所以改成**每次调用回读完整清单**——功能可达但不完全等价，这一点写在 docstring 里。`tests/test_meta_tools.py` |
+| 5.13 | `clarify` 元工具 + gateway | 【实证】`tools/clarify_tool.py` | W4 | 🟡 | `clarify` 元工具已实现：2-6 个选项（每个 label + description）、`allow_free_text`、选项数量越界被拒；在不改 `nodes.py` 的前提下复用 `ask_user` 通路，把选项渲染成文本（`1) … 2) …`）让任何前端都能用。**缺**：gateway 侧的原生按钮渲染（`send_buttons` 有接口，但 clarify 还没走它） |
 | 5.14 | 内置工具数量对齐（94 个；Orbit 现 28 个） | 【实证】调研 02 口径说明 | W4 | ⬜ | — |
 | 5.15 | 19 个功能域覆盖（file/terminal/code_execution/browser/web/专项搜索/memory/skills/MCP/委派/媒体生成/视觉/TTS/kanban/cronjob/桌面窗口/协作消息/HomeAssistant/元工具） | 【实证】调研 02 §2 | W4 | 🟡 | 已有 **7 域**：file / terminal / browser / web / memory / skills / MCP。缺 12 域：code_execution、专项搜索、委派、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant、**元工具**（`ask_user` 是交互门不是元工具；`todo` / `clarify` / `tool_search` 均不存在，见 5.12/5.13） |
 | 5.19 | `web_search` + `web_extract`（4 家搜索 provider + URL 安全闸 + 结果缓存） | 【实证】`plugins/web/` 9 provider；`tools/url_safety.py`、`web_result_cache.py` | W4 | ✅ | `app/web.py` + `app/web_providers.py`（searxng / brave / tavily / ddgs，契约照 Hermes）；`tests/test_web.py` 41 条。已接线 `app/main.py` |
-| 5.16 | `file_operations` / `patch_parser`（结构化补丁编辑） | 【实证】`tools/patch_parser.py` | W4 | ⬜ | — |
+| 5.16 | `file_operations` / `patch_parser`（结构化补丁编辑） | 【实证】`tools/patch_parser.py` | W4 | ✅ | `app/patch.py` 的 `parse(text)` / `apply(patch, root)`：`*** Add File` / `*** Update File` / `*** Delete File` + `@@` hunk + `-`/`+`/` ` 行；**先校验全部 hunk 再落盘**，任一处上下文不匹配就整体不写（半个补丁比没打补丁更糟）；路径逃逸用与 `resolve_path` 同口径拒绝。`Tool("apply_patch")` 已接进 `LOCAL_TOOLS` 与分发链。`tests/test_patch.py` |
 | 5.17 | `code_execution` + `code_kernel`（持久内核） | 【实证】`tools/code_execution_tool.py` | W4 | ⬜ | — |
 | 5.18 | `terminal` 后端抽象（本地/远程/容器） | 【实证】`tools/terminal_tool.py` 217KB | W4 | ⬜ | — |
 
@@ -161,18 +161,18 @@
 | 9.1 | `MEMORY.md` 上限 2,200 字符，按字符不按 token | 【实证】调研 07 §1（实测 2,171/98.7%） | W6 | ✅ | `app/memory_prompt.py` 的 `MEMORY_MAX_CHARS` / `render`；`tests/test_memory_prompt.py`。按字符的理由：换模型不该让"记忆还能装多少"跟着变，且字符数是用户能自己判断的数字 |
 | 9.2 | `USER.md` 字符上限 | 【实证】调研 07 §1（Hermes 1,375，实测 1,393/101.3% 已超顶） | W6 | 🟡 | `app/profile.py` 的 `PROFILE_MAX_CHARS = 1600`（Orbit 取 1600，比 Hermes 宽；`trim` + `render_block` 已实现）。**未加用量自曝头** |
 | 9.3 | 冻结快照注入 + 头部自曝用量 | 【实证】state.db `sessions.system_prompt` 反查 | W6 | ✅ | 头部：`memory_prompt.HEADER`（`长期记忆（MEMORY）[99% — 2,181/2,200 字符]`）；冻结：`context.build_prefix` / `context_meta["system_prefix"]`（一个任务内前缀逐字节不变） |
-| 9.4 | 原子批处理 `operations[]`（按最终态校验，全有或全无） | 【实证】`memory_tool.py` `apply_batch` | W6 | ⬜ | — |
-| 9.5 | 一轮 3 次 consolidation 失败熔断（`_MAX_CONSOLIDATION_FAILURES_PER_TURN=3`） | 【实证】调研 07 §2 | W6 | ⬜ | — |
+| 9.4 | 原子批处理 `operations[]`（按最终态校验，全有或全无） | 【实证】`memory_tool.py` `apply_batch` | W6 | ✅ | `app/memory_batch.py::apply_batch` 三段式：①读全量快照 ②纯函数 `plan_batch` 在内存副本上施加全部操作并逐条校验（key≤160 / value≤4000 / ≤64 条 / 按**最终态**用 `memory_prompt.render` 判 2200 预算），任一不合法立即返回 `wrote=False` **磁盘零写入** ③全合法才 `commit`（整批一个事务 + 快照补偿，返回 `rolled_back=True`）。测试用「先真写一半再抛」的后端验证补偿真的退回。`tests/test_memory_batch.py` |
+| 9.5 | 一轮 3 次 consolidation 失败熔断（`_MAX_CONSOLIDATION_FAILURES_PER_TURN=3`） | 【实证】调研 07 §2 | W6 | ✅ | `ConsolidationBreaker`：同一 turn 内失败累计 ≥3（`_MAX_CONSOLIDATION_FAILURES_PER_TURN = 3`）即熔断；熔断期间 `consolidate_guarded()` **根本不调用** worker（测试数调用次数：3 次失败后第 4、5 次仍为 3）；换轮或 `record_success()` 归零；状态落 `<data>/memory/breaker.json`。`tests/test_memory_batch.py` |
 | 9.6 | CJK 检索（unicode61 对中文命中 0，必须走子串/trigram） | 【实证】`messages_fts` + `messages_fts_trigram`；`MATCH '记忆'` = 0 | W6 | 🟡 | `app/session_search.py` 用 `LIKE` 子串匹配（中文可用），`%`/`_` 已转义、扫描上限 300。**缺 FTS 索引**：`messages` 表上加 FTS5 需要迁移，本轮没做——LIKE 是线性扫描，库到十万条量级会慢 |
 | 9.7 | `session_search` 四形态（discover/scroll/read/browse）+ 锚点 ±window + bookend 3/3 + 300 行扫描上限 | 【实证】`session_search_tool.py` 1,271 行 | W6 | ✅ | `session_search.py` 的 `SessionSearch.search/discover/anchored_view/read/browse`；`tests/test_session_search.py` |
 | 9.8 | 检索**零 LLM 成本**（无 summary LLM 路径） | 【实证】docstring "No LLM calls anywhere"；PR #26419 | W6 | ✅ | `session_search.py` 不 import 任何模型/连接器（模块 docstring 明示）；CLI 侧 `session-search` 命令同样零模型调用 |
 | 9.9 | 检索参数（limit 默认 3 夹 [1,10]、window 默认 5 夹 [1,20]、read head20/tail10、截断 4000/1200） | 【实证】调研 07 §3 | W6 | ✅ | `session_search.py` 的同名参数与夹取 |
-| 9.10 | 8 个外部 memory provider 插件接口（byterover/hindsight/holographic/honcho/mem0/openviking/retaindb/supermemory） | 【实证】调研 07 §4 | W6 | ⬜ | — |
+| 9.10 | 8 个外部 memory provider 插件接口（byterover/hindsight/holographic/honcho/mem0/openviking/retaindb/supermemory） | 【实证】调研 07 §4 | W6 | 🟡 | `app/memory_providers.py`：**8 个 provider 接口**——真实现 3 个（`local` 走 memories 表 / `file` 一记忆一 .md 原子写 / `jsonl` 追加日志可回放审计）；只有接口 5 个（`mem0` / `zep` / `letta` / `chroma` / `pgvector`），`available()` **恒 False**——即使装了包也 False，否则路由器会选中一个一用就抛的 provider；`describe()` 给 install 与原因，读写抛 `ProviderUnavailable`。`MemoryRouter` 读=第一个有命中的可用 provider、写=fanout 多写。`tests/test_memory_providers.py` |
 | 9.11 | holographic 本地图记忆（HRR dim=1024、权重 fts0.4/jaccard0.3/hrr0.3、trust ±0.05/−0.10） | 【实证】`plugins/memory/holographic/` | W6 | ⬜ | — |
 | 9.12 | 写入门禁（威胁扫描 → 审批三态 → 快照期二次扫描） | 【实证】调研 07 §5 | W6 | ⬜ | — |
 | 9.13 | 漂移防护（round-trip + 单条超全库上限 → `.bak.<ts>` + 拒写） | 【实证】调研 07 §5 | W6 | ⬜ | — |
 | 9.14 | 核心零向量（向量只在 provider 里） | 【实证】`_internal` 无 lancedb/chromadb/faiss/sentence_transformers | W6 | ⬜ | — |
-| 9.15 | `orbit memory {setup,status,off,reset}` | 【实证】`_raw/sub/memory__*.txt` | W6 | ⬜ | — |
+| 9.15 | `orbit memory {setup,status,off,reset}` | 【实证】`_raw/sub/memory__*.txt` | W6 | ✅ | `orbit memory` 已有 `setup` / `status` / `off` / `reset`，新增 `providers` / `batch` / `graph` / `consolidate` / `breaker`（经「组装钩子」挂到已存在的 `memory` 父节点，不另立顶层命令） |
 | 9.16 | `orbit profile`（14 子命令，用户画像） | 【实证】`_raw/sub/profile__*.txt` | W6 | ⬜ | — |
 
 ## L10 持久化 / 会话层（Hermes: `hermes_state*.py`，state.db 26 业务表）
@@ -267,12 +267,12 @@
 
 | # | 条目 | Hermes 依据 | 波次 | 状态 | 证据 |
 | --- | --- | --- | --- | --- | --- |
-| 16.1 | dashboard 18 个页面语义（Analytics/Channels/Chat/Config/Cron/Env/Files/Logs/Mcp/Models/Pairing/Plugins/ProfileBuilder/Profiles/Sessions/Skills/System/Webhooks） | 【实证】`web_dist/assets/*Page-*.js` | W12 | ⬜ | — |
+| 16.1 | dashboard 18 个页面语义（Analytics/Channels/Chat/Config/Cron/Env/Files/Logs/Mcp/Models/Pairing/Plugins/ProfileBuilder/Profiles/Sessions/Skills/System/Webhooks） | 【实证】`web_dist/assets/*Page-*.js` | W12 | 🟡 | `app/dashboard.py` 登记 **18 页**语义（`name` / `purpose` / `data_sources` / `orbit_status` / `orbit_route` / `gap`），**逐页去 `app/main.py` 用正则抽真实路由再判**：covered 4（chat / mcp / sessions / skills）、partial 11、missing 3（docs / files / webhooks）；`report()["unbacked"]` 必须为空且有测试断言（防止把没数据源的页面标 covered）。`profiles` 额外标「同名不同义」（Orbit 是用户画像，不是多套 agent 配置）。**缺**：3 个页面没有数据源，11 个只到 partial |
 | 16.2 | 聊天页 + 增量流式 + 断线回放 | Orbit 已有 | W1 | ✅ | `frontend/src/App.tsx`；`backend/app/main.py` SSE |
 | 16.3 | 技能页 / 记忆页 / 会话摘要页 | Orbit 已有 | W1 | ✅ | `frontend/src/Skills.tsx` / `Memories.tsx` / `Summaries.tsx` |
 | 16.4 | 设置页（模型 / MCP / 权限级别） | Orbit 已有 | W1 | ✅ | `frontend/src/Settings.tsx` |
 | 16.5 | `orbit skin`（主题切换） | 【实证】`_raw/sub/skin__*.txt` | W12 | ✅ | `app/skin.py` 3 个内置皮肤（default / mono / solarized）+ `orbit skin {list,show,set,use,reset}`；`NO_COLOR` / `--no-color` 时降级为全空 token（无障碍与管道友好）；`tests/test_skin.py` |
-| 16.6 | 会话回放 / browse 页 | 【实证】`sessions browse` | W12 | ⬜ | — |
+| 16.6 | 会话回放 / browse 页 | 【实证】`sessions browse` | W12 | ✅ | `dashboard.session_replay(store, session_id)`：messages + task_events 按 `created_at` 升序合并，**同刻消息先于事件**，再按 id 稳定排序；`limit` 取尾部最近 N 帧且 offset 从保留首帧重算；`delay_ms = offset/speed`；无会话返回 `found=False` 不抛栈。`tests/test_dashboard.py` |
 
 ---
 
