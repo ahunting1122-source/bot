@@ -855,7 +855,7 @@ def _cli_prompt_fn(context: Context) -> Callable[..., str]:
         conversation_id = conversation_of(session_id)
         task_id = _submit(context, store, runner, conversation_id, text)
         try:
-            state = _pump(context, store, runner, task_id, emitter)
+            state = _pump(context, store, task_id, emitter)
         except PromptCancelled:
             # 光把这一轮"看起来结束"是不够的：库里那条任务会继续跑到失败。
             # 真取消它，用户按停止才是真的停止。
@@ -888,7 +888,6 @@ def _existing_conversation(context: Context, store: Any, session_id: str) -> str
 def _pump(
     context: Context,
     store: Any,
-    runner: Any,
     task_id: str,
     emitter: UpdateEmitter | None,
 ) -> dict[str, Any]:

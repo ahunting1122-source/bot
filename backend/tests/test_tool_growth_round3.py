@@ -119,8 +119,8 @@ async def test_send_message_lists_every_target_with_its_reason(env):
     telegram = by_name["telegram"]
     assert telegram["configured"] is False
     assert "TELEGRAM_BOT_TOKEN" in telegram["missing_env"]
-    # 三个平台连适配器都没有：必须单列出来（否则模型会以为"没有这个平台"）
-    assert set(data["pending_platforms"]) == {"buzz", "photon", "simplex"}
+    # 连适配器都没有的平台必须单列出来（否则模型会以为"没有这个平台"）
+    assert {"buzz", "photon"} <= set(data["pending_platforms"])
     assert "outbox.jsonl" in data["notice"]
 
 

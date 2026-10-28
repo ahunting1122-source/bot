@@ -15,7 +15,7 @@
    临时文件 + ``os.replace``；读坏文件当空而不是抛异常（一个手抖写坏的 JSON 不该让
    整个网关从此起不来）。
 3. **本轮不起线程、不开监听**。:class:`GatewayService.start` 只写状态文件、拿锁、
-   扫孤儿。真正的长连接要等各平台适配器实现（见 :mod:`app.platforms` 里还剩 3 个
+   扫孤儿。真正的长连接要等各平台适配器实现（见 :mod:`app.platforms` 里还剩 2 个
    ``implemented=False``）。先把**可测的投递路径与状态契约**做对，比先起一个
    半死不活的守护进程值钱。
 4. **投递不抛异常**（:meth:`GatewayService.deliver`）。调用方是 cron 与 CLI，
@@ -40,7 +40,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import escape
 
 from app.platforms import (
     IMPLEMENTED_PLATFORMS,
@@ -88,6 +88,16 @@ PAIRING_DIRNAME = "pairing"
 #: 任何进程（运维脚本、另一个终端）写一个文件就生效，读侧只判 ``exists()``。
 #: 为什么不用配置字段：配置要先读出来才生效，而"配置读不出来"恰恰是最需要停的时候。
 PAUSED_FILENAME = "paused"
+
+#: 本机的网关身份（``<data_dir>/gateway/gateway-id``）。见 :attr:`GatewayPaths.gateway_id`。
+GATEWAY_ID_FILENAME = "gateway-id"
+
+#: ``gateway setup`` 向导的非机密结果（``<data_dir>/gateway/setup.json``）。
+SETUP_FILENAME = "setup.json"
+
+#: Windows 计划任务名。**固定名字**而不是加随机后缀：``schtasks /Delete`` 要能删掉
+#: 上一版装的同一个任务，随机后缀会让"重装"变成"两个任务抢同一个网关"。
+WINDOWS_TASK_NAME = "OrbitGateway"
 
 #: 崩溃循环判据：窗口内启动次数 ≥ 阈值就报"反复重启"。
 #: 为什么是 10 分钟 / 3 次：Hermes 本机样本里 30 分钟约 10 次重启被判成崩溃循环，
@@ -1798,12 +1808,13 @@ SERVICE_KINDS: tuple[str, ...] = ("systemd-user", "systemd-system", "launchd", "
 
 @dataclass(frozen=True)
 class ServiceUnit:
-    """一份**生成好但没装**的服务单元：文件内容 + 放哪 + 怎么启用/卸载。
+    """一份服务单元：文件内容 + 放哪 + 怎么启用/卸载。
 
-    为什么生成内容也算交付：``gateway install`` 的真正难点不是"写文件"，
-    而是"ExecStart 该写什么、崩溃循环保护怎么配、开机自启要哪两条命令"。
-    把这些写对、让用户复制粘贴就能装，比一个半吊子安装器有用得多——
-    何况 Orbit 的写入范围只到 ``data_dir``，系统目录本来就不该由它写。
+    `render_service_unit()` 产出的永远是 ``installed=False``（**只生成内容**）；
+    真正装上去之后由 :func:`install_service` 返回一份 ``installed=True`` 的副本。
+    为什么把 `installed` 做成字段而不是在 `as_dict()` 里写死 ``False``：
+    上一轮那个写死的 `False` 会让"已经装好了"永远无法被表达 —— 而这一轮 Windows
+    计划任务是**真装**的（`schtasks /Create /XML`），状态必须能如实说出来。
     """
 
     kind: str
@@ -1813,6 +1824,8 @@ class ServiceUnit:
     install_steps: tuple[str, ...] = ()
     uninstall_steps: tuple[str, ...] = ()
     note: str = ""
+    #: 这份单元**现在**装上了没。只有 :func:`install_service` 会把它改成 True。
+    installed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1823,8 +1836,21 @@ class ServiceUnit:
             "install_steps": list(self.install_steps),
             "uninstall_steps": list(self.uninstall_steps),
             "note": self.note,
-            "installed": False,
+            "installed": self.installed,
         }
+
+    def with_installed(self, installed: bool) -> ServiceUnit:
+        """返回一份只改了 `installed` 的副本（frozen dataclass 不能原地改）。"""
+        return ServiceUnit(
+            kind=self.kind,
+            filename=self.filename,
+            path=self.path,
+            content=self.content,
+            install_steps=self.install_steps,
+            uninstall_steps=self.uninstall_steps,
+            note=self.note,
+            installed=installed,
+        )
 
 
 def render_service_unit(
@@ -2106,6 +2132,904 @@ def enroll_requirements(
     )
 
 
+# ── 网关身份（enroll 预检的第三步：gateway id 到底存不存在）───────────────────
+
+
+def read_gateway_id(data_dir: str | Path) -> str:
+    """读本机的网关 id；**没有就返回空串**（不生成）。
+
+    预检必须能区分"早就有"与"我刚给你造了一个"：前者说明这台机器注册过，
+    后者说明这是第一次 —— 这两种情况的下一步完全不同。
+    """
+    path = GatewayPaths(Path(data_dir)).gateway_id
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def ensure_gateway_id(data_dir: str | Path) -> str:
+    """读/生成本机的网关 id（``<data_dir>/gateway/gateway-id``）。
+
+    为什么落文件而不是每次现生成一个 uuid：这个 id 要写进中继注册、wake URL 的校验
+    与日志对账。每次现生成会让"注册过的那个 id"再也找不回来 —— 而它是 enroll 里
+    **唯一不可重算**的东西。
+    """
+    existing = read_gateway_id(data_dir)
+    if existing:
+        return existing
+    paths = GatewayPaths(Path(data_dir))
+    paths.root.mkdir(parents=True, exist_ok=True)
+    generated = f"gw-{uuid.uuid4().hex[:12]}"
+    _atomic_write(paths.gateway_id, generated + "\n")
+    return generated
+
+
+# ── enroll 的本地预检（MATRIX 12.10：能离线验的那一半）───────────────────────
+
+
+class NetworkUnavailable(RuntimeError):
+    """这一步**必须**真实网络才能做。
+
+    用异常而不是 ``ok=False``：调用方（CLI）看到"失败"会去重试，而"本机无网络"
+    重试一万次也不会成功。异常逼调用方把"没做到"和"做失败了"分开写。
+    """
+
+
+@dataclass(frozen=True)
+class PreflightCheck:
+    """预检里的一条：查了什么、过没过、怎么修。"""
+
+    id: str
+    ok: bool
+    detail: str
+    fix: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "ok": self.ok, "detail": self.detail, "fix": self.fix}
+
+
+@dataclass(frozen=True)
+class EnrollPreflight:
+    """``gateway enroll`` 的**本地预检**结论：全部是离线可验的事实。
+
+    它回答"如果现在有网，这次注册会不会因为自己没配好而失败"。
+    预检过了**不代表注册成功**（那一步要网络），但预检不过就一定白跑一趟。
+    """
+
+    ok: bool = False
+    checks: tuple[PreflightCheck, ...] = ()
+    gateway_id: str = ""
+    wake_url: str = ""
+    connector_url: str = ""
+    register_url: str = ""
+
+    def failures(self) -> tuple[PreflightCheck, ...]:
+        """没过的那几条（``ok=False`` 时一定有内容）。"""
+        return tuple(check for check in self.checks if not check.ok)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "implemented": True,
+            "gateway_id": self.gateway_id,
+            "wake_url": self.wake_url,
+            "connector_url": self.connector_url,
+            "register_url": self.register_url,
+            "checks": [check.as_dict() for check in self.checks],
+            "failures": [check.id for check in self.failures()],
+        }
+
+
+def _lookup(env: Mapping[str, str], explicit: str | None, name: str) -> str:
+    """取值顺序：**显式参数 → 环境变量**。显式优先是为了让测试不依赖进程环境。"""
+    if explicit is not None:
+        return str(explicit).strip()
+    return str(env.get(name, "") or "").strip()
+
+
+def validate_wake_url(url: str) -> tuple[bool, str]:
+    """校验 wake URL（对端要能反向唤醒本机网关的那个地址）。
+
+    三条硬要求，每一条都有具体理由：
+
+    1. **必须是 http(s) 且带 host**：``https://`` 之外的东西（``tcp://``、``foo``）
+       不是对端能 POST 的地址；
+    2. **https 优先，http 只允许回环**：唤醒请求带 HMAC 签名但不加密，
+       公网走 http 等于把签名和正文一起交出去；
+    3. **路径不能是 ``/``**：wake 是一个具体端点（``/peer/wake``），
+       指向站点根会让对端把 wake 请求打到首页。
+    """
+    text = str(url or "").strip()
+    if not text:
+        return False, "wake URL 是空的（对端无法反向唤醒本机网关）"
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"}:
+        return False, f"wake URL 的协议是 {parsed.scheme or '（空）'!r}，必须是 http/https"
+    if not parsed.netloc:
+        return False, "wake URL 没有主机名（形如 https://host/peer/wake）"
+    host = (parsed.hostname or "").lower()
+    loopback = host in {"127.0.0.1", "::1", "localhost"}
+    if parsed.scheme == "http" and not loopback:
+        return False, (
+            f"wake URL 用的是明文 http（host={host}）：唤醒请求带 HMAC 签名但不加密，"
+            "公网必须 https；本机自测可以用 http://127.0.0.1/..."
+        )
+    if parsed.path in {"", "/"}:
+        return False, "wake URL 的路径是根路径；应指向具体端点（如 /peer/wake）"
+    return True, f"合法：{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+
+def validate_connector_url(url: str) -> tuple[bool, str]:
+    """校验中继（connector）地址：必须是 HTTPS，且末尾不带斜杠。
+
+    末尾斜杠会被拼成 ``//v1/...``，多数反代直接判 404 —— 这是实测过的坑，
+    所以这里**当成错误**而不是自动帮你 strip：静默修正会让用户以为配的是他写的那个。
+    """
+    text = str(url or "").strip()
+    if not text:
+        return False, "connector URL 是空的（注册端点在哪）"
+    parsed = urlparse(text)
+    if parsed.scheme != "https":
+        return False, f"connector URL 必须是 https（当前 {parsed.scheme or '（空）'!r}）"
+    if not parsed.netloc:
+        return False, "connector URL 没有主机名"
+    if text.endswith("/"):
+        return False, "connector URL 末尾不要带斜杠（拼出 // 会被多数反代判 404）"
+    return True, f"合法：{text}"
+
+
+def enroll_preflight(
+    *,
+    data_dir: str | Path,
+    peer_token: str | None = None,
+    wake_url: str | None = None,
+    wake_secret: str | None = None,
+    gateway_id: str | None = None,
+    connector_url: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> EnrollPreflight:
+    """``gateway enroll`` 的本地预检：**五条全是真的、且离线可验**。
+
+    这一轮把 enroll 从"整条未实现"推到"预检真做 + 注册如实报 NetworkUnavailable"。
+    预检查的四件事都不是占位：
+
+    1. ``gateway-id``：没有就**当场生成**并落盘（真写文件，不是打印一行提示）；
+    2. ``peer-token``：``ORBIT_PEER_TOKEN`` 配了没；
+    3. ``wake-secret``：``ORBIT_WAKE_SECRET`` 配了没（wake 的 HMAC 密钥）；
+    4. ``wake-url``：格式/协议/路径三项校验（见 :func:`validate_wake_url`）；
+    5. ``connector-url``：给了就校验 HTTPS + 无尾斜杠（没给只记一条"未提供"）。
+
+    **不做的**：不去连 connector、不发任何请求（铁律：本机无网络）。
+    """
+    source = env if env is not None else os.environ
+    resolved_id = _lookup(source, gateway_id, "ORBIT_GATEWAY_ID")
+    if not resolved_id:
+        resolved_id = ensure_gateway_id(data_dir)
+        id_detail = f"本机网关 id 已就绪（{resolved_id}，首次生成并写入 gateway-id）"
+    else:
+        id_detail = f"本机网关 id 已就绪（{resolved_id}，来自参数/ORBIT_GATEWAY_ID）"
+
+    token = _lookup(source, peer_token, "ORBIT_PEER_TOKEN")
+    secret = _lookup(source, wake_secret, "ORBIT_WAKE_SECRET")
+    wake = _lookup(source, wake_url, "ORBIT_WAKE_URL")
+    connector = _lookup(source, connector_url, "ORBIT_CONNECTOR_URL")
+
+    wake_ok, wake_detail = validate_wake_url(wake)
+    connector_ok, connector_detail = (
+        validate_connector_url(connector) if connector else (True, "未提供（注册那一步会要求）")
+    )
+    register_url = (
+        f"{connector.rstrip('/')}/v1/gateways/{resolved_id}/register" if connector else ""
+    )
+
+    checks = (
+        PreflightCheck(
+            id="gateway-id",
+            ok=bool(resolved_id),
+            detail=id_detail,
+            fix="删掉 `<data>/gateway/gateway-id` 会重新生成一个新身份（旧注册随之作废）",
+        ),
+        PreflightCheck(
+            id="peer-token",
+            ok=bool(token),
+            detail=(
+                f"ORBIT_PEER_TOKEN 已配置（{len(token)} 字符）"
+                if token
+                else "ORBIT_PEER_TOKEN 未配置"
+            ),
+            fix="向 connector 申请一次性注册令牌，导出到环境变量（不要写进配置文件）",
+        ),
+        PreflightCheck(
+            id="wake-secret",
+            ok=bool(secret),
+            detail=(
+                f"ORBIT_WAKE_SECRET 已配置（{len(secret)} 字符）"
+                if secret
+                else "ORBIT_WAKE_SECRET 未配置"
+            ),
+            fix="生成一个共享密钥：`python -c \"import secrets;print(secrets.token_hex(32))\"`",
+        ),
+        PreflightCheck(
+            id="wake-url",
+            ok=wake_ok,
+            detail=wake_detail,
+            fix="配一个对端可达的 https 端点（反代 + TLS），形如 https://host/peer/wake",
+        ),
+        PreflightCheck(
+            id="connector-url",
+            ok=connector_ok,
+            detail=connector_detail,
+            fix="形如 https://relay.example.com（不带尾斜杠）",
+        ),
+    )
+    return EnrollPreflight(
+        ok=all(check.ok for check in checks),
+        checks=checks,
+        gateway_id=resolved_id,
+        wake_url=wake,
+        connector_url=connector,
+        register_url=register_url,
+    )
+
+
+@dataclass(frozen=True)
+class EnrollResult:
+    """``gateway enroll`` 的结果。``stage`` 说清**停在哪一步**。"""
+
+    ok: bool = False
+    stage: str = "preflight"
+    reason: str = ""
+    preflight: EnrollPreflight = field(default_factory=EnrollPreflight)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "stage": self.stage,
+            "reason": self.reason,
+            "preflight": self.preflight.as_dict(),
+        }
+
+
+def enroll(
+    *,
+    data_dir: str | Path,
+    peer_token: str | None = None,
+    wake_url: str | None = None,
+    wake_secret: str | None = None,
+    gateway_id: str | None = None,
+    connector_url: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> EnrollResult:
+    """``gateway enroll``：先跑本地预检，过了就**如实报**注册需要网络。
+
+    两个分支都必须能被调用方看见：
+
+    * 预检没过 → 返回 ``EnrollResult(stage="preflight")``（带每一条的修法）；
+    * 预检全过 → **抛** :class:`NetworkUnavailable`（注册要 POST 到 connector，
+      本机无网络，这一步做不到 —— 假装成功会让对端以为这台机器在线）。
+    """
+    preflight = enroll_preflight(
+        data_dir=data_dir,
+        peer_token=peer_token,
+        wake_url=wake_url,
+        wake_secret=wake_secret,
+        gateway_id=gateway_id,
+        connector_url=connector_url,
+        env=env,
+    )
+    if not preflight.ok:
+        failed = "、".join(check.id for check in preflight.failures())
+        return EnrollResult(
+            ok=False,
+            stage="preflight",
+            reason=f"本地预检没过：{failed}。修好这几项再跑一次（每条都有 fix 提示）。",
+            preflight=preflight,
+        )
+    raise NetworkUnavailable(
+        "本地预检全部通过（gateway id / peer token / wake secret / wake URL / connector URL），"
+        f"但**注册那一步要真实网络**：POST {preflight.register_url or '<connector>/v1/gateways/<id>/register'}"
+        " 换发 ORBIT_PEER_KEY。本机无网络，这一步做不到 —— 照抄一个「注册成功」只会让对端"
+        "以为这台机器在线。"
+    )
+
+
+# ── gateway install / uninstall：Windows 计划任务真能装 ─────────────────────
+
+
+@dataclass(frozen=True)
+class CommandOutcome:
+    """一条命令的执行结果。``executed=False`` 表示**没跑**（dry-run）。"""
+
+    argv: tuple[str, ...] = ()
+    returncode: int = 0
+    stdout: str = ""
+    stderr: str = ""
+    executed: bool = True
+
+    @property
+    def ok(self) -> bool:
+        return (not self.executed) or self.returncode == 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "argv": list(self.argv),
+            "returncode": self.returncode,
+            "stdout": self.stdout[-2000:],
+            "stderr": self.stderr[-2000:],
+            "executed": self.executed,
+            "ok": self.ok,
+        }
+
+
+def format_argv(argv: Iterable[str]) -> str:
+    """把 argv 拼成**能直接粘贴进终端**的一行（Windows 用 list2cmdline 的引号规则）。
+
+    为什么不用 ``" ".join(argv)``：路径里带空格时，拼出来那行粘进 cmd 会变成两条
+    参数 —— 而"打印将要执行的完整命令"的全部意义就是让用户能核对/复现。
+    """
+    items = [str(item) for item in argv]
+    if os.name == "nt":
+        return subprocess.list2cmdline(items)
+    import shlex
+
+    return shlex.join(items)
+
+
+def default_command_runner(
+    argv: Iterable[str], *, timeout: float = 120.0
+) -> CommandOutcome:
+    """默认执行器：``subprocess.run(argv)``（**不经 shell**）。
+
+    可注入是这一层的核心设计：测试注入一个假的执行器，就能断言"命令行参数对不对"
+    而不真的改系统状态（真装一个计划任务会留下系统副作用，测试不该做那件事）。
+    """
+    items = [str(item) for item in argv]
+    try:
+        completed = subprocess.run(  # noqa: S603 —— argv 已拆好，不经 shell
+            items, capture_output=True, timeout=timeout, check=False
+        )
+    except FileNotFoundError:
+        return CommandOutcome(
+            argv=tuple(items), returncode=127, stderr=f"命令找不到：{items[0]}", executed=True
+        )
+    except subprocess.TimeoutExpired:
+        return CommandOutcome(
+            argv=tuple(items), returncode=124, stderr=f"命令超时（{timeout:g}s）", executed=True
+        )
+    return CommandOutcome(
+        argv=tuple(items),
+        returncode=completed.returncode,
+        stdout=(completed.stdout or b"").decode("utf-8", errors="replace"),
+        stderr=(completed.stderr or b"").decode("utf-8", errors="replace"),
+        executed=True,
+    )
+
+
+def _current_user() -> str:
+    """``DOMAIN\\user`` 形式（取不到就返回空串，让 XML 省略 UserId 走默认）。"""
+    user = os.environ.get("USERNAME", "").strip()
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    if not user:
+        return ""
+    return f"{domain}\\{user}" if domain else user
+
+
+def windows_task_xml(
+    *,
+    data_dir: str | Path,
+    executable: str = "orbit",
+    user: str = "",
+    task_name: str = WINDOWS_TASK_NAME,
+) -> str:
+    """生成**真的能被 `schtasks /Create /XML` 吃下去**的计划任务定义。
+
+    与上一轮的 `.cmd` 脚本的关键区别：`.cmd` 里那条 `schtasks /Create` 是给用户抄的，
+    而这份 XML 是**程序自己交给 schtasks 的**。所以每一处都必须按 Task Scheduler 的
+    schema 写对，几个不能省的细节：
+
+    * ``ExecutionTimeLimit=PT0S``：不限时。默认是 72 小时，网关跑三天就被系统杀掉，
+      而且**没有任何报错** —— 这是最容易被忽略的一条；
+    * ``MultipleInstancesPolicy=IgnoreNew``：第二个实例直接被忽略。网关自己有锁文件，
+      但让系统先挡一层更便宜（也让"崩了重启"不会叠出两个进程）；
+    * ``RestartOnFailure``（1 分钟 / 3 次）：对应 systemd 的 ``Restart=on-failure``
+      与 ``StartLimitBurst``，本机网关自己的判据也是 3 次；
+    * ``LogonTrigger`` + ``RunLevel=LeastPrivilege``：登录时以**当前用户**权限起，
+      不需要管理员（网关不碰系统目录）。
+
+    **编码**：`schtasks /XML` 要求文件是 Unicode（UTF-16 + BOM），写入方
+    （:func:`install_service`）用 ``encoding="utf-16"`` 落盘；这里返回的是文本本身。
+    """
+    resolved = str(Path(data_dir).resolve())
+    account = (user or _current_user()).strip()
+    arguments = f'gateway run --data-dir "{resolved}"'
+    user_xml = (
+        f"      <UserId>{escape(account)}</UserId>\n" if account else ""
+    )
+    principal_user = (
+        f"      <UserId>{escape(account)}</UserId>\n" if account else ""
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-16"?>\n'
+        '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+        "  <RegistrationInfo>\n"
+        "    <Description>Orbit 消息网关（前台 dispatcher：拿锁 + 写状态文件 + tick）</Description>\n"
+        f"    <URI>\\{escape(task_name)}</URI>\n"
+        "  </RegistrationInfo>\n"
+        "  <Triggers>\n"
+        "    <LogonTrigger>\n"
+        "      <Enabled>true</Enabled>\n"
+        f"{user_xml}"
+        "    </LogonTrigger>\n"
+        "  </Triggers>\n"
+        "  <Principals>\n"
+        '    <Principal id="Author">\n'
+        f"{principal_user}"
+        "      <LogonType>InteractiveToken</LogonType>\n"
+        "      <RunLevel>LeastPrivilege</RunLevel>\n"
+        "    </Principal>\n"
+        "  </Principals>\n"
+        "  <Settings>\n"
+        "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n"
+        "    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n"
+        "    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"
+        "    <AllowHardTerminate>true</AllowHardTerminate>\n"
+        "    <StartWhenAvailable>false</StartWhenAvailable>\n"
+        "    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n"
+        "    <AllowStartOnDemand>true</AllowStartOnDemand>\n"
+        "    <Enabled>true</Enabled>\n"
+        "    <Hidden>false</Hidden>\n"
+        "    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n"
+        "    <WakeToRun>false</WakeToRun>\n"
+        "    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\n"
+        "    <Priority>7</Priority>\n"
+        "    <RestartOnFailure>\n"
+        "      <Interval>PT1M</Interval>\n"
+        "      <Count>3</Count>\n"
+        "    </RestartOnFailure>\n"
+        "  </Settings>\n"
+        '  <Actions Context="Author">\n'
+        "    <Exec>\n"
+        f"      <Command>{escape(executable)}</Command>\n"
+        f"      <Arguments>{escape(arguments)}</Arguments>\n"
+        f"      <WorkingDirectory>{escape(resolved)}</WorkingDirectory>\n"
+        "    </Exec>\n"
+        "  </Actions>\n"
+        "</Task>\n"
+    )
+
+
+def install_commands(
+    *,
+    xml_path: str | Path,
+    task_name: str = WINDOWS_TASK_NAME,
+) -> tuple[tuple[str, ...], ...]:
+    """装计划任务要跑的命令（**逐条可断言**）。
+
+    ``/F`` 是"已存在就覆盖"：重装同一条任务必须是幂等的，否则用户第二次 install
+    会得到一个 "already exists" 的错误，然后得自己去想怎么删。
+    """
+    return ((("schtasks", "/Create", "/TN", task_name, "/XML", str(xml_path), "/F")),)
+
+
+def uninstall_commands(*, task_name: str = WINDOWS_TASK_NAME) -> tuple[tuple[str, ...], ...]:
+    """卸载要跑的命令：先 ``/End``（停掉正在跑的），再 ``/Delete /F``。
+
+    ``/End`` 在任务没在跑时会返回非零 —— 那是**预期**的，调用方只看 ``/Delete``
+    的结果（见 :func:`uninstall_service`）。
+    """
+    return (
+        ("schtasks", "/End", "/TN", task_name),
+        ("schtasks", "/Delete", "/TN", task_name, "/F"),
+    )
+
+
+@dataclass(frozen=True)
+class InstallPlan:
+    """``gateway install`` / ``uninstall`` 的执行计划（dry-run 与 apply 共用一份结构）。
+
+    ``dry_run=True`` 时 ``commands`` 是"将要执行的完整命令"，``executed`` 为空；
+    ``apply=True`` 时 ``executed`` 里是每条命令的真实结果。
+    """
+
+    kind: str = "windows"
+    supported: bool = False
+    action: str = "install"
+    unit: ServiceUnit | None = None
+    xml_content: str = ""
+    xml_path: str = ""
+    commands: tuple[tuple[str, ...], ...] = ()
+    dry_run: bool = True
+    executed: tuple[CommandOutcome, ...] = ()
+    installed: bool = False
+    note: str = ""
+
+    def format_commands(self) -> tuple[str, ...]:
+        """可打印的完整命令行（一条一行，引号已按平台规则加好）。"""
+        return tuple(format_argv(argv) for argv in self.commands)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "supported": self.supported,
+            "action": self.action,
+            "dry_run": self.dry_run,
+            "xml_path": self.xml_path,
+            "commands": [list(argv) for argv in self.commands],
+            "command_lines": list(self.format_commands()),
+            "executed": [outcome.as_dict() for outcome in self.executed],
+            "installed": self.installed,
+            "note": self.note,
+            "unit": self.unit.as_dict() if self.unit else None,
+        }
+
+
+def install_service(
+    *,
+    data_dir: str | Path,
+    kind: str = "windows",
+    executable: str = "orbit",
+    user: str = "",
+    apply: bool = False,
+    runner: Callable[[Iterable[str]], CommandOutcome] | None = None,
+    task_name: str = WINDOWS_TASK_NAME,
+) -> InstallPlan:
+    """``gateway install``：**默认 dry-run，``apply=True`` 才真跑 `schtasks`**。
+
+    这一轮把 install 从"只生成内容"推到"Windows 上真能装"，靠的是
+    ``schtasks /Create /XML``：写一份任务定义（Task Scheduler 的 schema）再交给系统。
+    三条刻意的约束：
+
+    1. **默认 dry-run**：``apply=False`` 时**一条命令都不跑**，只把将要执行的完整
+       命令（连同 XML 全文）交出去。改系统状态必须是用户显式要求的结果。
+    2. **执行器可注入**（``runner``）：测试注入假的执行器就能断言"参数对不对"，
+       不必真的注册一个计划任务（那会留下系统副作用，也可能在 CI 上失败）。
+    3. **只支持 Windows**：systemd / launchd 要写 ``/etc`` 或 ``~/.config``，
+       超出 Orbit 的写入范围（只写 data_dir），所以如实 ``supported=False``
+       并把手工步骤交出去 —— 不假装能装。
+    """
+    unit = render_service_unit(kind, data_dir=data_dir, executable=executable, user=user)
+    name = str(kind or "").strip().lower()
+    if name != "windows":
+        return InstallPlan(
+            kind=name,
+            supported=False,
+            action="install",
+            unit=unit,
+            note=(
+                "只有 Windows 计划任务能由 Orbit 真装（`schtasks /Create /XML`）。"
+                f"{name} 的单元要写系统目录（{unit.path}），超出 Orbit 的写入范围 ——"
+                "按 `install_steps` 手工放，这是如实的边界，不是没做。"
+            ),
+        )
+    if not shutil.which("schtasks"):
+        return InstallPlan(
+            kind=name,
+            supported=False,
+            action="install",
+            unit=unit,
+            note="本机找不到 `schtasks`（不是 Windows？），无法安装计划任务。",
+        )
+    paths = GatewayPaths(Path(data_dir))
+    xml_path = paths.root / f"{task_name}.xml"
+    xml = windows_task_xml(
+        data_dir=data_dir, executable=executable, user=user, task_name=task_name
+    )
+    commands = install_commands(xml_path=xml_path, task_name=task_name)
+    if not apply:
+        return InstallPlan(
+            kind=name,
+            supported=True,
+            action="install",
+            unit=unit,
+            xml_content=xml,
+            xml_path=str(xml_path),
+            commands=commands,
+            dry_run=True,
+            installed=False,
+            note=(
+                "dry-run：**没有执行任何命令，也没有改系统状态**。"
+                f"加 `--apply` 才会先写 {xml_path}（UTF-16 + BOM，schtasks 的要求），"
+                "再执行上面那条命令。"
+            ),
+        )
+    paths.root.mkdir(parents=True, exist_ok=True)
+    # schtasks 只吃 Unicode（UTF-16 + BOM）的 XML —— 用 UTF-8 会被判"XML 无效"，
+    # 而报错信息完全看不出是编码问题。这是本函数唯一会写的文件（在 data_dir 之内）。
+    xml_path.write_text(xml, encoding="utf-16")
+    execute = runner or default_command_runner
+    outcomes = tuple(execute(argv) for argv in commands)
+    installed = all(outcome.ok for outcome in outcomes)
+    return InstallPlan(
+        kind=name,
+        supported=True,
+        action="install",
+        unit=unit.with_installed(installed),
+        xml_content=xml,
+        xml_path=str(xml_path),
+        commands=commands,
+        dry_run=False,
+        executed=outcomes,
+        installed=installed,
+        note=(
+            f"已写入 {xml_path} 并执行 schtasks（{len(outcomes)} 条命令）。"
+            + ("" if installed else "**安装失败**：看 executed 里的 stderr 原文。")
+        ),
+    )
+
+
+def uninstall_service(
+    *,
+    data_dir: str | Path,
+    kind: str = "windows",
+    apply: bool = False,
+    runner: Callable[[Iterable[str]], CommandOutcome] | None = None,
+    task_name: str = WINDOWS_TASK_NAME,
+) -> InstallPlan:
+    """``gateway uninstall``：``schtasks /End`` + ``/Delete /F``，同样默认 dry-run。
+
+    ``/End`` 失败**不算卸载失败**：任务没在跑时它本来就返回非零。判据只看
+    ``/Delete`` 那一条 —— 那是"任务从系统里消失"的唯一证据。
+    """
+    unit = render_service_unit(kind, data_dir=data_dir)
+    name = str(kind or "").strip().lower()
+    if name != "windows":
+        return InstallPlan(
+            kind=name,
+            supported=False,
+            action="uninstall",
+            unit=unit,
+            note=f"{name} 的卸载要写系统目录，超出 Orbit 的写入范围；按 `uninstall_steps` 手工做。",
+        )
+    if not shutil.which("schtasks"):
+        return InstallPlan(
+            kind=name,
+            supported=False,
+            action="uninstall",
+            unit=unit,
+            note="本机找不到 `schtasks`，无法卸载计划任务。",
+        )
+    commands = uninstall_commands(task_name=task_name)
+    if not apply:
+        return InstallPlan(
+            kind=name,
+            supported=True,
+            action="uninstall",
+            unit=unit,
+            commands=commands,
+            dry_run=True,
+            installed=False,
+            note=(
+                "dry-run：**没有执行任何命令**。加 `--apply` 才会停掉并删除计划任务；"
+                "`schtasks /End` 在任务没跑时返回非零，那是预期的。"
+            ),
+        )
+    execute = runner or default_command_runner
+    outcomes = tuple(execute(argv) for argv in commands)
+    # 只看 /Delete：`/End` 对"没在跑"的任务必然失败，把它算成卸载失败会误报。
+    delete_ok = all(
+        outcome.ok for outcome in outcomes if "/Delete" in outcome.argv
+    ) and any("/Delete" in outcome.argv for outcome in outcomes)
+    return InstallPlan(
+        kind=name,
+        supported=True,
+        action="uninstall",
+        unit=unit.with_installed(False),
+        commands=commands,
+        dry_run=False,
+        executed=outcomes,
+        installed=not delete_ok,
+        note=(
+            "已执行卸载命令。"
+            if delete_ok
+            else "**卸载失败**：`schtasks /Delete` 没成功（看 executed 里的 stderr）。"
+        ),
+    )
+
+
+# ── gateway setup：一次问一个问题、输入输出都可注入的向导 ─────────────────────
+
+
+@dataclass(frozen=True)
+class SetupQuestion:
+    """向导里的一个问题。``secret=True`` 的答案**不会被写盘**。"""
+
+    id: str
+    prompt: str
+    default: str = ""
+    secret: bool = False
+    choices: tuple[str, ...] = ()
+    help: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "prompt": self.prompt,
+            "default": self.default,
+            "secret": self.secret,
+            "choices": list(self.choices),
+            "help": self.help,
+        }
+
+
+@dataclass(frozen=True)
+class SetupAnswer:
+    """一条答案。``from_default`` 说明用户是按回车还是真打了字。"""
+
+    id: str
+    value: str = ""
+    from_default: bool = False
+    secret: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        """**机密的答案只报"给了没"**：把它写进 setup.json 等于交给任何能读文件的人。"""
+        if self.secret:
+            return {"id": self.id, "provided": bool(self.value), "secret": True}
+        return {
+            "id": self.id,
+            "value": self.value,
+            "from_default": self.from_default,
+            "secret": False,
+        }
+
+
+@dataclass(frozen=True)
+class SetupResult:
+    """向导跑完的结论：答案 + 预检 + 落盘位置。"""
+
+    ok: bool = False
+    answers: tuple[SetupAnswer, ...] = ()
+    preflight: EnrollPreflight = field(default_factory=EnrollPreflight)
+    written: str = ""
+    steps: tuple[str, ...] = ()
+
+    def answer(self, ident: str) -> str:
+        for item in self.answers:
+            if item.id == ident:
+                return item.value
+        return ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "answers": [item.as_dict() for item in self.answers],
+            "preflight": self.preflight.as_dict(),
+            "written": self.written,
+            "steps": list(self.steps),
+        }
+
+
+def setup_questions(*, gateway_id: str = "") -> tuple[SetupQuestion, ...]:
+    """向导要问的 5 个问题（顺序即提问顺序）。
+
+    为什么问这些而不是"把 22 个平台挨个问一遍"：网关要跑起来只差三样东西
+    —— 身份、能不能被唤醒、凭证。平台的凭证属于各平台适配器自己的事
+    （`gateway setup` 的旧版本写 platforms.json，那一层不动）。
+    """
+    return (
+        SetupQuestion(
+            id="gateway_id",
+            prompt="本机网关 id（回车用默认）",
+            default=gateway_id,
+            help="写进中继注册与 wake 校验；换掉等于换一个身份，旧注册作废",
+        ),
+        SetupQuestion(
+            id="wake_url",
+            prompt="对端唤醒本机的 URL（形如 https://host/peer/wake，可留空跳过）",
+            help="必须是 https（回环地址除外），且指向具体端点而不是站点根",
+        ),
+        SetupQuestion(
+            id="peer_token",
+            prompt="ORBIT_PEER_TOKEN（connector 签发的一次性注册令牌，可留空）",
+            secret=True,
+            help="只留在环境变量里，**不会写进任何文件**",
+        ),
+        SetupQuestion(
+            id="wake_secret",
+            prompt="ORBIT_WAKE_SECRET（wake 请求的 HMAC 共享密钥，可留空）",
+            secret=True,
+            help="`python -c \"import secrets;print(secrets.token_hex(32))\"` 生成",
+        ),
+        SetupQuestion(
+            id="install_task",
+            prompt="现在装 Windows 计划任务吗？（yes/no，回车 = no）",
+            default="no",
+            choices=("yes", "no"),
+            help="选 yes 也只是**打印**命令；真装要另外跑 `gateway install --apply`",
+        ),
+    )
+
+
+def run_setup_wizard(
+    *,
+    data_dir: str | Path,
+    ask: Callable[[SetupQuestion], str],
+    tell: Callable[[str], None] = print,
+    answers: Mapping[str, str] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> SetupResult:
+    """``gateway setup``：**一次问一个问题**、输入输出都可注入的向导。
+
+    三个设计约束：
+
+    1. **一次一个问题**（不是"打印 5 行然后一次性读 5 行"）：交互式向导最容易出错的
+       地方是"用户在第 3 题上按了回车，结果把第 4 题的答案填进了第 3 题"。
+    2. **``ask`` / ``tell`` 可注入**：测试用预置答案跑通整条向导，不需要 stdin；
+       生产里 CLI 传一个读 ``input()`` 的函数。
+    3. **答案里只有非机密项会落盘**（``<data>/gateway/setup.json``）：令牌与共享密钥
+       属于"只该在环境变量里"的东西，写进 JSON 等于交给任何能读文件的人。
+
+    向导最后**一定跑一次预检**并把结论写进结果：向导的作用不是"收集答案"，
+    而是"让用户知道还差什么"。
+    """
+    existing = read_gateway_id(data_dir) or ensure_gateway_id(data_dir)
+    provided = dict(answers or {})
+    collected: list[SetupAnswer] = []
+    for question in setup_questions(gateway_id=existing):
+        if question.id in provided:
+            raw = str(provided[question.id])
+            from_default = False
+        else:
+            tell(question.prompt + (f"（{question.help}）" if question.help else ""))
+            raw = str(ask(question) or "").strip()
+            from_default = not raw
+            if from_default:
+                raw = question.default
+        if question.choices and raw and raw.lower() not in question.choices:
+            tell(f"取值只能是 {'/'.join(question.choices)}，按默认 {question.default!r} 处理。")
+            raw = question.default
+        collected.append(
+            SetupAnswer(
+                id=question.id,
+                value=raw,
+                from_default=from_default,
+                secret=question.secret,
+            )
+        )
+    by_id = {item.id: item.value for item in collected}
+    preflight = enroll_preflight(
+        data_dir=data_dir,
+        peer_token=by_id.get("peer_token", ""),
+        wake_url=by_id.get("wake_url", ""),
+        wake_secret=by_id.get("wake_secret", ""),
+        gateway_id=by_id.get("gateway_id", "") or existing,
+        connector_url="",
+        env=env,
+    )
+    steps: list[str] = []
+    if by_id.get("install_task", "").lower() == "yes":
+        plan = install_service(data_dir=data_dir, apply=False)
+        steps.extend(plan.format_commands())
+        steps.append("（上面是 `gateway install --apply` 会执行的命令；向导**不装**）")
+    if preflight.ok:
+        steps.append(
+            "预检全部通过：导出 ORBIT_PEER_TOKEN / ORBIT_WAKE_SECRET 后跑 "
+            "`orbit gateway enroll --connector-url https://… --apply`"
+        )
+    else:
+        failed = "、".join(check.id for check in preflight.failures())
+        steps.append(f"还差这些才能注册：{failed}（每条的修法见 preflight.checks[].fix）")
+    paths = GatewayPaths(Path(data_dir))
+    payload = {
+        "version": 1,
+        "updated_at": _iso_now(),
+        "gateway_id": preflight.gateway_id,
+        "answers": [item.as_dict() for item in collected],
+        "preflight": preflight.as_dict(),
+        "note": "机密答案（peer_token / wake_secret）只记'给了没'，原文不落盘。",
+    }
+    paths.root.mkdir(parents=True, exist_ok=True)
+    _atomic_write(paths.setup_state, json.dumps(payload, ensure_ascii=False, indent=2))
+    tell(f"已写入 {paths.setup_state}（机密项未落盘）")
+    return SetupResult(
+        ok=preflight.ok,
+        answers=tuple(collected),
+        preflight=preflight,
+        written=str(paths.setup_state),
+        steps=tuple(steps),
+    )
+
+
 # ── 模块级便捷入口 ──────────────────────────────────────────────────────────
 
 
@@ -2147,48 +3071,75 @@ __all__ = [
     "CRASH_LOOP_MIN_STARTS",
     "CRASH_LOOP_WINDOW_SECONDS",
     "ChannelDirectory",
+    "CommandOutcome",
     "CrashLoopReport",
     "DELIVER_ATTEMPTS",
     "DELIVERIES_FILENAME",
     "DeliveryResult",
     "DispatcherLock",
     "EnrollPlan",
+    "EnrollPreflight",
     "EnrollRequirement",
+    "EnrollResult",
     "GATEWAY_DIRNAME",
+    "GATEWAY_ID_FILENAME",
     "GatewayInstance",
     "GatewayPaths",
     "GatewayService",
     "HealthReport",
     "INSTANCES_FILENAME",
+    "InstallPlan",
     "InstanceRegistry",
     "LOCK_FILENAME",
     "LockOutcome",
+    "NetworkUnavailable",
     "PAUSED_FILENAME",
     "PEERS_FILENAME",
     "PROCESSES_FILENAME",
     "PairingStore",
     "PeerRegistry",
+    "PreflightCheck",
     "ProcessRegistry",
     "SERVICE_KINDS",
+    "SETUP_FILENAME",
     "SPAWN_LEDGER_FILENAME",
     "STARTS_FILENAME",
     "ServiceUnit",
+    "SetupAnswer",
+    "SetupQuestion",
+    "SetupResult",
     "SpawnLedger",
     "StartOutcome",
     "WEBHOOKS_FILENAME",
+    "WINDOWS_TASK_NAME",
     "WebhookStore",
     "WebhookSubscription",
+    "default_command_runner",
     "deliver",
     "detect_crash_loop",
+    "enroll",
+    "enroll_preflight",
     "enroll_requirements",
+    "ensure_gateway_id",
+    "format_argv",
     "identity",
+    "install_commands",
+    "install_service",
     "instance_rows",
     "now_iso",
     "pid_alive",
     "process_start_time",
+    "read_gateway_id",
     "read_start_stamps",
     "render_service_unit",
     "route",
+    "run_setup_wizard",
     "service",
+    "setup_questions",
+    "uninstall_commands",
+    "uninstall_service",
+    "validate_connector_url",
+    "validate_wake_url",
+    "windows_task_xml",
     "write_json",
 ]

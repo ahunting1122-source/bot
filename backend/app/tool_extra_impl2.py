@@ -244,6 +244,8 @@ def _adapter_rows(service: Any) -> list[dict[str, Any]]:
     ``health()`` 在 WebhookAdapter 里是纯配置判断（有没有 URL / 缺哪些环境变量），
     所以这一步不会碰到网络——这正是"离线也要能如实回答"的前提。
     """
+    from app import platforms
+
     rows: list[dict[str, Any]] = []
     for name in sorted(service.adapters):
         adapter = service.adapters[name]
@@ -255,15 +257,26 @@ def _adapter_rows(service: Any) -> list[dict[str, Any]]:
             configured = bool(extra.get("configured", True))
         except Exception as exc:  # noqa: BLE001 —— 一个适配器自检炸了不该让清单整片空
             ok, detail, configured, extra = False, f"{type(exc).__name__}: {exc}", False, {}
+        # webhook 那 8 家的 health().extra 里不带 env 名（它们的环境变量写在
+        # `platforms.WEBHOOK_PLATFORMS` 的声明里），所以这里再补一次平台声明：
+        # 缺哪个变量必须**点名**——只说"未配置"等于让人自己去翻源码。
+        declared: list[str] = []
+        try:
+            declared = [str(item) for item in platforms.spec_for(name).credentials]
+        except Exception:  # noqa: BLE001 —— console / file 这类旁路不在 22 个平台里
+            declared = []
+        env_names = [str(item) for item in (extra.get("env") or [])] or declared
+        missing = [str(item) for item in (extra.get("missing_env") or [])]
+        if not configured and not missing:
+            missing = declared
         rows.append(
             {
                 "platform": name,
                 "usable": ok,
                 "configured": configured,
                 "detail": detail,
-                # 缺哪个环境变量要**点名**：只说"未配置"等于让人自己去翻源码。
-                "env": [str(item) for item in (extra.get("env") or [])],
-                "missing_env": [str(item) for item in (extra.get("missing_env") or [])],
+                "env": env_names,
+                "missing_env": missing,
             }
         )
     return rows
@@ -502,7 +515,12 @@ def run_budget_status(args: Mapping[str, Any], context: Round3Context) -> dict[s
     data_dir = _require_data_dir(context)
     turns = turn_budgets.resolve(context.settings)
     limits = window.thresholds_for(context.settings)
-    config = budget.BudgetConfig(**limits.budget_kwargs())
+    # `limits.budget_kwargs()` 就是这两个键，但展开成 `**kwargs` 会让 mypy 无法排除
+    # `tool_overrides`（它也是 dict 字段），所以这里显式写字段名。
+    config = budget.BudgetConfig(
+        default_result_size=limits.per_result_chars,
+        turn_budget=limits.per_turn_chars,
+    )
     spill_dir = budget.spillover_dir(data_dir)
     files = 0
     total_bytes = 0

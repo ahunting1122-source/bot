@@ -84,6 +84,7 @@ TOOLSETS: dict[str, str] = {
     "cron": "定时任务（cron_job：建 / 列 / 停 / 删；真正执行由 `orbit cron` 守护进程负责）",
     "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
     "home": "智能家居（域内无工具：要 Home Assistant 之类的网关与设备凭证）",
+    "collab": "协作与消息投递（send_message：20 家出站适配器 + console/file 离线旁路）",
 }
 
 #: 声明式映射：工具名 → toolset。**新增工具必须在这里加一行**，否则落进
@@ -169,6 +170,12 @@ TOOL_TOOLSET: dict[str, str] = {
     "compact": "core",
     "setup_mcp": "mcp",
     "text_to_speech": "tts",
+    # MATRIX 5.14 第三轮（实现见 `app/tool_extra_impl2.py` 的 `ROUND3_TOOLS`）。
+    "send_message": "collab",
+    "memory_provider_list": "memory",
+    "skill_search": "skills",
+    "egress_status": "core",
+    "budget_status": "core",
 }
 
 #: 前缀 → toolset。这是"新增工具自动归类"的兜底：按仓库既有命名习惯（``local_`` /
@@ -246,7 +253,7 @@ DOMAIN_TOOLSETS: dict[str, tuple[str, ...]] = {
     "kanban": ("kanban",),
     "cron": ("cron",),
     "desktop": ("desktop",),
-    "collab": ("notion",),
+    "collab": ("notion", "collab"),
     "home": ("home",),
     "meta": ("core",),
 }
@@ -333,6 +340,7 @@ TOOLSET_TIERS: dict[str, int] = {
     "cron": 2,
     "desktop": 2,
     "home": 2,
+    "collab": 2,
 }
 
 #: 单个工具的 tier 覆盖（比 toolset 声明优先）。目前为空，机制先立着：

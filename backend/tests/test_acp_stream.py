@@ -335,6 +335,60 @@ def test_cancel_notification_stops_the_running_prompt():
     assert responses[1]["result"]["content"] == []
 
 
+def test_pump_turns_real_task_events_into_updates(tmp_path):
+    """事件泵跑**真** `task_events`：这是"agent 说一句 → 编辑器看见一句"的最后一厘米。
+
+    上面几条测的是"载荷怎么造"，这一条测"真的库里长出来的事件能不能被正确翻译"——
+    事件名与 payload 的键（`tool` / `text` / `result`）是别人（`app/tools.py`、
+    `app/graph/nodes.py`）写的，名字一改这里就该红。
+    """
+    from app.cli.commands.acp import _pump
+    from app.cli.context import Context
+    from app.config import Settings
+    from app.main import migrate
+    from app.storage import Conversation, Task
+
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    context = Context(settings)
+    try:
+
+        async def _seed() -> str:
+            store = context.store
+            conversation = await store.save(Conversation(title="ACP 泵"))
+            task = await store.save(Task(conversation_id=conversation.id, goal="读日志"))
+            await store.event(task.id, "message_delta", text="今天")
+            await store.event(task.id, "message_delta", text="有三处报错")
+            await store.event(task.id, "tool_started", tool="read_file")
+            await store.event(
+                task.id, "tool_finished", tool="read_file", result={"status": "ok"}
+            )
+            await store.transition(task.id, "SUCCEEDED")
+            return str(task.id)
+
+        task_id = context.run(_seed())
+        recorder = Recorder()
+        emitter = UpdateEmitter(recorder, session_id="acp-1")
+        state = _pump(context, context.store, task_id, emitter)
+        emitter.close()
+
+        assert state["status"] == "SUCCEEDED"
+        assert state["text"] == "今天有三处报错"
+        assert recorder.kinds() == [
+            AGENT_MESSAGE_CHUNK,
+            AGENT_MESSAGE_CHUNK,
+            TOOL_CALL,
+            TOOL_CALL_UPDATE,
+        ]
+        assert "".join(recorder.texts()) == "今天有三处报错"
+        finished = recorder.frames[3]["params"]["update"]
+        assert finished["status"] == COMPLETED
+        assert "ok" in finished["content"][0]["content"]["text"]
+    finally:
+        context.close()
+
+
 # ── 4. 背压 ────────────────────────────────────────────────────────────────
 def test_bounded_queue_reports_overflow_instead_of_dropping_frames():
     """写端卡住时，队列到上限就**抛错**：不静默丢帧，也不无限缓冲。

@@ -257,11 +257,17 @@ def test_dashboard_page_lands_in_the_page_registry():
 
 
 def test_exposed_capabilities_register_but_admit_no_consumer():
-    """exposed 的三种：能登记（查得到），但状态明确写着宿主没有消费方。
+    """四条能力都能登记（查得到）；状态各自说清"有没有消费者"。
 
-    ``register_web_provider`` 本轮已经升到 wired（宿主表 ``EXTRA_PROVIDERS`` 真的被
-    ``build_providers`` 读到），所以它不在这一组里——证据见
-    ``tests/test_plugin_host.py::test_web_provider_lands_in_the_host_table_and_is_actually_used``。
+    * ``register_memory_provider`` / ``register_observability_exporter`` 仍是 ``exposed``：
+      宿主侧入口在（``memory_provider_for`` / ``exporters_for``），但真正来取的那一步
+      （装配处的 ``build_router``、主循环的发射点）不在本模块；
+    * ``register_slack_action_handler`` / ``register_slash_command`` 第三轮升到 ``wired``：
+      宿主入站路由（``POST /api/plugin/actions`` / ``/api/plugin/slash``）真的调它们，
+      证据见 ``tests/test_capability_wiring.py``。
+
+    ``register_web_provider`` 上一轮已升到 wired（宿主表 ``EXTRA_PROVIDERS`` 真的被
+    ``build_providers`` 读到），所以也不在这一组里。
     """
     ctx = context()
 
@@ -276,13 +282,11 @@ def test_exposed_capabilities_register_but_admit_no_consumer():
     assert ledger["register_memory_provider"] == 1
     assert ledger["register_slack_action_handler"] == 1
     assert ledger["register_slash_command"] == 1
-    for name in (
-        "register_memory_provider",
-        "register_slack_action_handler",
-        "register_slash_command",
-    ):
-        assert caps.status_of(name) == caps.EXPOSED, name
-        assert "缺" in caps.landing_of(name), name
+    assert caps.status_of("register_memory_provider") == caps.EXPOSED
+    assert caps.status_of("register_slack_action_handler") == caps.WIRED
+    assert caps.status_of("register_slash_command") == caps.WIRED
+    # 仍是 exposed 的必须写清缺哪一层
+    assert "缺" in caps.landing_of("register_memory_provider")
 
 
 def test_web_provider_graduated_to_wired_with_a_real_host_table():

@@ -7,14 +7,24 @@ Hermes 内置 11 个 TTS provider 与 8 个 STT provider（调研 06 §6.3 / §6
 deepinfra）与 6 家 STT **全部**需要联网，本机无网络、且本层禁止安装依赖，所以它们
 `available() = False`，每一家都带"缺哪个包 / 缺哪个环境变量 / 装什么"。
 
-**本机真能跑的 TTS 是 3 家**（命令通道 + SAPI + flite —— 上一轮只算到 2 家）：
+**本机真能跑的 TTS 是 3~4 家**（命令通道 + SAPI + flite，另加条件可用的 OneCore）：
 
 1. `CommandTts`（`command`，单列在最前面）：用户配的外部命令；
 2. `LocalTtsProvider`（`sapi`，见 `app/voice_local.py`）：Windows 自带的
    `System.Speech.Synthesis`，**真合成出合法 RIFF/WAVE**，完全离线；
 3. `FfmpegFliteTts`（`flite`，见 `app/voice_piper.py`）：ffmpeg 的 libflite 滤镜，
    **本机实测合成出 126,798 字节 wav**（英文），零额外安装 —— 但它**只支持英文**，
-   中文会合成出接近静音，所以 `synthesize()` 对非 ASCII 文本当场拒绝并指路。
+   中文会合成出接近静音，所以 `synthesize()` 对非 ASCII 文本当场拒绝并指路；
+4. `LocalOneCoreTts`（`onecore`，见 `app/voice_local.py`）：WinRT 的
+   `Windows.Media.SpeechSynthesis`，**另一套音色库**（本机列出 Huihui / Yaoyao /
+   Kangkang，SAPI 那套只有 Huihui Desktop / Zira），高完整性级别下实测合成出
+   **41,966 字节 wav**。
+
+**关于 2 与 4 的一个必须说清的环境事实**：在本机的 venv python 子进程里，SAPI 与
+OneCore 的探测都是 `False` —— 那些子进程的完整性级别是 `Mandatory Label\\Low`，
+语音 token 不对 Low IL 开放（`app/voice_local.py` 的 docstring 有完整实测记录）。
+所以 `available()` 一律**实测一次最小合成**，而不是"看装了没"；两者在本机
+从普通终端跑是真能出声的，在被降权的沙箱里则如实报不可用。
 
 STT 那边有 2 条本地通道：
 
@@ -77,7 +87,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from app.voice_local import LOCAL_SAPI_STT, LOCAL_SAPI_TTS, LOCAL_TTS_PROVIDERS
+from app.voice_local import (
+    LOCAL_ONECORE_TTS,
+    LOCAL_SAPI_STT,
+    LOCAL_SAPI_TTS,
+    LOCAL_TTS_PROVIDERS,
+)
 from app.voice_piper import (
     EXTRA_LOCAL_TTS,
     FLITE_TTS,
@@ -620,6 +635,15 @@ _LOCAL_TTS: dict[str, TtsProvider] = {
     provider.name: provider for provider in LOCAL_TTS_PROVIDERS
 }
 
+#: **不在 11 家里**、但本机真能跑（或真装了就能跑）的 TTS：`flite` 打头，
+#: 后面跟 espeak / espeak-ng / festival / say / pico2wave。
+#:
+#: 为什么要一个显式的类型注解而不是直接写元组字面量：`(FLITE_TTS, *EXTRA_LOCAL_TTS)`
+#: 里两个类没有共同基类，mypy 会把元素的联合类型退化成 `object`，于是
+#: `provider.name` / `.available()` / `.describe()` 全部报 attr-defined —— 注解成
+#: `tuple[TtsProvider, ...]` 之后，结构类型检查才真正生效（这两个类都满足协议）。
+EXTRA_TTS: tuple[TtsProvider, ...] = (FLITE_TTS, *EXTRA_LOCAL_TTS)
+
 #: 11 个 TTS provider（调研 06 §6.4 的清单，顺序照抄）。云的那 8 家不可用并带
 #: "缺什么 + 装什么"；本地那 3 家（neutts / kittentts / piper）走真检测。
 TTS_PROVIDERS: tuple[TtsProvider, ...] = (
@@ -734,14 +758,19 @@ def tts_provider(name: str, *, data_dir: str | Path | None = None) -> TtsProvide
     # 别名 `local_sapi` 是给"本地 / 云端"这类习惯叫法留的入口。
     if key in {"sapi", "local_sapi"}:
         return LOCAL_SAPI_TTS
+    # OneCore（WinRT）是另一套音色库 + 另一套引擎，单独一个名字（见 voice_local 的注释）。
+    if key in {"onecore", "winrt"}:
+        return LOCAL_ONECORE_TTS
     for provider in TTS_PROVIDERS:
         if provider.name == key:
             return provider
-    for extra in (FLITE_TTS, *EXTRA_LOCAL_TTS):
+    for extra in EXTRA_TTS:
         if extra.name == key:
             return extra
-    names = " / ".join([p.name for p in TTS_PROVIDERS] + [p.name for p in (FLITE_TTS, *EXTRA_LOCAL_TTS)])
-    raise VoiceError(f"未知 TTS provider：{name}（可用：command / sapi / {names}）")
+    names = " / ".join([p.name for p in TTS_PROVIDERS] + [p.name for p in EXTRA_TTS])
+    raise VoiceError(
+        f"未知 TTS provider：{name}（可用：command / sapi / onecore / {names}）"
+    )
 
 
 def stt_provider(name: str, *, data_dir: str | Path | None = None) -> SttProvider:
@@ -833,9 +862,20 @@ def describe_all(*, data_dir: str | Path | None = None) -> list[dict[str, object
             "quality": LOCAL_SAPI_STT.quality,
         }
     )
+    # OneCore（WinRT）合成器：与 SAPI **并列的第四家**，不是它的别名。
+    # 音色库不同（OneCore 多出 Yaoyao / Kangkang），引擎也不同 —— 一边坏了另一边
+    # 可能还是好的，所以它必须单独一行。
+    rows.append(
+        {
+            "kind": "local",
+            "name": LOCAL_ONECORE_TTS.name,
+            "available": LOCAL_ONECORE_TTS.available(),
+            "describe": LOCAL_ONECORE_TTS.describe(),
+        }
+    )
     # 本机二进制类通道：flite 打头（本机唯一一个零安装就能真合成的），
     # 后面跟 5 家常见本地 TTS（本机全都不在 PATH，如实登记 + 安装方式）。
-    for extra in (FLITE_TTS, *EXTRA_LOCAL_TTS):
+    for extra in EXTRA_TTS:
         rows.append(
             {
                 "kind": "local-tts",
@@ -861,6 +901,7 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "EXTRA_LOCAL_TTS",
     "FLITE_TTS",
+    "LOCAL_ONECORE_TTS",
     "LOCAL_SAPI_STT",
     "LOCAL_SAPI_TTS",
     "LOCAL_TTS_PROVIDERS",

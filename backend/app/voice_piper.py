@@ -471,11 +471,22 @@ def _commandline_probe(name: str, binary: str, command: str) -> Probe:
 
 
 def reset_probe_cache() -> None:
-    """清掉全部探测缓存（测试用；也留给"刚装完想立刻看到"的场景）。"""
-    _piper_probe.cache_clear()
-    _flite_probe.cache_clear()
-    _commandline_probe.cache_clear()
-    ffmpeg_filters.cache_clear()
+    """清掉全部探测缓存（测试用；也留给"刚装完想立刻看到"的场景）。
+
+    为什么用 `getattr(..., "cache_clear", None)` 而不是直接调：测试会
+    `monkeypatch.setattr` 把这些函数临时换成普通 lambda（"这个 build 没有 flite 滤镜"），
+    而 pytest 的 monkeypatch 撤销顺序**晚于** autouse fixture 的 teardown ——
+    直接调 `cache_clear()` 会在 teardown 里炸成一个与用例无关的 AttributeError。
+    """
+    for func in (
+        _piper_probe,
+        _flite_probe,
+        _commandline_probe,
+        ffmpeg_filters,
+    ):
+        clear = getattr(func, "cache_clear", None)
+        if callable(clear):
+            clear()
 
 
 # ── TTS：piper ──────────────────────────────────────────────────────────────

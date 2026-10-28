@@ -567,7 +567,9 @@ CAPABILITIES: tuple[Capability, ...] = (
             "签名冻结：`dispatch_slash(text) -> (name, outcome) | None`；异步孪生 "
             "dispatch_slash_async）都就位，**并且真的有人调**："
             "app/plugin_host.py::PluginHost.mount_routes 挂出 `POST /api/plugin/slash`，"
-            "请求进来就执行插件 handler 并带回返回值"
+            "请求进来就执行插件 handler 并带回返回值；**仍建议加**的第二个入口："
+            "app/cli/commands/chat.py 输入循环里的 `outcome = host.dispatch_slash(text)`"
+            "（那才是用户敲 `/命令` 的自然路径）"
         ),
         reason=(
             "**第三轮从 exposed 升到 wired**：缺的从来不是能力，而是「谁调它」。"

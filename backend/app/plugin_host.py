@@ -73,6 +73,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app import hooks as hooks_module
 from app import plugin_capabilities
 from app import plugins as plugins_module
 from app.hooks import DEFAULT_HOOKS, HookRegistry
@@ -506,7 +507,9 @@ class PluginHost:
                     {"action_id": key, "handled": outcome is not None, "outcome": _jsonable(outcome)}
                 )
             return {
-                "ok": bool(handled),
+                # `ok` 判的是"有没有真的派到处理器"，不是"有没有解析出 action_id"：
+                # 载荷里带了一个已卸载插件的按钮时，解析成功但没人处理，那不算成功。
+                "ok": any(item["handled"] for item in handled),
                 "handled": handled,
                 # 查不到的 action_id 不是错误：按钮可能来自已经卸载的插件（消息还在
                 # 聊天记录里），这时"什么都不做"是正确行为，Slack 也不该被 500 触发重投。

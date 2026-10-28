@@ -305,7 +305,11 @@ def test_every_remaining_gap_still_has_a_reason():
         if tool.orbit_status == "unavailable":
             assert tool.orbit_tools == (), f"{tool.name} 标了做不到却给了映射"
     text = tool_catalog.report(coverage)
-    assert "[做不到]" in text and "[没做]" in text, "缺口清单必须区分两类状态"
+    assert "[做不到]" in text, "缺口清单必须标出「本机永远补不上」的那一类"
+    # `[没做]` 只在真的还有 todo 项时出现：第三轮把唯一的 todo（send_message）落地了，
+    # 这一桶现在是空的——所以断言改成"两个标记与真实状态一致"，而不是硬要它出现。
+    has_todo = any(tool.orbit_status == "todo" for tool in tool_catalog.HERMES_TOOLS)
+    assert ("[没做]" in text) is has_todo, "报告里的状态标记与实际状态不一致"
 
 
 def test_report_separates_implemented_from_registered():

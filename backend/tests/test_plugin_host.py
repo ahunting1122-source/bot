@@ -15,7 +15,8 @@
 5. ``register_web_provider`` 本轮从 exposed 升到 wired：宿主表真的被 ``build_providers``
    读到，且排在兜底 provider 之前（否则永远选不到）；
 6. 斜杠命令的分发入口（``dispatch_slash``）真的会调插件 handler，未知命令返回 ``None``
-   ——它现在仍是 exposed，缺的是 ``app/cli/commands/chat.py`` 的那一行调用。
+   ——第三轮它已升到 ``wired``：宿主自己的入站路由 ``POST /api/plugin/slash`` 就是调用方
+   （``app/cli/commands/chat.py`` 那一行仍是最自然的入口，继续写在 reason 里）。
 """
 
 from __future__ import annotations
@@ -240,7 +241,7 @@ def test_late_sink_gets_backfilled(tmp_path):
     assert "demo_echo" in registry.tools, "晚到的 sink 没有被补推"
 
 
-# ── 4. 斜杠命令：分发入口真的调 handler（仍是 exposed，缺 chat 那一行）──────
+# ── 4. 斜杠命令：分发入口真的调 handler（第三轮升到 wired）─────────────────
 
 
 def test_dispatch_slash_calls_the_plugin_handler(tmp_path):
@@ -255,15 +256,21 @@ def test_dispatch_slash_calls_the_plugin_handler(tmp_path):
     assert host.dispatch_slash("你好") is None
 
 
-def test_slash_command_is_still_exposed_and_says_which_line_is_missing():
-    """斜杠命令仍是 exposed：缺的是 chat 输入循环里的一行调用（不是一层能力）。"""
+def test_slash_command_is_wired_and_still_names_the_chat_line():
+    """斜杠命令已 wired（宿主入站路由真的调它），chat.py 那一行仍写在缺什么里。
+
+    第三轮的变化：宿主自己挂出 ``POST /api/plugin/slash``，于是「注册了没人调」不再成立
+    —— 证据见 ``tests/test_capability_wiring.py::test_inbound_slash_route_executes_the_plugin_handler``。
+    ``app/cli/commands/chat.py`` 那一行仍是最自然的入口，所以它继续写在 reason 里。
+    """
     item = caps.by_name("register_slash_command")
     assert item is not None
-    assert item.orbit_status == caps.EXPOSED
-    assert "app/cli/commands/chat.py" in item.orbit_landing
+    assert item.orbit_status == caps.WIRED
+    assert "app/cli/commands/chat.py" in item.reason
     assert "dispatch_slash" in item.orbit_landing
     # 分发入口本身必须存在（否则"只差一行调用"这句话是假的）
     assert callable(PluginHost.dispatch_slash)
+    assert callable(PluginHost.dispatch_slash_async)
     assert callable(caps.resolve_slash_command)
 
 
@@ -513,8 +520,8 @@ def test_exporters_are_collected_and_receive_events(capability_host, tmp_path):
     assert "run_command" in spool.read_text(encoding="utf-8")
 
 
-def test_slash_dispatch_is_ready_and_still_exposed(capability_host):
-    """斜杠命令：宿主真的能分发（返回值就是 handler 的输出），状态仍 exposed。"""
+def test_slash_dispatch_reaches_the_handler_and_the_row_is_wired(capability_host):
+    """斜杠命令：宿主真的能分发（返回值就是 handler 的输出），且已升到 wired。"""
     host = capability_host
     assert host.dispatch_slash("/demo13 你好") == ("demo13", "插件收到：你好")
     readiness = host.describe()["capabilities"]
@@ -522,13 +529,15 @@ def test_slash_dispatch_is_ready_and_still_exposed(capability_host):
     assert row["ready"] is True
     assert "dispatch_slash" in row["host_entry"]
     assert "chat.py" in row["missing"], "缺的那一行必须点名文件"
-    assert caps.status_of("register_slash_command") == caps.EXPOSED
+    assert caps.status_of("register_slash_command") == caps.WIRED
 
 
-def test_all_four_exposed_capabilities_report_a_ready_host_entry():
-    """4 条 exposed 能力的宿主侧入口都在，且每条都能说出"还缺哪一行"。"""
+def test_all_four_capabilities_report_a_ready_host_entry():
+    """4 条（原 exposed）能力的宿主侧入口都在，且每条都能说出"还缺哪一行"。"""
     summary = caps.summary()
-    assert summary["exposed"] == 4
+    # 第三轮把 slack 动作与斜杠命令升成 wired，所以 exposed 不再是 4；`ready` 才是
+    # "入口就位"这件事的计数，它必须仍是 4。
+    assert summary["exposed"] == 2
     assert summary["ready"] == 4, summary
     entries = caps.host_entries()
     for name in (
@@ -541,4 +550,5 @@ def test_all_four_exposed_capabilities_report_a_ready_host_entry():
         assert entries[name].startswith("app/plugin_host.py::"), entries[name]
         item = caps.by_name(name)
         assert item is not None and item.ready
-        assert "缺" in item.orbit_landing, f"{name} 没写清还缺哪一层"
+        # 仍是 exposed 的必须写清还缺哪一层；已经 wired 的不需要（它已经有消费者了）
+        assert item.wired or "缺" in item.orbit_landing, f"{name} 没写清还缺哪一层"

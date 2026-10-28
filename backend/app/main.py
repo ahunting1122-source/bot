@@ -184,6 +184,14 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         from app.tool_extra_impl import register_extra_tools
 
         app.state.extra_tools = register_extra_tools(registry, data_dir=settings.data_dir)
+        # 第三轮工具（MATRIX 5.14）：`send_message` / `memory_provider_list` /
+        # `skill_search` / `egress_status` / `budget_status`。
+        # 同样不能漏——漏了就是"报告说覆盖了、模型看不见"。
+        from app.tool_extra_impl2 import register_round3_tools
+
+        app.state.round3_tools = register_round3_tools(
+            registry, settings=settings, store=app.state.store, data_dir=settings.data_dir
+        )
         # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。
         from app.indexing import build_indexer
 

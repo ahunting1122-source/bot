@@ -475,6 +475,9 @@ def reset_probe_cache() -> None:
     _recognizers_cached.cache_clear()
     _tts_probe.cache_clear()
     _stt_probe.cache_clear()
+    _onecore_scan.cache_clear()
+    _onecore_voices_cached.cache_clear()
+    _onecore_probe.cache_clear()
 
 
 def installed_voices() -> tuple[SapiVoice, ...]:
@@ -732,6 +735,243 @@ class LocalSttProvider:
         )
 
 
+# ── 第四家：Windows OneCore（WinRT）合成器 ──────────────────────────────────
+#
+# 为什么值得单列一家：`System.Speech`（SAPI5 桌面音色）与 WinRT 的
+# `Windows.Media.SpeechSynthesis`（OneCore 音色）是**两套音色库、两套引擎**。
+# 本机实测两边列出来的东西就不一样：
+#
+# * SAPI 桌面音色：`Microsoft Huihui Desktop`(zh-CN) / `Microsoft Zira Desktop`(en-US)
+# * OneCore 音色：`Microsoft Huihui` / `Microsoft Yaoyao` / `Microsoft Kangkang`（都是 zh-CN）
+#
+# 也就是说 OneCore 这条路能拿到 **Yaoyao / Kangkang 两个男/女声**，而 SAPI 那条拿不到。
+# 本机从高完整性级别的 PowerShell 实测合成「OK」→ **41,966 字节**合法 wav
+# （`52 49 46 46 … 57 41 56 45`）。
+#
+# 但**它和 SAPI 受同一个限制**：从 venv python 的子进程（Low 完整性级别）里
+# `New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer` 会报
+# 「Internal Speech Error」（实测），所以 `available()` 同样必须实测、不能看"装没装"。
+#
+# ## WinRT 的异步在这里怎么处理
+#
+# `SynthesizeTextToStreamAsync` 返回的是 `IAsyncOperation<SpeechSynthesisStream>`，
+# PowerShell 5.1 不能直接 `.Result`（那是 .NET 的 Task）。要先用反射拿到
+# `WindowsRuntimeSystemExtensions.AsTask` 的泛型重载，再用 `MakeGenericMethod`
+# 造一个 `AsTask<SpeechSynthesisStream>`，`Wait()` 之后取 `Result`。
+# 这就是脚本里那个 `Await` 函数 —— 它不是风格问题，是这条路上**唯一**能等异步结果的办法。
+
+#: 列 OneCore 音色。制表符分隔：`显示名 \t 语言`。
+ONECORE_VOICES_SCRIPT = (
+    _HEAD
+    + """$null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media, ContentType=WindowsRuntime]
+foreach ($voice in [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices) {
+  Write-Output ("{0}`t{1}" -f $voice.DisplayName, $voice.Language)
+}
+"""
+)
+
+#: 文本 → wav（OneCore 引擎）。文本从文件读，音色按 `DisplayName` 选。
+ONECORE_TTS_SCRIPT = (
+    """param([string]$TextFile, [string]$OutFile, [string]$Voice)
+"""
+    + _HEAD
+    + """Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media, ContentType=WindowsRuntime]
+$null = [Windows.Storage.Streams.DataReader, Windows.Storage, ContentType=WindowsRuntime]
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+  $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+  $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
+})[0]
+function Await($WinRtTask, $ResultType) {
+  $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+  $netTask = $asTask.Invoke($null, @($WinRtTask))
+  $null = $netTask.Wait(-1)
+  $netTask.Result
+}
+$text = Get-Content -Raw -Encoding UTF8 -LiteralPath $TextFile
+$synth = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
+if ($Voice) {
+  $pick = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices |
+    Where-Object { $_.DisplayName -eq $Voice } | Select-Object -First 1
+  if ($pick) { $synth.Voice = $pick }
+}
+$stream = Await ($synth.SynthesizeTextToStreamAsync($text)) ([Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
+$size = [uint32]$stream.Size
+$reader = New-Object Windows.Storage.Streams.DataReader($stream.GetInputStreamAt(0))
+$null = Await ($reader.LoadAsync($size)) ([uint32])
+$buffer = New-Object 'byte[]' $size
+$reader.ReadBytes($buffer)
+[System.IO.File]::WriteAllBytes($OutFile, $buffer)
+Write-Output "ONECORE_OK"
+"""
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _onecore_scan() -> tuple[tuple[SapiVoice, ...], str]:
+    """扫 OneCore 音色，**同时把失败原因带出来**。
+
+    为什么不用"空元组 = 没有音色"这一种表达：本机实测在 Low 完整性级别的子进程里，
+    连 `SpeechSynthesizer::AllVoices` 这一句都会报「Internal Speech Error」——
+    如果把它和"语音包没装"混成同一个空元组，`describe()` 就会说错原因，
+    用户会去装语音包，而真正的问题是进程被降权了。
+    """
+    if not powershell_path():
+        return (), "找不到 powershell（Windows PowerShell 5.1 / pwsh）"
+    try:
+        result = run_powershell(ONECORE_VOICES_SCRIPT, timeout=PROBE_TIMEOUT)
+    except Exception as exc:  # noqa: BLE001 —— 探测失败 = 没有音色，原因原样带上
+        return (), _first_error(exc)
+    voices = tuple(
+        SapiVoice(name=pieces[0].strip(), culture=pieces[1].strip())
+        for pieces in _parse_rows(decode(result.stdout), 2)
+    )
+    if not voices:
+        return (), "脚本跑通了，但一个 OneCore 音色都没列出来（Windows 语音包缺失）"
+    return voices, ""
+
+
+@functools.lru_cache(maxsize=1)
+def _onecore_voices_cached() -> tuple[SapiVoice, ...]:
+    """OneCore 音色表（进程内只探一次）。复用 :class:`SapiVoice`：字段完全一样。"""
+    return _onecore_scan()[0]
+
+
+@functools.lru_cache(maxsize=1)
+def _onecore_probe() -> Probe:
+    """OneCore 可用性：**真的合成一次**「OK」（判据与 SAPI 完全一致）。"""
+    if not powershell_path():
+        return Probe(False, "找不到 powershell（Windows PowerShell 5.1 / pwsh）")
+    voices = _onecore_voices_cached()
+    if not voices:
+        _found, scan_error = _onecore_scan()
+        return Probe(False, f"列不出 OneCore 音色：{scan_error}")
+    chosen = voices[0].name
+    try:
+        with tempfile.TemporaryDirectory(prefix="orbit-onecore-probe-") as tmp:
+            text_path = Path(tmp) / "probe.txt"
+            wav_path = Path(tmp) / "probe.wav"
+            text_path.write_text("OK", encoding="utf-8")
+            run_powershell(
+                ONECORE_TTS_SCRIPT,
+                args={"TextFile": str(text_path), "OutFile": str(wav_path), "Voice": chosen},
+                timeout=PROBE_SYNTH_TIMEOUT,
+            )
+            if not wav_path.exists():
+                return Probe(False, "OneCore 没有产出 wav 文件（探测合成失败）", {"voice": chosen})
+            data = wav_path.read_bytes()
+    except Exception as exc:  # noqa: BLE001 —— 探测失败就是不可用，原因原样带上
+        return Probe(False, _first_error(exc), {"voice": chosen})
+    if len(data) <= 44 or not data.startswith(b"RIFF") or data[8:12] != b"WAVE":
+        return Probe(False, "OneCore 产出的不是合法 RIFF/WAVE（探测合成失败）", {"voice": chosen})
+    return Probe(True, "", {"voice": chosen, "probe_wav_bytes": len(data)})
+
+
+@dataclass(frozen=True)
+class LocalOneCoreTts:
+    """Windows OneCore（WinRT）合成器：与 SAPI 并列的**第四家**本地 TTS。
+
+    与 `sapi` 的分工写在这里，因为它是这张清单里最容易被误读的一处：
+
+    * 两者都走 Windows 自带的东西，都不需要联网，都不需要安装；
+    * 但音色库不同（OneCore 多出 Yaoyao / Kangkang），引擎也不同 —— 一边坏掉时
+      另一边**可能**还是好的，所以它们是两家，不是一家的两个名字；
+    * 两者受同一个限制：Low 完整性级别的子进程里都拿不到语音 token。
+
+    `quality` 不做自评：OneCore 的音色比 SAPI 桌面音色新（Narrator 用的就是它），
+    但音质好坏是主观的，这里只报"能不能跑"。
+    """
+
+    name: str = "onecore"
+    #: 默认音色（`DisplayName`）。空 = 取第一个 OneCore 音色。
+    voice: str = ""
+
+    def available(self) -> bool:
+        """**实测一次最小合成**（同 `LocalTtsProvider` 的理由）。"""
+        return _onecore_probe().ok
+
+    def synthesize(self, text: str, voice: str | None = None) -> bytes:
+        body = str(text or "").strip()
+        if not body:
+            raise _failure("文本是空的：没什么可合成的。")
+        probe = _onecore_probe()
+        if not probe.ok:
+            raise _unavailable(self._reason())
+        chosen = (voice or self.voice or "").strip() or _onecore_default_voice()
+        with tempfile.TemporaryDirectory(prefix="orbit-onecore-") as tmp:
+            text_path = Path(tmp) / "text.txt"
+            wav_path = Path(tmp) / "out.wav"
+            text_path.write_text(body, encoding="utf-8")
+            run_powershell(
+                ONECORE_TTS_SCRIPT,
+                args={"TextFile": str(text_path), "OutFile": str(wav_path), "Voice": chosen},
+            )
+            if not wav_path.exists() or wav_path.stat().st_size <= 44:
+                raise _failure(
+                    "OneCore 没有产出音频（文件不存在或只有 44 字节头）。"
+                    f"音色 {chosen!r} 可能不存在；`orbit model --voice` 会列出全部音色。"
+                )
+            data = wav_path.read_bytes()
+        if not data.startswith(b"RIFF") or data[8:12] != b"WAVE":
+            raise _failure("OneCore 产出的不是 RIFF/WAVE（前 12 字节对不上），不能当音频用。")
+        return data
+
+    def _reason(self) -> str:
+        probe = _onecore_probe()
+        if not powershell_path():
+            return "找不到 powershell（Windows PowerShell 5.1 / pwsh），调不到 WinRT 合成器"
+        voices, scan_error = _onecore_scan()
+        if not voices:
+            return (
+                f"列不出任何 OneCore 音色：{scan_error}"
+                "（本机实测：Low 完整性级别的子进程里连 `AllVoices` 都会报 "
+                "`Internal Speech Error`，这与'语音包没装'是两件事）"
+            )
+        return (
+            f"powershell 在、{len(voices)} 个 OneCore 音色也装着，"
+            f"但**探测合成失败**：{probe.reason}（与 SAPI 同源：Low 完整性级别下"
+            "语音 token 不可用，`whoami /groups` 里会看到 `Mandatory Label\\Low`）"
+        )
+
+    def describe(self) -> str:
+        if not self.available():
+            return (
+                f"onecore：不可用 —— reason: {self._reason()}；"
+                "requires: powershell + System.Runtime.WindowsRuntime + OneCore 语音包；"
+                "install: 设置 → 时间和语言 → 语音 → 添加语音（或从普通终端运行，"
+                "不要在被降权的沙箱里跑）"
+            )
+        voices = _onecore_voices_cached()
+        names = "、".join(item.name for item in voices[:4]) or "（未列出）"
+        probe = _onecore_probe()
+        return (
+            f"onecore：可用 —— Windows OneCore（WinRT）离线合成（{len(voices)} 个音色：{names}；"
+            f"探测合成 {probe.detail.get('probe_wav_bytes') if probe.detail else '?'} 字节 wav）；"
+            "requires: powershell + WinRT 合成器；install: 系统自带，无需安装；"
+            "reason: 不联网也能跑，音色库与 `sapi` 那套**不同**（OneCore 多出 Yaoyao / Kangkang）。"
+        )
+
+
+def _onecore_default_voice() -> str:
+    """第一个 OneCore 音色（取不到返回空串，由脚本回退到系统默认）。"""
+    voices = _onecore_voices_cached()
+    return voices[0].name if voices else ""
+
+
+def onecore_voices() -> tuple[SapiVoice, ...]:
+    """已安装的 OneCore 音色（公开入口，缓存）。"""
+    return _onecore_voices_cached()
+
+
+def onecore_probe() -> Probe:
+    """OneCore 可用性实测结论（公开入口，缓存）。"""
+    return _onecore_probe()
+
+
+#: OneCore 合成器实例。与 `LOCAL_SAPI_TTS` 并列，**不是它的别名**（见类 docstring）。
+LOCAL_ONECORE_TTS: LocalOneCoreTts = LocalOneCoreTts()
+
+
 # ── 三家「本来就是本地」的 TTS：把恒 False 换成真检测 ───────────────────────
 
 
@@ -909,9 +1149,12 @@ def local_providers() -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "LOCAL_ONECORE_TTS",
     "LOCAL_SAPI_STT",
     "LOCAL_SAPI_TTS",
     "LOCAL_TTS_PROVIDERS",
+    "ONECORE_TTS_SCRIPT",
+    "ONECORE_VOICES_SCRIPT",
     "POWERSHELL_CANDIDATES",
     "SAPI_RECOGNIZERS_SCRIPT",
     "SAPI_STT_PROBE_SCRIPT",
@@ -919,6 +1162,7 @@ __all__ = [
     "SAPI_TTS_SCRIPT",
     "SAPI_VOICES_SCRIPT",
     "BinaryTts",
+    "LocalOneCoreTts",
     "LocalSttProvider",
     "LocalTtsProvider",
     "Probe",
@@ -928,6 +1172,8 @@ __all__ = [
     "installed_voices",
     "local_providers",
     "local_tts_provider",
+    "onecore_probe",
+    "onecore_voices",
     "powershell_path",
     "reset_probe_cache",
     "run_powershell",
