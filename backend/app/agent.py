@@ -17,7 +17,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 
 from app import fallback as fb
-from app import hooks
+from app import hooks, session_leases
 from app import providers as pv
 from app.graph import build_graph
 from app.graph.nodes import ModelFailureError, Nodes, register_ask_user
@@ -247,6 +247,21 @@ class AgentRunner:
         #: 延迟入队的等待者（见 `enqueue`）：job 收尾后替调用方重新入队。
         self._deferred: set[asyncio.Task] = set()
         self.nodes = Nodes(self)
+        #: 会话租约（MATRIX 10.8）：**同一会话不允许两个任务同时跑**。
+        #:
+        #: 之前 `LeaseStore.acquire()` **零生产调用方**——`orbit plane` 只是构造它来
+        #: 报告状态，所以 `runtime/active_sessions.json` 在生产里永远不会被创建。
+        #: 后果：同一个会话被两条路径同时驱动（比如 CLI 一个任务没跑完又开一个，
+        #: 或 gateway 与 CLI 撞上）时，**两边都在往同一份 checkpoint 写**，
+        #: 消息历史会交错。这类损坏不报错，只会在事后表现为"对话内容莫名其妙"。
+        #:
+        #: 机制是**退让而非抢占**（`session_leases` 的 docstring）：`acquire` 后写者持有，
+        #: 旧持有者下一次 `heartbeat` 会拿到 `LeaseError` 并自己停下。
+        #: **本模块绝不 kill 进程**——单用户本地部署里"让后写的赢"比"等 90 秒租约过期"
+        #: 更符合直觉，也不会把用户正在用的进程杀掉。
+        self.leases = session_leases.LeaseStore(settings.data_dir)
+        #: `task_id → conversation_id`：`budget` 节点只有 task_id，而租约按会话记。
+        self._lease_sessions: dict[str, str] = {}
         self.partial: dict[str, str] = {}
         #: 每步模型调用的 token 计量（估算值）：{task_id: {prompt_tokens, completion_tokens, elapsed}}。
         #: 只在收尾时汇总进 task_completed 事件，流式途中不落库（避免每帧一次写盘）。
@@ -552,6 +567,16 @@ class AgentRunner:
         try:
             resume = task.waiting.get("resume")
             await self.store.transition(task.id, "RUNNING", waiting={}, error="")
+            # 登记「我在持有这个会话」（MATRIX 10.8）。
+            # 失败**不拦任务**：租约是并发保护，不是准入条件——文件不可写时
+            # 宁可并发风险也不要任务跑不起来。但要说出来。
+            try:
+                self.leases.acquire(task.conversation_id, platform="cli")
+                # 记住 task → conversation 的对应：`budget` 节点只有 task_id，
+                # 而租约是按**会话**记的。不放这张表，节点里就只能猜。
+                self._lease_sessions[task.id] = task.conversation_id
+            except Exception as exc:  # noqa: BLE001
+                log.warning("会话租约登记失败（任务继续，但有并发风险）：%s", exc)
             # 模型名随事件落库：换了模型之后回看历史任务能分清是哪次改的。
             await self.store.event(task.id, "task_started", model=str(self.settings.model or ""))
             # `on_session_start` 发射点（MATRIX 13.5）。
@@ -635,6 +660,14 @@ class AgentRunner:
         finally:
             self.partial.pop(task.id, None)
             self._token_usage.pop(task.id, None)
+            # 释放会话租约（MATRIX 10.8）。**放在 `finally` 里**：失败/取消也要放，
+            # 否则一个崩掉的任务会让那个会话永远显示"有人持有"，下次启动的
+            # `reap_stale` 才能清掉——而那时用户已经困惑过了。
+            try:
+                self.leases.release(task.conversation_id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("会话租约释放失败（不影响任务结果）：%s", exc)
+            self._lease_sessions.pop(task.id, None)
             # `on_session_end` 发射点（MATRIX 13.5）：与 `on_session_start` 配对。
             # 放在 `finally` 里，**失败/取消的任务也要发**——否则观测端的会话数永远少于
             # 实际跑过的任务，而"少记"比"记错"更难发现。

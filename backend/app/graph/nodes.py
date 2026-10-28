@@ -40,6 +40,12 @@ from app.window import Thresholds, thresholds, thresholds_for, window_of
 
 log = logging.getLogger("orbit.nodes")
 
+#: 会话租约心跳的最小间隔（秒）。**必须有节流**：`heartbeat` 是一次文件读写，
+#: 放在每轮循环里就是热路径上的 I/O——工具调用本身可能只要几毫秒，而一次写盘能把
+#: 整轮拖慢。租约的 `max_age` 是 90 秒，10 秒查一次完全够，而且比「每轮查」更稳：
+#: 每轮查会在快循环里把盘写爆、在慢循环里反而查得太稀。
+LEASE_HEARTBEAT_SECONDS = 10.0
+
 PREFETCH_TOP_K = 5
 OUTWARD_PREFIXES = ("browser_", "vault_", "notion_")
 #: 模型单步调用尝试次数：流式还没吐出正文时的失败可安全重试。
@@ -129,6 +135,9 @@ class Nodes:
 
     def __init__(self, runner, *, summarizer=None):
         self.runner = runner
+        #: 会话租约心跳的上次时刻（`task_id → monotonic`）。**必须有这张表**：
+        #: `heartbeat` 是一次文件读写，每轮都做就是热路径上的 I/O。
+        self._lease_beat_at: dict[str, float] = {}
         # 心跳：优先用 runner 上的那个（进程级、CLI/事件流可读 `status()`）；
         # 假 runner（测试替身）没有就本地造一个——心跳不该成为"能不能跑"的前提。
         self.heartbeat = getattr(runner, "heartbeat", None) or Heartbeat()
@@ -1472,6 +1481,39 @@ class Nodes:
             ],
         }
 
+    def _lease_lost(self, task_id: str) -> str:
+        """心跳一次会话租约；**被别人接管了就返回原因**（MATRIX 10.8）。
+
+        `LeaseStore.heartbeat()` 只在「还是自己持有」时成功，否则抛 `LeaseError`——
+        这正是「旧持有者自己退让」的机制（本模块绝不 kill 进程）。
+
+        返回空串 = 仍持有（或压根没有租约，那不归这里管）。
+
+        **节流是必须的**：`heartbeat` 是一次**文件读写**，放在每轮循环里就是热路径上的
+        I/O——工具调用本身可能只要几毫秒，而一次 fsync 级的写盘能把整轮拖慢。
+        租约的 `max_age` 是 90 秒，所以每 10 秒查一次完全够（**比"每轮查"安全**：
+        每轮查会在快循环里把盘写爆，慢循环里反而查得太稀）。
+        """
+        runner = self.runner
+        leases = getattr(runner, "leases", None)
+        sessions = getattr(runner, "_lease_sessions", None)
+        if leases is None or not isinstance(sessions, dict):
+            return ""
+        session_id = sessions.get(task_id)
+        if not session_id:
+            return ""
+        now = time.monotonic()
+        last = self._lease_beat_at.get(task_id, 0.0)
+        if now - last < LEASE_HEARTBEAT_SECONDS:
+            return ""
+        self._lease_beat_at[task_id] = now
+        try:
+            leases.heartbeat(session_id)
+        except Exception as exc:  # noqa: BLE001 —— 任何失败都按「失去了」处理
+            log.warning("会话租约已被接管（%s）：%s", session_id, exc)
+            return "session_takeover"
+        return ""
+
     def _reasoning_effort(self) -> str | None:
         """当前推理档位（MATRIX 4.4）；空串转成 None 表示「不传」。
 
@@ -1541,7 +1583,14 @@ class Nodes:
         # `budget` 是**每轮循环必过**的那个节点（`digest` 无条件连到它），
         # 所以它才是正确的计数点。
         turns = int(state.get("turns") or 0) + 1
-        decision = self.policies.budget.check({**state, "budget": budget, "turns": turns})
+        # 会话租约心跳（MATRIX 10.8）：**每轮循环都查一次**。
+        # 放在这里而不是只查一次，是因为接管可能发生在任何时刻——
+        # 只查开头的话，一个跑 80 轮的任务会在被接管后继续写 79 轮，
+        # 而那正是"两边往同一份 checkpoint 交错写"的窗口。
+        lost = self._lease_lost(state["task_id"])
+        decision = lost or self.policies.budget.check(
+            {**state, "budget": budget, "turns": turns}
+        )
         budget["stop_reason"] = decision
         if decision:
             await self.store.event(
@@ -1748,5 +1797,11 @@ def _stop_hint(reason: str, budget: dict, turns: int) -> str:
         return (
             f"已用约 {budget.get('token_estimate')} token（上限 {budget.get('max_tokens')}）。"
             "这个上限写死在 `DefaultBudgetPolicy.default_max_tokens`，改配置改不了。"
+        )
+    if reason == "session_takeover":
+        return (
+            "这个会话已被另一个进程接管（同一个会话不能两个任务同时跑），"
+            "本任务主动让出以免两边往同一份对话历史里交错写。"
+            "要继续：等那边结束，或 `orbit plane leases` 看看谁持有。"
         )
     return ""

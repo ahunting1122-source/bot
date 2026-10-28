@@ -255,6 +255,28 @@ def main() -> int:
         f"（本机能验的部分做完多少；⚫ = {actual['unverifiable']}）"
     )
 
+    # 顶层命令面对齐（`scripts/orbit_only.py` 的同一口径）。
+    #
+    # **为什么放在这里而不是 MATRIX 里加一行**：它会引入**新分母**（77 / 84），
+    # 与 181 并列会让人搞不清主口径——与 1.17 那个元指标行被移出是同一类问题。
+    # **但也不能只写在 README 里**：它有测试守着（`test_top_level_parity.py`），
+    # **有测试守的判据必须有固定出口**，否则测试红了没人知道该更新哪个数字。
+    # 所以放在与测试同源的这个脚本里，多打一行。
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from orbit_only import report as _orbit_only_report
+
+        _top = _orbit_only_report()
+        _aligned = _top["hermes_top"] - len(_top["hermes_only"])
+        print(
+            f"  顶层命令对齐    {_aligned}/{_top['hermes_top']}"
+            f"（Orbit 顶层 {_top['orbit_top']}，自有 {len(_top['orbit_only'])}）"
+            "  ※ 口径：顶层命令**名**集合差（含 5 个已知改名；**不含子命令级**）；"
+            "**只证明没有整条命令缺失，不证明功能对齐**"
+        )
+    except Exception as exc:  # noqa: BLE001 —— 统计脚本不该因为这个数字而整体失败
+        print(f"  （顶层命令对齐统计跳过：{exc}）", file=sys.stderr)
+
     dupes = duplicate_ids(text)
     if dupes:
         print(f"条目编号重复：{'、'.join(dupes)}", file=sys.stderr)

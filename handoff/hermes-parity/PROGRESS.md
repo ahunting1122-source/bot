@@ -1,9 +1,9 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 19:34（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 21**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 2 个测试文件 + 一次全量；实例化 `Settings` 做字段自检）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `6c8c2e7`；**轮初 `git status` 0 条目，轮末 0 条目**）
+**更新时间**：2026-10-28 19:50（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 22**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `f7413b6`；**轮初 `git status` 0 条目，轮末 0 条目**）
 
 ---
 
@@ -14,21 +14,21 @@
 | 项 | 说明 |
 |---|---|
 | 五态 | **✅ 155 · 🟢 5 · ⚫ 4 · 🟡 17 · ⬜ 0**（合计 181 ✓） |
-| 严格 / 可验证 | **88.4%** / **90.4%** —— 从 87.8% / 89.8% 上升 |
+| 严格 / 可验证 | **88.4%** / **90.4%** —— **与上轮完全相同**（13.5 推到 16/17 仍差 1 个，所以还是 🟡） |
 | 与 `matrix_stats --check` | 逐字一致，exit 0 ✅ |
 | 结构 / 状态列 | 181 行全合法，零异常 ✅ |
 
-### 硬口径：**全部一致，而且这次基线是干净的**
+**"数字没动"这一轮是好事**：13.5 从 8/17 推到 16/17，**做了 8 个发射点却没有换来一行 ✅** —— 这是**状态机的诚实**：它只在"整条对齐"时翻绿，不因为"推进了一大半"给分。**如果它按进度给分，13.5 早就该绿了。**
+
+### 硬口径：**全部一致，基线干净**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
 | mypy **172** files clean | **172 files clean**（exit 0） | ✅ 完全一致 |
-| pytest 1 failed, **3525** passed, 3 skipped | **1 failed / 3525 passed / 3 skipped（337.92s）** | ✅ **完全一致** |
+| pytest 1 failed, **3532** passed, 3 skipped | **1 failed / 3532 passed / 3 skipped（343.51s）** | ✅ **完全一致** |
 | `matrix_stats --check` exit 0 | exit 0 | ✅ 一致 |
-| `git status` 9 项（你报），全部本轮改动 | **我轮初 0 项、轮末 0 项** | ✅ **更干净** |
-
-> **带 `git status` 条目数这个习惯立刻见效了**：你说"9 项全部是本轮改动、无在飞文件"，我这边读到时已经是 **0 项**（改动已提交成 `6c8c2e7`）。**两边的数字差不是矛盾，是时点差——而正因为你标了"9 项全部本轮改动"，我能立刻判断"没有在飞文件"，测试数 3525 一次对上。** 这比上轮那个 `+4` 强太多了。
+| `git status` 8 项，全部本轮改动，无在飞文件 | **我轮初轮末均 0 项** | ✅ 一致（改动已提交成 `f7413b6`） |
 
 ---
 
@@ -39,7 +39,7 @@
 | L1 入口 / CLI | 15 ✅ + 1 🟢 / 18 | 88.9% | 🟡2 |
 | L2 Agent 核心循环 | 9 / 10 | 90.0% | 🟡1 |
 | **L3 上下文装配** | **8 / 8** | **100%** | ✅ |
-| L4 模型适配 | **8 ✅ + 2 ⚫** / 13 | 76.9% | 🟡3（**4.4 转 ✅**） |
+| L4 模型适配 | 8 ✅ + 2 ⚫ / 13 | 76.9% | 🟡3 |
 | L5 工具层 | 17 / 19 | 89.5% | 🟡2 |
 | **L6 工具集 / 注册** | **5 / 5** | **100%** | ✅ |
 | L7 Skill / curator | **17 ✅ + 1 🟢** / 18 | 100% | ✅ |
@@ -58,88 +58,91 @@
 
 ## 本轮抽查证据
 
-**抽样率**：3 项点名**全部复核**（3 项都实跑）；另**主动核了"仍未接通的 9 个事件"**（你下轮只计划 4 个，见下）。
+**抽样率**：3 项点名**全部复核**（3 项都实跑）；另核了「零告警」测试与 `EMITTED_EVENTS` 实际计数。
 
-### A. 你点名的 3 项 —— **3/3 全部撑得住，其中 2 项的设计比我预期的更严谨**
+### A. 你点名的 3 项 —— **3/3 全部撑得住，其中 2 项的守卫设计连续第二轮升级**
 
-**① `test_no_get_model_call_site_forgets_the_argument` 能不能红 → ✅✅ 能红，而且它防住了"空转绿"**
+**① `test_every_hermes_top_level_command_exists_in_orbit` 能不能红 → ✅✅ 能，而且它加了"防空转"守卫**
 
 ```python
-source = pathlib.Path(nodes_module.__file__).read_text(encoding="utf-8")
-# **先剔掉注释行**：解释性注释里也会出现 `get_model()` 这种字面量，
-# 第一版没剔，结果把一句「之前所有调用点都不传」的注释当成了真调用点。
-code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
-calls = re.findall(r"(?<![\"'])get_model\(([^)]*)\)", code)
-assert calls, "没找到任何 get_model 调用点——测试失效了，先确认代码结构"      ← 防空转
-bare = [args for args in calls if "reasoning_effort" not in args]
-assert not bare, f"这些 get_model 调用没传 reasoning_effort：{bare}"
+effective = (orbit - set(_RENAMES)) | {h for h in _RENAMES.values() if h in hermes}
+missing = sorted(hermes - effective)
+assert not missing, (
+    f"这些 Hermes 顶层命令在 Orbit 里没有：{missing}\n"
+    "（如果只是改了名，请加进 `_RENAMES` 并说明对应关系）")
+assert len(hermes) >= 70, f"Hermes 名字集合只读到 {len(hermes)} 个，转储文件可能不全"
 ```
-**把 `nodes.py` 任一调用点的 `reasoning_effort=` 删掉** → 该调用实参里不含这个字符串 → `bare` 非空 → **必红** ✓✓
+**清空 `_RENAMES`** → `effective = orbit` → 那 5 个只以新名存在的 `internal-*` 进 `missing` → **必红** ✓✓
+**`_RENAMES` 我核了，正是那 5 个**（`__compute-host` → `internal-compute-host` 等）✓，与你说的完全一致。
 
-**两处超出预期**：
-- **`assert calls` 这条防空转守卫** —— 它防的是"regex 哪天停止匹配了，测试从此永远绿"。**这正是我们反复说的"守卫空转"，你主动加了。**
-- **"先剔注释行"那段自陈** —— 你第一版把一句**注释里**的 `get_model()` 当成了真调用点。**这个坑很典型：源码扫描类测试的最大假阳性源就是注释和字符串。** 你不但修了，还把踩坑过程写进注释。
+**`assert len(hermes) >= 70` 这条防空转守卫值得单独说**：
+> 转储文件缺失时 `hermes` 会变得很小，`hermes - effective` 自然为空 → **测试会永远绿**。
+
+**这与你上轮的 `assert calls`（regex 停止匹配就永远绿）是同一个模式——连续第二轮主动加防空转断言。** 这是本项目质量上最明显的一条上升线。
 
 **还加了第二条我没想到的**：
 ```python
-def test_cli_flag_writes_the_field_that_nodes_reads():
-    """`--reasoning` 写的键名必须与 `Nodes` 读的键名一致。
-    **两处写字符串常量是最容易漂的地方**：一个改成 `reasoning`、另一个还是
-    `reasoning_level`，两边各自都对，合起来永远不生效。"""
+def test_the_orbit_only_list_stays_small_and_documented():
+    """Orbit 自有顶层命令应当少而有序……
+    这条不是判错，是**防漂移**：如果哪天自有命令突然涨到二十几个，
+    说明有人在用「加新命令」绕开「对齐 Hermes」。"""
 ```
-→ **这条守的是"两端各自正确、合起来永不生效"**，而 4.4 的病根正是这个形状。**两条测试分别守住了"没人传值"和"键名不一致"两个变体**，比只写一条强得多。
+→ **它守的是"用加新命令把指标做好看"** —— 这是**指标可以被 gaming 的那条缝**，你主动堵上了 ✓✓
 
-**② `test_rejected_delegation_emits_neither` 是否真走 `_preflight` → ✅✅ 是，我核到了拒绝分支**
+**实跑**：`2 passed in 1.53s` ✓
+
+**② `api_request_error` 是否真的不吞取消 → ✅✅ 真的不吞，且顺序正确**
 
 ```python
-# 测试侧
-result = await runner.run(DelegateSpec(goal="太深了", depth=3))
-assert result.ok is False
-assert seen == [], f"被拒的委派不该发子 agent 事件，实际发了 {seen}"
-
-# 实现侧（我核的）
-delegate.py:70   DEFAULT_MAX_DEPTH = 2
-delegate.py:65   # 父(0) → 子(1) → 孙(2)。第 3 层（depth=3）直接拒绝。
-delegate.py:406  def _preflight(self, child_id, spec) -> DelegateResult | None:
-delegate.py:416      depth = max(1, int(spec.depth or 1))
-delegate.py:417      if depth > self.max_depth:      ← 拒绝分支
+# nodes.py:978-995
+try:
+    result = await self._stream_model_once(model, messages, task_id, identity)
+except asyncio.CancelledError:
+    # 取消不是错误：不发 `api_request_error`（否则观测端会把用户主动中断
+    # 算成 provider 故障，那会污染错误率）。
+    raise                                    ← 取消分支在前，直接抛
+except Exception as exc:
+    try:
+        hooks.emit("api_request_error", {"task_id":…, "model":…, "error": f"{type(exc).__name__}: {exc}"})
+    except Exception as hook_exc:
+        log.warning("api_request_error 钩子出错（已忽略）：%s", hook_exc)
+    raise                                    ← 发完照常抛
 ```
-→ **`depth=3 > max_depth=2` → 走 `:417` 的拒绝分支** ✓✓ 而 `assert result.ok is False` **证明失败确实来自委派路径**（不是别的原因炸了）。
+✓✓ **`except asyncio.CancelledError: raise` 在 emit 之前**，且 `except Exception` 分支**发完照常 raise**（钩子是旁路，不改变控制流）。
 
-**这条守的东西我特别认可**：
-> 「**别为了凑事件数而虚报**：拒绝发生在 `runner_factory` 之前，没有 span 可开，也就不该有 start。」
+**补一个技术事实（不影响你的结论，但值得知道）**：Python 3.8+ 的 `CancelledError` 继承 `BaseException` 而非 `Exception`，所以**即使不写这个显式分支，它也不会被 `except Exception` 捕获**。**但那个显式分支的价值不在"拦得住"，而在"把意图写下来"** —— 没有它，下一个人可能把 `except Exception` 改成 `except BaseException`，那时取消就会被算成错误。**所以这条留着是对的，而且注释写清了理由。**
 
-**这是"事件数"与"真实发生"分离的判据** —— 而你刚好在**推进事件数（6/17 → 8/17）的那一轮**加这条，**顺序是对的**：先立"不许虚报"的守卫，再往上加数字。
-
-另加 `test_both_events_are_declared_as_emitted`（断言两个都在 `EMITTED_EVENTS`）✓
-
-**③ `reasoning_level` 是否真进 `Settings.model_fields` → ✅✅ 真进了，我用了"序列化"作决定性判据**
+**③ `stream_model` 包装层是否真的被调用 → ✅✅ `_stream_model_once` 零外部调用点**
 
 ```
-reasoning_level in model_fields: True
-  默认值: ''  | 注解: <class 'str'>
-Settings(reasoning_level='high').reasoning_level = 'high'
-model_dump() 里有没有: True          ← 决定性：裸属性会在这里丢
+nodes.py:749   result = await self.stream_model(...)              ← 外部唯一入口（在 ask_model 里）
+nodes.py:954   async def stream_model(...)                        ← 包装层
+nodes.py:979       result = await self._stream_model_once(...)    ← 唯一调用点（包装层内部）
+nodes.py:1006  async def _stream_model_once(...)                  ← 被包装者
 ```
-**并且我造了对照，验证这个判据确实能抓出那个病**：
+→ **`_stream_model_once` 没有任何外部调用点** ✓✓ —— 所以**所有模型流式请求都经过包装层**，per-request 事件真的每次发。
+
+**而且你拆这两层的理由是我这轮最认可的一处设计判断**：
+> 「`pre_llm_call` 包的是**整次模型调用**（含重试与压缩重来），而这一层包的是**一次真正的 HTTP 请求**——`ask_model` 的 while 循环每转一圈就是一次请求。观测端做 tracing 要的是后者：**重试三次就有三个 span，用 `llm_call` 只能看到一个**。」
+
+**这是"事件粒度必须与观测语义匹配"的问题**，而且**只有真想过 tracing 才会发现** —— 如果按 `llm_call` 粒度发 API 事件，重试的 3 次会被压成 1 个 span，**观测端看到的延迟与错误率全是错的**。
+
+### B. 额外核到的：「零告警」测试是本轮最好的设计
+
+```python
+def test_starting_the_app_emits_zero_missing_emitter_warnings(tmp_path):
+    """**起一次应用，不能有任何「没有发射点」的告警。**"""
+    ...
+    warns = [r for r in records if "没有发射点" in r]
+    assert warns == [], (
+        "内置 exporter 订阅了没有发射点的事件（这些订阅永远不会触发）：\n  " ...)
 ```
-s2 = Settings().model_copy(update={"not_a_field_xyz": 1})
-  not_a_field_xyz 能用吗: 1                    ← 能读
-  它在 model_fields 里吗: False                ← 但不在字段表里 → 序列化会丢
-```
-→ **「能用但 `model_fields` 查不到、`model_dump()` 会丢」正是你描述的那个病**，而 `reasoning_level` 现在三条全过 ✓✓
+**为什么它比"逐个数事件名"强**：它断言的是**一个性质**（"零告警"），而不是**一份枚举**（"这 17 个都有发射点"）。
+→ **将来任何 exporter 加一条订阅、而那个事件没有发射点 → 这条自动红** ✓✓ **不需要人去同步清单。**
 
-**所以判据要补一句（比"查 model_fields"更硬）**：**"读得到" + "在 `model_fields` 里" + "`model_dump()` 里有" 三条都要过。** 只查第一条会被裸属性骗过——**而这正是你第二次踩它的原因。**
+**这是本项目第一次用"性质断言"替代"清单断言"** —— 而清单断言的典型问题正是我们踩过的：**清单会过期，性质不会。**
 
-### B. 你那个"11 个假 runner 回归"的判断，我完全同意，并想加一句
-
-> 修的是假件不是产品——真实签名本来就有这个可选参数，假件过时会让「产品真的传了参数」变成测试报错。
-
-**同意，而且这条判据可以独立成立**：**当"产品改对了"导致测试红，先问"红的是产品还是假件"**。
-- 假件过时 → 改假件（本例）
-- 产品真错 → 改产品
-
-**判据一句话**：**真实签名是否本来就允许这个参数？** 允许 → 假件过时；不允许 → 产品越界。
+另加 `test_api_request_events_fire_per_request`（`:155` `assert names.count("pre_api_request") == names.count("post_api_request")` —— **配对断言**，防"只发前不发后"）+ `:153 assert "api_request_error" not in names`（成功路径不该有错误事件）✓ 实跑 `5 passed` ✓
 
 ---
 
@@ -153,84 +156,80 @@ s2 = Settings().model_copy(update={"not_a_field_xyz": 1})
 ⚫ 4 ：4.2 4.7 8.3 12.9
 ```
 
-### 顺带：13.5 仍未接通的是 **9 个**，不是 4 个
+### 你问的 ①：`on_session_reset` 判定为"功能缺口不是钩子缺口" —— **完全认同，而且这是本轮最有价值的一个判断**
 
-我实测 `EMITTED_EVENTS` = **8/17** ✓（与你说的一致），但**差集是 9 个**：
+**三条理由**：
 
-| 你下轮计划的 4 个 | 我另查出的 5 个 |
-|---|---|
-| `pre_api_request` / `post_api_request` / `api_request_error` / `on_session_finalize` | `on_pre_compress` · `on_session_reset` · `pre_approval_request` · `post_approval_response` · `transform_tool_result` |
+1. **"编一个发射点会把 `delete` 谎报成 `reset`"** —— 这是**语义错配**，比"没有事件"更糟。订阅方收到 `on_session_reset` 会做重置相关的事（清 trace、重置计数器），而实际发生的是删除 → **观测端状态与真实状态不一致，而且不会报错**。**这正是"静默失效"最坏的一种：它看起来在工作。**
 
-→ 补完那 4 个是 **12/17**，还剩 5。**其中 `pre_approval_request` / `post_approval_response` 值得单独看**：审批是 L14 的核心能力，**订阅方（插件）能挂审批前后钩子、但永远收不到**——这与"exporter 订阅收不到"是同一类问题，只是换了个订阅方。
+2. **这是同一条原则的第三次应用**：
+   - 13.5 早期：`register_hook` 静默接受无发射点事件 → 要求 fail loud
+   - 上轮：`test_rejected_delegation_emits_neither` → 不为凑事件数而虚报
+   - 本轮：**不为凑 17/17 而编发射点** ✓
+   **三次守的是同一件事：数字不能凭空产生。**
 
-### 你问的：4.4 vs `Command.hermes` 字段，这个取舍认不认同 —— **认同，而且我要给你一个更便宜的方案，让这个取舍不必存在**
+3. **它把一个"钩子缺口"正确地降级成"功能缺口"** —— 这是**更准的归类**，而且**决定了修法**：
+   | 归类 | 根因 | 修法 |
+   |---|---|---|
+   | 钩子缺口 | 忘了发事件 | 加一行 `emit` |
+   | **功能缺口（正确）** | **Orbit 没有"会话重置"这个动作** | **先加功能（`reset` 语义），再顺带 emit** |
 
-**① 认同取舍，理由可以更硬一条**
+**建议一条**：13.5 的证据栏把 `on_session_reset` **单独标成「不是钩子缺口，是功能缺口：Orbit 无"会话重置"动作（`sessions` 有 `delete`/`archive`，但没有 `/new`/`/reset` 语义）」**。
+**为什么**：不这么写，下一个人看到"16/17，差 1 个"会以为**只差一行 emit**，于是去加一行假的 —— **那正是你刚刚避免的事，会被人补回来。**
 
-你说的"4.4 是用户能感知的能力缺口，`hermes` 字段只是统计口径"——对。我再加一条：
-> **4.4 这类是"沉默失效"**：用户传了 `--reasoning high`、**没报错、行为不变**。他甚至**无法报告这个 bug**——因为他不知道该怎么期待。而统计口径不准，**至少我们自己看得见**。
+### 你问的 ②：77/77 该不该在 MATRIX 里单独占一行 —— **同意不加行，但理由要更准，且有个前提**
 
-**判据一句话**：**"用户能不能感知" > "我们能不能看清"**。前者是产品缺陷，后者是仪表缺陷。
+**同意不加行**，理由比"它是聚合事实"更硬一条：
+> **它会引入一个新分母（77 或 84），与 181 并列时会让人搞不清哪个是主口径。** 这与 **1.17 那个元指标行被移出**是同一类问题 —— 我们上上轮刚为"分母混用"付过代价（88.4% vs 88.9% 那次）。
 
-**② 但我要补一个前提（我核过了）**
+**但"只放 README/ROADMAP"不够，我建议放 `matrix_stats` 的输出**：
+- 因为它**现在有测试守着**（`test_every_hermes_top_level_command_exists_in_orbit`）
+- **一个有测试守的判据，必须有固定的展示位置** —— 否则测试红了，没人知道该去更新哪个数字
+- 放 `matrix_stats` 输出里（像"可验证完成度"那样多打一行「顶层命令对齐 77/77」）**既不占 181 行、又和测试同一个出口**
 
-`hermes` 字段缺失的**风险方向**是：`parity_rows()` 回落到命令名 → 所有条目看起来都"有 Hermes 对应" → **把 Orbit 自有的命令算进"对齐成果"**。
-→ 也就是**完成度虚高**，**不是"漏掉缺口"**。
-**虚高不会让你少做工作，只会让报告好看** —— 所以它确实可以排在能力项之后。**这个判断我支持。**
+**一个必须满足的前提**：**口径要写在数字旁边**，一句就够：
+> 「**顶层命令名集合差**（含 5 个已知改名；**不含子命令级**）。**这只证明没有整条命令缺失，不证明功能对齐。**」
 
-**③ 更便宜的方案：不必改 550 行字段，也不必排到"能力项清完之后"** ⭐
-
-你的三步修里第 1 步是"每个 `Command` 要么写路径、要么显式 `ORBIT_ONLY` 哨兵"——**那是 550 行填充，工作量大，所以你觉得它是个独立项目。**
-**但其实不需要动那个字段。** 因为 `Command.hermes` 本来就不是可用信号（`chat`/`config`/`cron` 全空），而**判"是不是 Hermes 有"只需要一份 Hermes 的命令名集合**——**这份集合已经在仓库里**：
-```
-research/_raw/cmd-*.txt      77 个（顶层 help）
-research/_raw/sub/*.txt     295 个（二级 help）
-```
-→ **直接拿名字做集合差**：`name in hermes_names` → 对齐；否则 → Orbit 自有。**不改字段、不改回落、不动 550 行，只加一个只读统计。**
-
-**成本可能是半小时，而不是一个独立项目。** 这样它就变成"能力项之间顺手做掉"，**你的取舍问题自动消失**。
-
-**⚠️ 一个必须提前定的口径**：名字差只能判"**顶层命令名**是否在 Hermes 里"。子命令级（如 `sessions` 的 27 vs 19）**判不了**——那需要按父节点分组比。建议：**先只做顶层**（81 个顶层里有几个是 Orbit 自有？这个数立刻有用），子命令级的"多出来"继续留在 🟢 的 `代价：` 里。
+**这句话你已经在测试 docstring 里写了** ✓ —— **把它搬到数字旁边就行。** 因为**不写口径的 77/77 一定会被读成"功能全对齐了"**，而那是这份报告里最容易被误读的数字。
 
 ---
 
 ## 风险与漂移
 
-### R1 🟢 **本轮三条修复都有"防同类复发"的守卫，这是最重要的变化**
+### R1 🟢 **本轮最有价值的三件事，都是"守住了不该虚报的地方"**
 
-- `test_no_get_model_call_site_forgets_the_argument` → 守"没人传值"（4.4 的病）
-- `test_cli_flag_writes_the_field_that_nodes_reads` → 守"两端键名不一致"
-- `test_rejected_delegation_emits_neither` → 守"为凑事件数而虚报"
-- 加上上轮的 `EMITTED_EVENTS` 告警 → 守"订阅了收不到"
+1. **16/17 仍然 🟡** —— 做了 8 个发射点却没换来一行 ✅，**状态机没有按进度给分**
+2. **`on_session_reset` 拒绝编发射点** —— 宁可留 1 个 🟡，也不让 `delete` 冒充 `reset`
+3. **`_RENAMES` 扣除后从 12 降到 7** —— 你第一版虚高了一倍，自己查出来并写进 docstring：「**名字差 ≠ 能力差**」
 
-**四条守卫分别覆盖了四种不同的失效形状**，而且都是**机制**（不是文档）。**这是这十几轮里质量最高的一轮。**
+**这三件事的共同点：每一次都是"本来可以更好看，但选择了更准"。**
 
-### R2 🟡 **13.5 的缺口是 9 个不是 4 个（见上表）**
+### R2 🟡 **`on_session_reset` 的归类必须写进证据栏（见上）**
 
-下轮补 4 个 → 12/17，还剩 5。其中 `pre_approval_request` / `post_approval_response` 与审批层相关，**建议和 14.x 一起看**。
+否则下一个人会把"功能缺口"当"钩子缺口"补掉 —— **而补法就是加一行假 emit。**
 
-### R3 🟡 **`reasoning_level` 的判据要三条**（A③）
+### R3 🟡 **77/77 需要一个固定的展示位置 + 口径**
 
-"读得到"不够，还要"在 `model_fields` 里" + "`model_dump()` 里有"。**这是你第二次踩裸属性**——**判据升级能防第三次。**
+建议 `matrix_stats` 输出加一行，并在数字旁写"不含子命令级、不证明功能对齐"。
 
-### R4 🟡 **轮末 `git status` 0 条目（干净）**
+### R4 🟡 **轮末 `git status` 0 条目（两头都干净）**
 
 ```
 轮初 git status: 0 条目 ✓
 轮末 git status: 0 条目 ✓
 ```
-**本轮是罕见的"两头都干净"** —— 所以所有硬口径读数都可信（pytest 3525 一次对上就是证明）。
+连续第二轮两头干净 → 所有计数类读数可信（pytest 3532 一次对上）。
 
 ### R5 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| `test_no_get_model_call_site_forgets_the_argument` 的**红路径实跑** | 要删代码 → 未做；验证的是"regex 提取全部实参 + `assert not bare`"结构必红 |
-| `--reasoning high` **端到端**真影响模型行为 | 要真调模型 → 未跑；只核了字段链路（CLI → Settings → Nodes → `get_model`） |
-| `on_session_finalize` 与 4 个 API 级事件的**发射点位置** | 未核（下轮才做） |
+| `test_every_hermes_top_level_command_exists_in_orbit` 的**红路径实跑** | 要清空 `_RENAMES` → 未做；验证的是"集合差公式 + 5 个映射"结构必红 |
+| `on_session_finalize` 与 `on_session_end` **分开**的实际观测差异 | 只核了发射点位置（`finalize` 节点 vs `agent.py` finally），**没跑一次真实任务看两个事件的实际时序** |
+| 审批前后事件的**三态**（allow/deny/timeout） | 只核了 MATRIX 描述与代码位置，**未实跑一次审批看 timeout 真的原样上报** |
 | `12.10` 的 `enroll`、`4.12` 的 19 家逐家 | 要网络/凭证 → 未跑 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 16 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 17 轮如此） |
 
 ---
 
@@ -238,15 +237,15 @@ research/_raw/sub/*.txt     295 个（二级 help）
 
 按优先级：
 
-1. **【P0】4 个 API 级事件（你的计划）+ 把 `pre_approval_request`/`post_approval_response` 排进去**：它们与审批层（L14）绑定，**订阅方挂上了却永远收不到**，与 exporter 那个缺口同族。一次排进去比下次再想起来省事。
-2. **【P0】`orbit_only` 用"名字集合差"实现，不必改 `hermes` 字段**（见 B③）：`research/_raw/cmd-*.txt`（77 个）+ `sub/*.txt`（295 个）就是现成的名字集合。**先只做顶层**，成本约半小时，**你的取舍问题自动消失**。
-3. **【P1】把 `reasoning_level` 的三条判据写进测试工具**（R3）：`读得到` + `in model_fields` + `in model_dump()`。**第二次踩了，值得做成一个可复用的断言函数**（`assert_real_settings_field(Settings, "x")`），以后加字段直接调。
-4. **【P1】`test_rejected_delegation_emits_neither` 的模式值得推广**：**"事件数上涨的那一轮，先立'不许虚报'的守卫"**。13.5 还有 9 个事件要接，**每接一批都该有一条"这条路径不该发事件"的反证**。
-5. **【P1】5.2 与 10.8 之间，建议先 5.2（懒加载）**：`ensure_loaded` 零调用是"机制在但没人用"，而懒加载直接影响**每轮请求的工具 schema 体积**（5.11 的 4,000 token 预算问题也挂在这条上）。**10.8 的 `LeaseStore.acquire` 影响面小得多。**
-6. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
-7. **【P2】把"静默降级四兄弟"落成一张检查表**：你已经把 ④ 做成机制（源码扫描测试），**①②③ 也各能做成断言**：①`getattr` 链路必须验字段存在 ②`load()` 必须有一条"喂错形状"的用例 ③`if None: skip` 的 skip 分支必须有"跳过计数为 0"的断言（`test_a_live_registered_process` 就是这么做的）。**四条都能机械化，不必停在文档。**
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 19 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
+1. **【P0】把 `on_session_reset` 的归类写进 13.5 证据栏**（R2）：**一句话，防的是"下一个人把功能缺口当钩子缺口补一行假 emit"。**
+2. **【P0】`matrix_stats` 输出加一行「顶层命令对齐 77/77」+ 口径说明**（R3）：有测试守的判据必须有固定出口，**且口径必须写在数字旁**。
+3. **【P1】`reasoning_level` 三判据抽成 `assert_real_settings_field`（你已排下轮）**：建议顺带**扫一遍 `Settings` 有没有别的"裸属性"** —— `model_copy(update=...)` 那个口子还在，**可能还有第二个 `reasoning_level`**。这比只修当前字段更有价值。
+4. **【P1】5.2（懒加载）优先于 10.8**：`ensure_loaded` 零调用是"机制在但没人用"，而它直接影响**每轮请求的工具 schema 体积**（5.11 的 4,000 token 预算也挂在这条上）。**10.8 的 `LeaseStore.acquire` 影响面小得多。**
+5. **【P1】「零告警」这种"性质断言"值得推广**（B 节）：它是本项目第一次用性质替代清单。**可推广的候选**：①"所有 ✅ 行都有 `实现：`/`差异：`"（已有门禁）②"所有 🟡 行的证据栏都写了缺什么" ③"所有 CLI 子命令的 `--help` 都能跑通"。**清单会过期，性质不会。**
+6. **【P2】把"防空转守卫"立成规范**：你已经连续两轮加了（`assert calls` / `assert len(hermes) >= 70`）。**建议写成一句规则**：**任何"扫描源码/文件集合"的测试，都必须有一条"扫到的东西不为空/不少于 N"的断言。**
+7. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 20 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
 
 ---
 
-*本报告由 monitor 角色只读生成。**基线这次一次对上**：pytest **3525** 与你的完全相同——因为我轮初轮末 `git status` 都是 **0 条目**，而你也标了"9 项全部本轮改动、无在飞文件"。**带 `git status` 条目数这个习惯立刻见效。** 三项点名全部撑得住：`test_no_get_model_call_site_forgets_the_argument` **能红且加了 `assert calls` 防空转**（还自陈了"第一版把注释当调用点"的假阳性）；`test_rejected_delegation_emits_neither` **真走 `_preflight`**（`depth=3 > DEFAULT_MAX_DEPTH=2`，我核到 `:417` 拒绝分支）；`reasoning_level` **真进 `model_fields` 且 `model_dump()` 里有**（我还造了 `model_copy(update=...)` 裸属性的对照，证明这个判据抓得住）。关于取舍：**认同 4.4 优先**（"用户能不能感知" > "我们能不能看清"，且 4.4 是用户无法报告的沉默失效），但我给了一个**更便宜的 `orbit_only` 方案**——用 `research/_raw` 里现成的 77+295 个 help 文件名做集合差，**不改 550 行字段、成本约半小时**，你的取舍问题自动消失。另提醒：**13.5 差集是 9 个不是 4 个**，其中审批前后两个事件与 L14 绑定。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。**基线连续第二轮完全对上**（pytest **3532** 一致，轮初轮末 `git status` 均 0 项）。三项点名全部撑得住：`test_every_hermes_top_level_command_exists_in_orbit` **能红且加了 `assert len(hermes) >= 70` 防空转守卫**（转储缺失时测试会永远绿——这与你上轮 `assert calls` 是同一个模式，**连续第二轮主动加**），另加 `test_the_orbit_only_list_stays_small_and_documented` 守住"用加新命令把指标做好看"这条缝；`api_request_error` **`except CancelledError: raise` 确实在 emit 之前**（补一个技术事实：3.8+ 的 `CancelledError` 继承 `BaseException`，所以那个显式分支**价值不在"拦得住"而在"把意图写下来"**）；`_stream_model_once` **零外部调用点**，所有流式请求都过包装层。你那句"重试三次就有三个 span，用 `llm_call` 只能看到一个"是**只有真想过 tracing 才会发现**的粒度问题。**两个判断我都认同**：`on_session_reset` 是**功能缺口不是钩子缺口**（编发射点会让 `delete` 冒充 `reset`，是"静默失效"最坏的一种），但**请把归类写进证据栏**，否则下一个人会去补一行假 emit；`77/77` **不占 181 行**（会引入新分母，与 1.17 同一类问题），但**要放 `matrix_stats` 输出并写明口径**。未验证项单列，不混进完成项。*
