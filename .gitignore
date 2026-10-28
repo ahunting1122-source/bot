@@ -35,3 +35,7 @@ pytest-of-*/
 # 用 `backend/tmp*` 与 `backend/_*` 两条兜住：调试脚本与临时文件都不该进版本库。
 backend/tmp*
 backend/_*
+
+# 日志不该进版本库：它会持续产生噪声 diff，还会让「轮末有改动」失去信号价值。
+backend/debug.log
+backend/*.log

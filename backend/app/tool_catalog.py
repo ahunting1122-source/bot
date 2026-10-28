@@ -181,18 +181,23 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser_back",
         "browser",
         "后退到上一页",
-        status="unavailable",
-        reason="Orbit 的浏览器层只暴露观察/点击/填写/按键/滚动，没有页面历史栈的接口"
-        "（app/browser.py 不在本轮可改范围）。**原因不是「没装 chromium」**——chromium 装好了，"
-        "是本机无网络、页面加载不出来，历史栈无从验证。",
+        status="covered",
+        orbit_tools=("browser_back",),
+        reason="`app/browser.py::go_back`：`page.go_back()` 后 `settle`，返回新 URL + 标题；"
+        "**没有上一页时如实报**（`go_back` 返回 None），不假装成功。"
+        "**实测 chromium 能起**：本机 `%TEMP%` 对子进程不可写会让 playwright 的 mkdtemp 报 EPERM，"
+        "测试用 autouse fixture 把 TMP/TEMP 指到可写目录后真跑本地站点，7 条真用例全过。",
     ),
     _t(
         "browser_get_images",
         "browser",
         "列出页面图片 URL + alt（喂给视觉模型）",
-        status="unavailable",
-        reason="产出的东西只有视觉模型能用，本机没有可用的多模态调用链；且无网络，"
-        "拿不到真实页面来验证提取逻辑。",
+        status="covered",
+        orbit_tools=("browser_get_images",),
+        reason="`app/browser.py::images`：DOM 查询取 src/alt/尺寸，**相对 URL 转绝对**、"
+        "**过滤 1x1 与 0x0 追踪像素**、支持 limit 与去重。纯逻辑 `normalize_images` 有 21 条离线用例。"
+        "**如实边界**：产出的东西主要喂视觉模型，而本机没有可用的多模态调用链——"
+        "提取本身是真的，消费方没有。",
     ),
     _t(
         "browser_vision",
@@ -204,10 +209,13 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t(
         "browser_console",
         "browser",
-        "读 console 输出与 JS 未捕获错误",
-        status="unavailable",
-        reason="需要订阅页面 console 事件；chromium 装了，但本机无网络、加载不出页面，"
-        "订阅逻辑无法自证。",
+        "读取页面 console 日志与 JS 报错",
+        status="covered",
+        orbit_tools=("browser_console",),
+        reason="`app/browser.py::ConsoleLog`：监听器在**页面创建时**挂上"
+        "（`_start_locked` / `new_page`，每页一份、防重复挂），**有界缓冲丢最旧**、"
+        "同时收 `pageerror`、只留 level/text/at。"
+        "**等到调工具时才挂就永远是空的**——这是这类工具最容易做错的地方。",
     ),
     _t(
         "browser_cdp",
@@ -219,10 +227,12 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t(
         "browser_dialog",
         "browser",
-        "响应原生 JS 对话框（alert/confirm/prompt/beforeunload）",
-        status="unavailable",
-        reason="需要页面级 dialog 事件处理；chromium 装了，但本机无网络、加载不出页面，"
-        "处理逻辑无法自证。",
+        "处理 alert / confirm / prompt 弹窗",
+        status="covered",
+        orbit_tools=("browser_dialog",),
+        reason="`app/browser.py::DialogLog` + `_on_dialog`：状态机 + accept/dismiss + prompt 文本；"
+        "**2 秒兜底 auto-dismiss**——Playwright 不处理 dialog 会冻结整个页面，"
+        "所以不能无限期等模型决定，这是取舍，已写进 docstring。",
     ),
     _t(
         "browser_exec",

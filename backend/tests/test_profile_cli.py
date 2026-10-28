@@ -69,12 +69,33 @@ def test_profile_has_all_fourteen_subcommands_and_they_are_done():
     assert sorted(memory_extra2.mounted_profile_names()) == sorted(EXPECTED)
 
 
-def test_profile_keeps_the_hermes_distribution_paths_as_todo():
-    """那 10 条是 Hermes 的 profile distribution，不是用户画像——保持 todo 不动。"""
+def test_profile_distribution_paths_are_implemented_and_stay_separate():
+    """那 10 条是 Hermes 的 profile **distribution**，不是用户画像——两套东西不能混。
+
+    **原断言是「状态必须是 todo」，那只是当时的事实**（`skill_extra3.py` 里的
+    `ProfileDist` 实现没接进 `__init__.py`）。本轮接上之后 10 条变 `done`。
+
+    这里守的仍是原来的**语义边界**，只是跟上事实：
+    1. 10 条 distribution 路径有真实现（`done`）；
+    2. 它们与用户画像（`add` / `show` / `remove`）**是两套 handler**——
+       distribution 改的是「装哪套配置」，画像改的是「USER.md 里写什么」。
+    """
     parent = REGISTRY.get("profile")
-    states = {sub.name: sub.state for sub in parent.subcommands}
-    for name in ("list", "use", "create", "delete", "describe", "alias", "rename", "install", "update", "info"):
-        assert states[name] == "todo", f"{name} 不该被当成用户画像实现"
+    subs = {sub.name: sub for sub in parent.subcommands}
+    distribution = ("list", "use", "create", "delete", "describe", "alias",
+                    "rename", "install", "update", "info")
+    for name in distribution:
+        assert subs[name].state == "done", f"{name} 应有真实现（ProfileDist）"
+        assert subs[name].handler is not None, name
+    # 用户画像那三条的 handler 必须是另一批（不是 ProfileDist 的方法）
+    portrait = ("add", "show", "remove")
+    for name in portrait:
+        assert name in subs, f"用户画像的 {name} 不见了"
+    distribution_handlers = {id(subs[name].handler) for name in distribution}
+    portrait_handlers = {id(subs[name].handler) for name in portrait if name in subs}
+    assert not (distribution_handlers & portrait_handlers), (
+        "distribution 与用户画像共用了 handler——那说明有一边被误实现成另一边"
+    )
 
 
 # ── 1. show ─────────────────────────────────────────────────────────────────

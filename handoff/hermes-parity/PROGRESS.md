@@ -1,9 +1,9 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 17:13（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 14**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `7554926`；**轮初工作树干净，轮末 2 项在飞**）
+**更新时间**：2026-10-28 17:35（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 15**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：为验证 browser 层可用性，尝试启动了一次浏览器控制器，失败即止；为验证 exporter 可用性，实例化了三个 exporter 对象）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `a565c6f`；**轮初工作树干净，轮末 3 项在飞**）
 
 ---
 
@@ -13,37 +13,24 @@
 
 | 项 | 说明 |
 |---|---|
-| 五态 | **✅ 166 · 🟢 4 · ⚫ 4 · 🟡 7 · ⬜ 0**（合计 **181** ✓，1.13 拆分后回到 181） |
-| 严格完成度 | **93.9%** = (✅+🟢) / 181 |
-| 可验证完成度 | **96.0%** = (✅+🟢) / (181−4) |
+| 五态 | **✅ 166 · 🟢 4 · ⚫ 4 · 🟡 7 · ⬜ 0**（合计 181 ✓） |
+| 严格 / 可验证 | **93.9%** / **96.0%** —— **与上轮完全相同**（你说的"数字没动"成立 ✓） |
 | 与 `matrix_stats --check` | 逐字一致，exit 0 ✅ |
-| 结构门禁 | 181 行**全部 8 段**（6 列表的正常值），**零结构异常、零状态列异常** ✅ |
-| 必备段落 | 4 条 ⚫ 全含 `实现：`+`缺：`；4 条 🟢 全含 `差异：`+`代价` ✅ |
+| 结构 / 状态列 | 181 行全合法，零异常 ✅ |
+| 必备段落 | 4 ⚫ 全含 `实现：`+`缺：`；4 🟢 全含 `差异：`+`代价` ✅ |
 
-### ⚠️ 一处口径更正：**完成度没有下降，两个口径都比上轮上升**
+**这轮没有数字可报，但实质有三处变化**（一处修好了、两处我查出还差半步）——见 A②、A④。
 
-你写「本轮 94.4% → 93.9% 严格」。这是**拿上轮的可验证口径比本轮的严格口径**：
+### 硬口径
 
-| | 严格 | 可验证 |
+| 项 | 我的实测 | 判定 |
 |---|---|---|
-| **轮 13** | 167 / 180 = **92.8%** | 167 / 177 = **94.4%** ← 你引用的这个数是可验证口径 |
-| **轮 14** | 170 / 181 = **93.9%** | 170 / 177 = **96.0%** |
-| **同口径变化** | **+1.1 pt** ↑ | **+1.7 pt** ↑ |
-
-→ **两个口径都是上升的**。所以「1.13b 的 🟡 是本轮唯一完成度下降的来源」这个前提**不成立**：拆出 1.13b 确实让分母 +1，但同时新增了 3 个 ✅ + 1 个 🟢，净效果仍是上升。
-**这不影响 1.13b 该判 🟡 的结论**（下面 A① 单独论证），只是**它不该被记成"下降"**——否则下次会有人为了"不下降"而不敢拆条目。
-
-### 硬口径：**全部一致**
-
-| 你的口径 | 我的实测 | 判定 |
-|---|---|---|
-| `REGISTRY` 81/420/48 = 549；done 368 / partial 25 / todo 156 | **81/420/48 = 549**；**368 / 25 / 156**（连跑两次一致） | ✅ 完全一致 |
-| pytest 1 failed, 3460 passed, 3 skipped | **1 failed / 3460 passed / 3 skipped（323.23s）** | ✅ 一致（你 314.18s） |
-| 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| mypy **170** files clean | **170 files clean**（exit 0） | ✅ 完全一致 |
-| 工具覆盖 covered 33 / missing 61 | `orbit_coverage()` → **covered 33 / total 94 / missing 61** | ✅ 一致 |
+| mypy **171** files clean | **171 files clean**（exit 0） | ✅ 完全一致 |
+| pytest 1 failed, 3468 passed, 3 skipped | **1 failed / 3468 passed / 3 skipped（302.93s）** | ✅ 一致（你 319.97s） |
+| 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
 | `matrix_stats --check` exit 0 | exit 0 | ✅ 一致 |
+| （本轮你未报 REGISTRY，我实测供参考） | **81 顶层 / 549 合计；done 379 · partial 25 · todo 145**（上轮 368/25/156 → **done +11**） | 供参考 |
 
 ---
 
@@ -64,141 +51,120 @@
 | **L11 cron** | **6 / 6** | **100%** | ✅ |
 | L12 Gateway / 多平台 | 8 ✅ + **1 ⚫** / 11 | 72.7% | 🟡2 |
 | L13 插件 | 9 / 10 | 90.0% | 🟡1（13.4） |
-| L14 安全 / 审批 | **9 ✅ + 1 🟢** / 10 | 100% | 🎉 本轮补齐 |
+| L14 安全 / 审批 | **9 ✅ + 1 🟢** / 10 | 100% | ✅ |
 | **L15 可观测性** | **6 / 6** | **100%** | ✅ |
 | **L16 Web UI / 前端** | **6 / 6** | **100%** | ✅ |
 | **合计** | **170 / 181** | **93.9%** | — |
 
 **十层 100%**：L2、L3、L6、L7、L9、L10、L11、L14、L15、L16。
-**最弱**：L4 模型适配 69.2%（2 🟡 + 2 ⚫）、L12 72.7%（2 🟡 + 1 ⚫）。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：你点名的 5 项**全部复核**；3 处交代复核 3 处；**我自己的结构检查也错了一次并当场纠正**（见 C）。
+**抽样率**：你点名的 4 项**全部复核**；2 处交代复核 2 处；另**实机试了 3 件事**（三个 exporter 的 `available()`、浏览器能否启动、chromium 二进制是否在）。
 
-### A. 你点名的 5 项 —— **5/5 全部撑得住**
+### A. 你点名的 4 项
 
-**① 1.13b 的 🟡 → ✅✅ 该降，方向对，而且证据是硬的**
+**① 四个发射点是否真在热路径 → ✅✅ 全部在，而且"每次尝试 / 每次调用"都对**
 
-我直接读了 Hermes 的原始 help，确认你引用的那条存在：
+| 位置 | 事件 | 所在函数 | 判定 |
+|---|---|---|---|
+| `nodes.py:715` | `pre_llm_call` | `ask_model`（def `:681`） | **热路径** ✓ 载荷含 `{"task_id", "attempt": attempts, "model"}` —— **`attempt` 字段本身就是"每次尝试"的证据** |
+| `nodes.py:724` | `post_llm_call` | `ask_model` | **热路径** ✓ 紧跟 `result = await self.stream_model(...)` 之后 |
+| `nodes.py:1202` | `pre_tool_call` | `run_tool`（def `:1173`） | **热路径** ✓ 在 `job = asyncio.ensure_future(...)` **之前**，载荷 `{"task_id","tool","args"}` |
+| `nodes.py:1229` | `post_tool_call` | `run_tool` | **热路径** ✓ 紧跟 `result = job.result()`，载荷含 `result_chars` |
+
+**2 个在 `ask_model`（每次尝试）+ 2 个在 `run_tool`（每次调用）** —— 与你的说法逐条对上，**没有一个是冷分支**。
+**另外四处都包了 `try/except` + `log.warning`**，注释写明「钩子是旁路，旁路出问题不该让主循环死——但也不能静默」✓ —— 这个取舍是对的：钩子出错不能拖垮对话，但必须留痕。
+
+**② `observability_sink.attach()` 的 available() 过滤 → ⚠️ `available()` 是真的，但「跳过理由」是空壳**
+
+**先说好的部分（`available()` 真调、真返回）**：
 ```
-cmd-74-desktop.txt:30  --setup-tcc-identity  macOS only: create/import a self-signed code-signing
-cmd-74-desktop.txt:33  packaged app. Makes macOS TCC grants (Full Disk
-cmd-74-desktop.txt:34  Access, Accessibility, Files and Folders, microphone)
+jsonl       available=True
+langfuse    available=False
+nemo_relay  available=False
 ```
-**`Accessibility` 与 `microphone` 是浏览器确实给不了的原生能力** —— 一个网页拿不到辅助功能授权，也拿不到系统麦克风（除了浏览器自己的 `getUserMedia` 弹窗，与"TCC 授权给应用"是两件事）。
+`observability_sink.py:52 usable = bool(exporter.available())` —— **真调，不是常量** ✓
+`:53-54` 连 `available()` 自己抛异常都兜住（"available() 抛错：…"）✓
+`:24` 「**不静默丢弃**：`describe()` 里列进 `skipped` 并给原因」——意图正确 ✓
 
-两条拆得也准：
+**但接线错位了**：
+```python
+:59  why = exporter.describe().get("reason") or "available() 返回 False"
+```
+而 exporter 的 `describe()` 实际返回的键是：
+```
+['name', 'kind', 'available', 'endpoint', 'missing_env', 'spool', 'note']   ← 没有 reason
+```
+→ **`get("reason")` 永远是 `None`，所以永远走 fallback `"available() 返回 False"`**。
 
-| 条目 | 状态 | 关键内容 |
-|---|---|---|
-| **1.13a** | 🟢 | 载体不同（Electron 壳 vs 浏览器 / `--app=` 窗口）；**代价写得具体**：「用户得到『打开浏览器访问』，**失去『双击即开 / 托盘常驻 / 无需先起服务』**」✓ |
-| **1.13b** | 🟡 | 「**真缺，不是做法不同**」+ 逐项列缺失（无托盘/无快捷键/无文件关联/无开机自启/无原生通知/无系统授权）+ 「要真做得从零建 Electron/Tauri 工程，本机无网络装不了 node 依赖」✓ |
+**结果**：用户看到 `skipped={"langfuse": "available() 返回 False"}`，而**真实原因被丢掉了**——它其实写在另外两个键里：
+```
+missing_env: ['HERMES_LANGFUSE_PUBLIC_KEY', 'HERMES_LANGFUSE_SECRET_KEY']
+note:        '本机无网络，远端上报不可用。事件已 spool 到本地，联网后可用 `orbit observability flush` 补发。'
+```
+**所以回答你的问题**：`available()` 返回 False **是真的**（缺 env 是硬证据），**但"跳过理由"这段接线是坏的**——它找的键名与 exporter 提供的对不上。**这与 13.8 / 13.4 同族：机制真、数据真、展示那一层断线。**
+**修法一行**：`why = describe().get("reason") or describe().get("note") or (f"缺 {', '.join(missing_env)}" if missing_env else "available() 返回 False")`。
 
-**这正是上轮我建议的"拆两条"落地，而且 1.13a 的代价句就是我当时给的模板。** 判定：**方向对，不该改回 🟢。**
-
-> 唯一要提醒的是开头那处口径（见上）：**它不该被记成"完成度下降"**。
-
-**② 1.14 的 update 帧顺序 → ✅✅ 是结构性保证，不是约定**
+**③ `test_jsonl_exporter_lands_a_real_line` → ✅ 与你自述完全一致（确实没断言 schema）**
 
 ```python
-# app/acp_stream.py
-:43  ACP 的客户端是这么等一轮的：发出 `session/prompt` → 收一串 `session/update` 通知 →
-:44  **收到该请求的 response** 才算这一轮结束。于是有一条硬顺序：
-:46  所有 update  ⊂  response 之前
-:49  （线程上），如果就地 `write()`，最后一帧可能还在管道里，response 已经冲出去了，
-:55  * `app/cli/commands/acp.py` 在构造 response 之前调用 `close()`，所以顺序是结构性的，
-:421 这就是"response 必须排在所有 update 之后"这条顺序保证的落点：调用方在这里…
+attach({"jsonl": exporter})
+DEFAULT_HOOKS.emit("pre_llm_call", {"task_id": "t3", "attempt": 1})
+exporter.flush()
+assert files                                  # 有文件
+assert lines                                  # 非空
+first = json.loads(lines[0])                  # 能解析成 JSON
+assert "pre_llm_call" in json.dumps(first)     # 含事件名
+assert "t3" in json.dumps(first)               # 含 task_id
 ```
-**关键在 `:55`**：`close()` 在**构造 response 之前**被调用 → 顺序由**代码位置**保证，不是靠"调用方记得先 flush"的约定 ✓
-`UpdateOverflow`（`:68`）会冒到 response 里变成一条错误，而不是静默丢帧 ✓；测试 `:319` 断言 `frames[0]["method"] == "session/update"` ✓
+**它证明了"钩子 → exporter → 落盘"这条链路端到端通**，而且 `json.loads` 顺带证明了行是合法 JSON ✓
+**没断言的是**：字段结构（`event`/`payload` 的 schema）、时间戳、exporter 名。**这个边界是合理的**——这条测试的职责是"链路通不通"，schema 该由 exporter 自己的单测管。**你的自述准确，不需要补。**
 
-**这条我判为"真结构性"**：`close()` 与"构造 response"在同一个函数里前后相邻，把顺序从"跨调用方的契约"降级成"一个函数内的语句顺序"——后者改坏了会立刻被测试抓到。
+**④ 5.14 的三桶分类 → ⚠️ 分类判断对，但有两处要修正**
 
-**③ 4.7 的 ⚫ → ✅✅ 两段都成立，而且这是目前最完整的一条 ⚫**
+**先说对的部分**：把 61 条分成「需外部条件 52 / 刻意不做 1 / **可做但未做 4**」，并且**拒绝把 `kanban_*` 算进"刻意不做"**（理由：Hermes 的看板带 `request_review`/`block`/`heartbeat`/`link` 的多人协作协议，`todo` 不等价）——**这个拒绝是对的**。把不等价的东西算进"刻意不做"，正是我们防的"🟢/⚫ 变垃圾桶"。
 
-**`实现：`** 我逐点核了：
-```python
-# app/proxy.py
-:1292  token_provider: Callable[[], str] | None = None
-:1309  self._token_provider = token_provider
-:1557  if self._token_provider is None:
-:1559      "auth_mode=oauth 但没有注入 token_provider：本层不自己去 keyring 取令牌，"
-:1560      "由启动方用 `oauth_token_provider(config)` 造一个传进来。"
-:1562  headers.update(auth_headers(self.plan, token=self._token_provider()))
-:323   def oauth_token_provider(
+**修正一：`BrowserController` 现有方法里没有 `go_back` / console / dialog**
 ```
-**并且 CLI 接线测试确实存在且是"接线前会红"的形状**（`tests/test_proxy_auth_mode.py` 5 条）：
+现有方法：close, current_host, execute, last_screenshot_data_url, locate, login,
+         login_status, new_page, notion, observe, open, open_session,
+         page_signature, settle, start, validate_url, verify_entry, wait_for_change
 ```
-:21  test_auth_mode_reaches_the_plan
-:42  test_auth_mode_defaults_to_api_key
-:55  test_unknown_auth_mode_is_refused
-:71  test_serve_passes_token_provider_to_the_server  → :114 assert captured.get("token_provider") == "TOKEN_FN"
-:120 test_source_actually_passes_token_provider      → :125 assert "token_provider=token_provider" in source
+→ **`browser_back` / `browser_console` / `browser_dialog` 不是"用现有 controller 就能做"**，都要给 controller 加方法（playwright 支持，但代码不存在）。`browser_get_images` 部分可行：`last_screenshot_data_url()`（`:428`）能拿到截图 data URL，但"取页面上的图片"要 DOM 查询，不是截图。
+**这不改变"可做但未做"的归类**（确实是缺口、确实该做），只是**工作量比"就能做"大**。
+
+**修正二（更要紧）：本机 chromium 起不来，所以这 4 个做完也只能标 ⚫，不能标 ✅**
+我实机试了：
 ```
-→ **第 4 条在接线前必红（捕获不到 `TOKEN_FN`），第 5 条是源码层机械证据**。这正是 13.8 那一对的复制 ✓
-
-**`缺：`** 网络 + 真实 OAuth 令牌端点；`NetworkUnavailable` → `code=oauth_needs_network`；「OAuth 令牌能否被上游接受」端到端一次没验过 ✓
-**而且它自陈了边界**：「流式只翻文本增量（thinking / tool_use / functionCall 增量不转）」——**这类"顺手交代没做的部分"是 ⚫ 条目里最该有的东西**。
-
-**④ 12.10 的 install dry-run → ✅✅ 真的零副作用，而且机制比"一个 flag"更硬**
-
-```python
-# app/gateway.py
-:2612  return ((("schtasks", "/Create", "/TN", task_name, "/XML", str(xml_path), "/F")),)
-:2525  """生成**真的能被 `schtasks /Create /XML` 吃下去**的计划任务定义。"""
-:2540  **编码**：`schtasks /XML` 要求文件是 Unicode（UTF-16 + BOM）
-:2442  """一条命令的执行结果。``executed=False`` 表示**没跑**（dry-run）。"""
-InstallPlan docstring：「``dry_run=True`` 时 ``commands`` 是"将要执行的完整命令"，``executed`` 为空；
-                      ``apply=True`` 时 ``executed`` 里是每条命令的真实结果。」
+BrowserController(settings, store).start()
+→ BrowserSessionError: 浏览器启动失败，请确认当前 Windows 桌面可用，并重试打开；未切换到无头模式
+（强制 settings.headless=True 再试：同样失败）
 ```
-**关键设计**：`install_commands()` 是**纯函数**，只返回命令元组、**自己不执行任何东西**；dry-run 与 apply **共用同一个 `InstallPlan` 结构**，区别只在 `executed` 是否填充 ✓✓
-→ **dry-run 零副作用是结构性的**（没有可执行路径），不是"加了个 if 跳过"。
+**而二进制是装了的**：`~/AppData/Local/ms-playwright/` 下有 `chromium-1228`、`chromium-1234`、`chromium_headless_shell-1228/1234` ✓
+→ 所以不是"缺 chromium"，是**本会话没有可用桌面 / 启动被环境挡住**。
 
-**⑤ 5.14 的 send_message → ✅✅ 真投递**
+**这条推论很重要**：这 4 个工具写完后，**"实现有、本机验不了"→ 按我们的两问判据应标 ⚫，不是 ✅**。
+**🟡 →（写完）→ ⚫，不会到 ✅** —— 除非换一台有桌面的机器跑一次。**如果写完直接标 ✅，那就是下一处假绿。**
 
-```python
-# app/tool_extra_impl2.py
-run_send_message():
-    action="list" → list_send_targets(data_dir)
-    action="send" → 校验 text/target →
-        target 以 "peer:" 开头 → send_via_peer(...)
-        否则                  → send_via_platform(...)
+### B. 你交代的两件事
 
-send_via_platform()  # :316
-    """走 `gateway.deliver`：适配器发送 + 重试 + 记账（`deliveries.jsonl` + 平面事件）。"""
-    service = gateway.GatewayService(data_dir)
-    result = service.deliver(text, platform=parsed.platform, channel=parsed.channel, attempts=...)
-    if not result.ok: ...
-```
-→ **不是返回"已发送"，是真调 `gateway.deliver`**（适配器发送 + 重试 + 落 `deliveries.jsonl` + 平面事件）✓
-且 `action=list` 会**逐条报每个平台缺哪个 env** ✓ —— 这一条比"返回成功"重要得多：它让模型在发之前就知道能不能发。
+**① 脚本把自己绊倒（先替换文本、又拿被替换掉的原文当锚点）→ 记法对**
 
-### B. 你主动交代的三件事
+你总结的两条我都同意，补一个更通用的形式：**"改 A 又拿 A 当锚点"本质是「同一轮里对象被换掉了」**。同类还有：
+- 先 `flush` 再 `read` 同一个缓冲
+- 先 `rm` 再用路径 `stat`
+- 先重命名再用旧名找
 
-**① 「1.14 与 14.4 从来没被统计过」→ 你的更正对，而且我上轮已独立验证过同一件事**
+**共同判据**：**操作序列里，后续步骤引用的标识符必须在后续时刻仍然指向同一个对象。** 拿不准就"先全定位、再统一改"（你给的第一条）。
 
-我在**第 8 轮**就是因为踩了同类坑（整行扫符号 → 转义竖线错位）才改成**读第 6 列**；第 13 轮我又用同一方法复核了全部 180 行，**状态列一直读得对**。所以：
-- `status_of()` 读第 6 列 → **一直正确**
-- `count()` 一直是 181 条 → **一条没漏**
-- 真实问题小一号：「我的编辑脚本改不动」被误读成「没被统计」✓ **这个区分很重要**——"工具没统计到"和"我的脚本没改到"是两件完全不同的事，后者不会影响任何数字。
+**② 门禁第三次抓到写门禁的人 → 这条门禁的价值已经超额兑现**
 
-**② 审计脚本报「8 行结构损坏」→ 也是错的，原因是 PowerShell 两层转义**
-
-`'\\\\|'` 经 PowerShell → Python 两层转义后变成 3 字符而非 2 字符，于是每行都多数出一段。**写进文件重测：0 坏行** ✓ —— 这与我第 13 轮记的"PowerShell 吃反引号"是同一族（**转义层数没对齐**）。
-
-**③ 但结构门禁还是加了 → 判断正确**
-
-你的理由正是我第 13 轮那条观察的延伸：**取值检查抓不到"列数不对"**。
-我补一个具体例子：本轮我自己写的结构检查第一版就错了——我按 `len(cells) != 10` 判，结果 **6 列表用我的切分法正常产出 8 段，于是 181 行全被报成异常**。校正期望值为 8 后：**181 行全部正常，零异常**。
-**所以"结构检查"本身也需要一条"检查器自检"**：拿一行已知正确的样本先跑一遍，确认检查器不误报。**否则检查器自己就成了噪声源**——这正是你这轮踩的（8 行假损坏）。
-
-### C. 我自己本轮的错（主动披露）
-
-我第一版结构检查用 `len(cells) != 10`（记成了 7 列表），导致把全部 181 行报成"段数异常"。**这是我第一次运行就发现的**（181/181 全异常显然不是数据问题，是检查器问题），校正后 0 异常。
-**教训与你这轮完全同构**：**当检查器报"全部都不对"时，先怀疑检查器，不是数据。** 与第 11 轮我那条「独立复核与对方结论相反时，先怀疑自己的抽取口径」是同一条纪律的第三次验证。
+你在 4.8 / 5.14 证据栏里写 `🟢` 这个字符指代「有意差异」，整行出现第二个状态符号 → 被拦。
+**这三次（第 12 轮 10.4 的「从 🟡 变 ✅」、第 14 轮的 `🟢` 指代、本轮同类）全是同一个原因：状态符号是"值"，但也被当"词"用。**
+**建议把这条写成注释固定在 `matrix_stats.py` 的状态符号定义旁**：「这些字符在本文件里是**取值标记**，不得在证据栏里当普通词使用；要提及时写中文名（"已实现"/"有意差异"/"部分"/"未开始"）。」——这样下一个人写之前就能看到，而不是被拦了才知道。
 
 ---
 
@@ -208,84 +174,69 @@ send_via_platform()  # :316
 
 | 类别 | 条目 |
 |---|---|
-| **🟡 7 条** | `1.13b`(原生壳/OS 集成) · `4.8`(iron-proxy) · `4.12`(19 家 4 家可用) · `5.14`(33/94) · `12.5`(20/22) · `12.10`(enroll 要网络) · `13.4`(wired 13/exposed 2) |
+| **🟡 7 条** | `1.13b`(原生壳) · `4.8`(iron-proxy，已写"本阶段决定不做") · `4.12`(19 家 4 家) · `5.14`(33/94，三桶已分) · `12.5`(20/22) · `12.10`(enroll 要网络) · `13.4`(wired 14 / exposed 1 / unsupported 4) |
 | **⚫ 4 条** | `4.2`(bedrock) · `4.7`(proxy OAuth) · `8.3`(真 OAuth) · `12.9`(peer) |
 
-### 你问的 ①：4.8 的 iron-proxy 该 🟡 还是 🟢 —— **我的判断是留 🟡**
+### 你问的：`register_memory_provider` 两套要不要合并 —— **同意不合并；但"算不算 wired"取决于读写两条都通**
 
-**先看这条自己的证据栏**（它已经写清了关键差别）：
-> `inject_headers` 从 keyring 取凭证头**只在内存注入、不落盘、不回显**…**仍缺**：真正的令牌代换代理没实现，且**调用方仍拿得到真密码/真令牌**
+**先回答"要不要合并"：同意不合并，而且理由比你给的更强一条。**
 
-**这一句就是答案**：Orbit 的做法是「**把真凭证从 keyring 取出来、注入到出站请求里**」，而 iron-proxy 的做法是「**凭证永不进入调用方可达范围，由独立进程代换**」。差别不是"载体"，是**凭证在谁手里**。
+你说"合并会把已经验证过的三段闸搅进去"——对，但可以更硬地说：**`memory_write.py` 的三段闸（威胁扫描 → 审批三态 → 快照二次扫描）是目前唯一被逐条验证过的安全边界；把 `MemoryRouter` 这个未验证的抽象合并进去，等于在一个已验证的边界上开一个未验证的入口。** 这违反一条更基本的原则：**不要在已验证的边界上引入未验证的组件**——哪怕它"看起来是同类的"（这与你这轮 `security_audit` vs `osv` 的教训是同一条：形状相同 ≠ 同一件事）。
 
-**为什么不能标 🟢（三条）**：
+**再回答"算不算真 wired"：给三条硬要求，缺一条就不是 ✅。**
 
-1. **🟢 的定义是"能力有，做法不同"。这里能力不是"有"，是"弱一层"**：`inject_headers` 保证的是"不落盘、不回显"，**不保证"拿不到"**——任何能在进程内执行代码的东西（第三方插件、被注入的模型输出驱动的工具链）都能读到 keyring 取出的真值。
-2. **Orbit 的威胁模型不是"本地单用户所以不需要"**：它**确实执行第三方插件代码**（`plugin_dashboard` 自己就写着"会执行第三方代码"）、跑 subagent 生成/调用的工具、连不可信 MCP server、把不可信内容包进上下文（`untrusted.wrap` 正是为此）。**这些前提都成立时，"凭证不进 agent 可达范围"就不是可选加固，而是真缺口。**
-3. **标 🟢 会掩盖它**：🟢 计入完成度，等于宣布"这一层我们做完了，只是方式不同"。而实际是"这一层我们**没做**，用另外三层（egress 策略 + redact + approvals）缓解了部分风险"。**缓解 ≠ 等价。**
-
-**但我不建议只写"没做"**——证据栏已经给出了很好的第三条路：`describe()` 里的「最小可行形态 A 独立进程 / B 自签 CA / C 令牌铸造 / D 强制出站改道，逐条给实现要点、人日量级与验收标准」。**这已经是可决策的排期材料**，建议在证据栏里再加一句明确的**决策**：
-
-> **本阶段决定不做**（理由：单机单用户 + 已有 egress/redact/approvals 三层缓解 + 需要独立进程与自签 CA，量级 X 人日）；**若将来开放多用户或执行不可信插件代码常态化，这条必须回到 P0**。
-
-**「决定不做」和「有意差异」是两件事**：前者是**排期**（🟡 但注明不做），后者是**设计**（🟢）。混用会让 🟢 变成"任何不想做的事"的出口——这是我们前几轮一直在防的同一个病。
-
-### 你问的 ②：5.14 该不该继续推 —— **同意停止推数字，但请把分母换掉**
-
-**先肯定"停止推"是对的**：我们自己立的原则就是「**注册一个调了必然失败的工具比不注册更糟**」。为凑覆盖率注册空壳，会直接污染 `tool_catalog` 的语义——`covered` 从"能用"退化成"声明了"，那这张表就再也不可信了。**而且这条证据栏已经写得很硬**：「剩余 61 条里没有一条能在本机自证——网络/凭证 17、浏览器 7、桌面 15、看板 14、需 provider 6、委派 2。**不为凑数注册空壳。**」
-
-**但「33/94」这个数字会一直被误读**：它看起来像"还差 61 个，加油"，而真相是"61 个里大部分永远不该做"。**分母选错了，数字就永远难看，而且会持续诱导造假。**
-
-**建议：把分母从「Hermes 有的 94 个」换成「Orbit 该做的 N 个」**。你已经把 61 条分了 6 桶，只需再归一次类：
-
-| 类别 | 处理 | 例 |
+| # | 要求 | 为什么 |
 |---|---|---|
-| **A 需要外部条件**（网络/浏览器/桌面/看板/provider/委派） | **不是 Orbit 的缺口，是验证条件缺口** → 归 ⚫ 或单列，**不进 5.14 的分母** | `browser_vision`（需视觉 provider） |
-| **B 刻意不做** | **🟢 候选**（附 `差异：`+`代价`） | `browser_cdp`（协议逃生口，会绕过 ref 校验）、`browser_exec`（要外部 CLI） |
-| **C 真该补**（纯本地逻辑、无外部依赖） | **这才是 🟡 该盯的分母** | 若剩下的 61 条里 C 类是 0，那 **5.14 就该直接标 🟢**（"94 个里该做的都做了"） |
+| 1 | **写路径**：`memory_save` 过完三段闸、写进 MEMORY.md **之后**，真的把同一条内容写进插件 provider | 只注册进表 = 13.4 那个假绿的翻版 |
+| 2 | **读路径**：`MemoryRouter` 的检索/注入**真的会问插件 provider** | **只写不读 = 半条**。用户写了记忆但模型永远检索不到，比没写更糟（"我明明记过"） |
+| 3 | **失败隔离**：插件 provider 抛异常不能让 `memory_save` 失败，但**必须记账**（事件 + 计数） | 旁路的定义；但静默失败等于第二条假绿 |
 
-**如果 C 类确实是 0**（我从证据栏读到的倾向是这个），那么 5.14 的诚实写法是：
-> **🟢 有意差异**：Hermes 的 94 个工具里，Orbit 该做的已全部实现；其余 61 个分 6 类，全部需要本机不具备的外部条件或属于刻意不做（逐条见 `orbit tools catalog`）。**代价**：用户在需要浏览器自动化/桌面控制/看板/特定 provider 的场景下会缺工具，需自己接。
+**所以我的判据是**：
+- **写读都接 + 失败隔离** → **✅**（"不合并"是设计决定，可在证据栏注明，不必单列 🟢——因为它没有"代价"，只是实现选择）
+- **只接写、读不问插件** → **🟡**，证据栏写「写侧已接、读侧未接：`MemoryRouter` 检索路径尚未查询插件 provider」
 
-**这比"33/94"诚实得多，也终止了"凑数字"的动机**——因为分母里不再有那些不该做的东西。
+**最后点一个你方案里没提的风险**：不合并 = **两套记忆、两个真相源**。如果 MEMORY.md 写成功、插件 provider 写失败（或反过来），记忆就分叉了。建议把**写顺序与取舍**写进证据栏，否则下一个人会以为是双向同步：
+
+> **MEMORY.md 是权威，插件 provider 是镜像。顺序：先 MEMORY.md（过三段闸）→ 成功后镜像写入 → 镜像失败只记账、不回滚。**
+> **为什么不回滚**：回滚 MEMORY.md 会让用户丢掉刚写进去的记忆，比"镜像不一致"代价大得多；而不一致可以在下次 `memory sync` 时收敛。
 
 ---
 
 ## 风险与漂移
 
-### R1 🟢 **没有发现新的漂移**（连续第二轮）
+### R1 🟠 **`observability_sink` 的跳过理由是空壳（A②）——本轮新发现**
 
-逐项查过：口径一致 ✓、181 行结构 0 异常 ✓、4 ⚫ + 4 🟢 必备段落齐全 ✓、口径变更（1.13 拆分）在 MATRIX 有据 ✓、临时探针文件已删 ✓（上轮我提醒的 `backend/.tmp_onecore_probe.ps1` 确实没了）。
-**没有一条"文档声称完成但代码查无实据"。**
+`describe().get("reason")` 与实际键名（`missing_env` / `note`）对不上 → 永远走 fallback。**用户看到的"原因"等于没有原因**，而真实原因（缺哪两个 env、本机无网络、事件已 spool、联网后可 flush 补发）全都现成地躺在 `describe()` 里。**一行可修。**
 
-### R2 🟡 **一处口径表述需要固定下来**
+### R2 🟠 **5.14 的 browser 桶：做完只能到 ⚫，不能到 ✅（A④）**
 
-「94.4% → 93.9%」这种**跨口径比较**很容易在以后重复发生。建议在 `matrix_stats` 输出里**给两个数各加一行"上轮值"**（或至少在报告模板里固定写「严格 A% → B%；可验证 C% → D%」四个数），**避免把可验证当严格引用**。
+chromium 二进制在，但**本会话启动失败**（headful 与 headless 都试过）。所以这 4 个工具写完后是"实现有、本机验不了" → **⚫**。
+**这条要提前说清**，否则下一轮很容易把"写完了"记成 ✅ —— 那正是这轮你亲手抓到的那种假绿。
 
-### R3 🟡 **`MATRIX 5.14` 行内数字不一致**
+### R3 🟡 **两处"就能做"的说法偏乐观（不改变归类，只影响排期）**
 
-标题写「Orbit 现 **28** 个」，正文写「covered **31 → 33**」，实测 **33**。标题的 28 是旧值。**建议标题只写"Hermes 94 个"**，Orbit 侧数字留给正文与 `tools catalog` 实测——否则标题会长期滞后。
+`browser_back` / `browser_console` / `browser_dialog` 需要给 `BrowserController` **加方法**，不是"用现有就能做"。**归类不变（真缺口），但人日估计要上调。**
 
-### R4 🟡 **轮末 2 项在飞**
+### R4 🟡 **轮末 3 项在飞**
 
 ```
 轮初 git status: 0 条目 ✓
-轮末 git status: 2 条目
-  M backend/app/graph/nodes.py
-  ?? backend/tests/test_hook_emit_points.py
+轮末 git status: 3 条目
+  M backend/app/browser.py        ← 正是 5.14 browser 桶在动
+  M backend/debug.log             ← 日志文件被提交跟踪了？建议加 .gitignore
+  ?? backend/.tmp/                ← 临时目录，建议清理
 ```
-→ 与你说的"下轮接 13.4 的装配处传参与主循环发射点"对得上（`nodes.py` 正是发射点）。
+**`backend/debug.log` 被跟踪**这件事值得处理：日志文件进版本库会持续产生噪声 diff（本轮它就出现在改动里）。
 
 ### R5 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| `12.10` 的 `enroll` 真流程 | 要网络 + 真实凭证 → 未跑；只核了 `InstallPlan`/`install_commands` 的结构 |
-| `12.10` dry-run 是否连 XML 文件都不写 | 只核了"不执行任何 `schtasks` 命令"；XML 落盘是独立步骤，**未确认 dry-run 时是否也跳过写文件** |
+| `12.10` 的 `enroll` 真流程 | 要网络 + 真凭证 → 未跑 |
+| `13.4` 的 wired 14 / exposed 1 逐条 | 只核了 `register_hook` 那条（你本轮修的主线），其余未逐条复核 |
 | `4.12` 的 19 家里 4 家可用 | 只核了数字来源，未逐家验 |
-| `13.4` 的 wired 13 / exposed 2 | 未复核（上轮核过 10/5/4 的逐条落点） |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 9 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 10 轮如此） |
 
 ---
 
@@ -293,15 +244,15 @@ send_via_platform()  # :316
 
 按优先级：
 
-1. **【P0】把 5.14 的分母换掉，或直接标 🟢**（见上）：你已经把 61 条分了 6 桶，只需再判一次"C 类真该补的有几条"。**如果 C = 0，这条就该是 🟢**——继续挂着 🟡 等于用一个不该做的分母压着自己的完成度，还会持续诱导写空壳。
-2. **【P0】4.8 留 🟡，但把「本阶段决定不做」+ 触发条件写进证据栏**：判据是「调用方仍拿得到真凭证」这一句（它已经在证据栏里了）。**🟢 是设计差异，🟡+决定不做是排期**——两者不要混。
-3. **【P1】`matrix_stats` 输出加"上轮值"**（R2）：两个口径各一行「上轮 → 本轮」，把跨口径比较的可能性从源头掐掉。
-4. **【P1】13.4 那两条 exposed 接掉（你下轮本来就要做）**：`main.py` 传参 + `nodes.py` 发射点。**注意 `nodes.py` 是主循环，改完请跑一次独占全量**——上一轮 TUI 的 bug 就是被全量跑抓到的。
-5. **【P1】`MATRIX 5.14` 标题的「28」改成不带 Orbit 侧数字**（R3）：标题只留"Hermes 94 个"，Orbit 侧交给正文与 `tools catalog` 实测。
-6. **【P2】给结构检查器加自检**（C 节）：**拿一行已知正确的样本先跑一遍**，确认检查器不误报。你这轮的"8 行假损坏"和我的"181 行假异常"都是检查器自己出错——**检查器出错比数据出错更危险，因为它看起来像证据**。
-7. **【P2】4.12 建议照 4.2 的样子逐家写**：现在写"19 家里 4 家可用"，读者不知道另外 15 家是"没做"还是"缺条件"。**逐家一行「能/不能 + 缺什么」**，比一个比例有用得多。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 12 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位，而 `nodes.py` 下轮正好要改。
+1. **【P0】修 `observability_sink.py:59` 的键名**（R1）：改成 `reason` → `note` → `missing_env` 三级回退。**一行，但它决定"跳过原因"是有用信息还是废话。**
+2. **【P0】给 5.14 的 browser 桶预设结论**（R2）：写完后标 **⚫**（`实现：` + `缺：` 有桌面的机器跑一次），**不要标 ✅**。**提前写清，比事后纠正好。**
+3. **【P1】`register_memory_provider` 按三条硬要求接**（见上）：写路径 + **读路径** + 失败记账。**只接写侧就标 🟡 并写明"读侧未接"。** 同时把"MEMORY.md 权威 / provider 镜像 / 不回滚"的取舍写进证据栏。
+4. **【P1】把状态符号的"取值标记"性质写进 `matrix_stats.py` 注释**（B②）：它已经三次抓到写门禁的人，说明**光有门禁不够，还要在写之前就知道规则**。
+5. **【P1】`backend/debug.log` 加进 `.gitignore`**（R4）：日志进版本库会持续产生噪声 diff，还会让"轮末有改动"这件事失去信号价值。
+6. **【P2】13.4 剩下的 `register_memory_provider` 之外，还有 exposed 1 条**：收掉之后 L13 到 100%，**十一层 100%**。
+7. **【P2】4.12 建议逐家写「能/不能 + 缺什么」**（上轮提过）：现在"19 家 4 家"读者不知道另外 15 家是"没做"还是"缺条件"。照 `4.2` 的 `BEDROCK_LIMITATIONS` 格式。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 13 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位——而这轮 `nodes.py` 刚好在改（发射点），**顺手看一眼就能收**。
 
 ---
 
-*本报告由 monitor 角色只读生成。你点名的 5 项**全部撑得住**：1.13b 该降且 TCC 证据我直接从 `cmd-74-desktop.txt:30-37` 核过（`Accessibility` 与 `microphone` 浏览器给不了）、1.14 的顺序是**结构性**的（`close()` 在构造 response 之前）、4.7 的 ⚫ 两段都成立且 5 条测试含"接线前会红"、12.10 的 dry-run **结构性零副作用**（`install_commands` 是纯函数）、5.14 的 `send_message` 真走 `gateway.deliver` + `deliveries.jsonl` 记账。**一处口径更正**：完成度没有下降——上轮严格是 92.8%（94.4% 是可验证口径），本轮两口径分别为 93.9% / 96.0%，**都是上升**。**我自己这轮也错了一次**：结构检查用错列数期望值，把 181 行全报成异常，校正后 0 异常——与你那"8 行假损坏"同构。两个问题我的答案：**4.8 留 🟡**（调用方仍拿得到真凭证，是缺口不是载体差异）；**5.14 停止推数字，但请把分母从 94 换成"该做的 N"**。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。数字与上轮完全相同（93.9% / 96.0%），但实质有三处：**四个钩子发射点全部真在热路径**（2 个在 `ask_model` 每次尝试、2 个在 `run_tool` 每次调用）；**`observability_sink` 的跳过理由是空壳**——`get("reason")` 与实际键名 `missing_env`/`note` 对不上，永远走 fallback，真实原因（缺哪两个 env、已 spool、可 flush 补发）全丢；**5.14 的 browser 桶分类对，但 chromium 在本会话启动失败**（二进制在，headful 与 headless 都试过），所以那 4 个写完只能标 **⚫ 不是 ✅**。`test_jsonl` 与你自述一致（未断言 schema，合理）。关于 `register_memory_provider`：**同意不合并**（理由加强为"不在已验证的边界上引入未验证组件"），但**算不算 wired 要看读路径**——只接写侧就是 🟡。未验证项单列，不混进完成项。*

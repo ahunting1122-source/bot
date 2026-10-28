@@ -55,11 +55,27 @@ def attach(exporters: dict[str, Any], *, registry: Any = None) -> dict[str, Any]
             continue
         if not usable:
             # 不可用就跳过，但**必须记下原因**——静默跳过会让"没数据"变成谜。
+            #
+            # **三级回退，别只找一个键**：exporter 的 `describe()` 返回的是
+            # `name / kind / available / endpoint / missing_env / spool / note`——
+            # **没有 `reason`**。原来只找 `reason`，于是永远走 fallback，
+            # 用户看到"available() 返回 False"这种废话，而真实原因（缺哪两个 env、
+            # 事件已 spool 到本地、联网后可 flush 补发）现成地躺在 `missing_env` 与
+            # `note` 里却没人读。**机制真、数据真、展示层断线**——与 13.8 同族。
+            why = ""
             try:
-                why = exporter.describe().get("reason") or "available() 返回 False"
+                info = exporter.describe()
+                note = str(info.get("note") or "").strip()
+                missing = [str(x) for x in (info.get("missing_env") or [])]
+                if missing:
+                    why = f"缺环境变量 {', '.join(missing)}"
+                if note:
+                    why = f"{why}；{note}" if why else note
+                if not why:
+                    why = str(info.get("reason") or "")
             except Exception:  # noqa: BLE001
-                why = "available() 返回 False"
-            report["skipped"][name] = str(why)
+                why = ""
+            report["skipped"][name] = why or "available() 返回 False（exporter 没给原因）"
             continue
 
         stats = STATS.setdefault(name, {"calls": 0, "failures": 0})

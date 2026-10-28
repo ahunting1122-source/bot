@@ -170,6 +170,12 @@ TOOL_TOOLSET: dict[str, str] = {
     "compact": "core",
     "setup_mcp": "mcp",
     "text_to_speech": "tts",
+    # MATRIX 5.14 第四轮：4 个浏览器工具（实现在 `app/browser.py`，
+    # 由 `BROWSER_TOOLS` 注册，所以 `orbit_pool()` 必须靠这张表才看得见）。
+    "browser_back": "browser",
+    "browser_get_images": "browser",
+    "browser_console": "browser",
+    "browser_dialog": "browser",
     # MATRIX 5.14 第三轮（实现见 `app/tool_extra_impl2.py` 的 `ROUND3_TOOLS`）。
     "send_message": "collab",
     "memory_provider_list": "memory",

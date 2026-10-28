@@ -1,7 +1,9 @@
 import asyncio
 import hashlib
+import time
+from collections import deque
 from contextlib import suppress
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import async_playwright
 from pydantic import Field
@@ -10,6 +12,38 @@ from app.config import http_url, is_notion_host
 from app.storage import Artifact, Operation
 from app.tools import Args, Empty, Tool
 from app.vault import Vault, cookie_host_matches, summarize_logins
+
+# ── 四个新浏览器工具（MATRIX 5.14 的「可做但未做」桶）─────────────────────────
+#
+# browser_back / browser_get_images / browser_console / browser_dialog 都只用已有的
+# BrowserController，不引入任何新依赖。下面这组常量是**所有上限的唯一出处**：
+# 缓冲条数、返回条数、单条字符数都必须有界——否则一次长会话、一条 minified 报错、
+# 一张 base64 内联图，任一个都能把内存或上下文预算吃光。
+
+#: console / pageerror 的有界缓冲条数。
+#:
+#: **必须有限**：页面每秒可能吐几十条日志，无限缓冲最终会把长会话的内存吃光，
+#: 而模型永远只看最后几十条。超限丢最旧（`deque(maxlen=)` 的语义），
+#: 但丢了多少要单独记一笔——"你看到的是不是全部"必须能回答。
+CONSOLE_BUFFER = 200
+#: 单条 console 文本上限。minified 库的报错动辄几万字符，一条就能吃光整个预算。
+CONSOLE_TEXT_CHARS = 2000
+#: `browser_console` 默认回多少条（最近 N 条）。
+CONSOLE_DEFAULT_LIMIT = 50
+#: `browser_get_images` 默认回多少张。
+IMAGES_DEFAULT_LIMIT = 30
+#: 追踪像素阈值：宽高都 ≤ 这个值的图对模型没有任何信息量（典型是 1×1 统计像素）。
+TRACKING_PIXEL_MAX = 2
+#: 单条图片地址的字符上限。base64 内联图（`data:image/...`）动辄几十万字符，
+#: 原样交给模型等于当场自爆预算。
+IMAGE_SRC_CHARS = 2000
+#: dialog 历史条数上限。模型只需要知道"刚才弹过什么"，不需要全部历史。
+DIALOG_BUFFER = 20
+#: 待处理 dialog 的自动 dismiss 宽限（秒）。为什么必须有它，见 `_on_dialog` 的注释。
+DIALOG_GRACE_SECONDS = 2.0
+#: 保留事件状态的页面数上限（每个页面一份 console / dialog 缓冲）。
+#: 有界是为了让"一直开新标签页"的长会话不会把旧页面的缓冲永远攒在内存里。
+PAGE_EVENTS_MAX = 8
 
 
 class NavigateArgs(Args):
@@ -43,6 +77,39 @@ class SummaryArgs(Args):
     content: str = Field(min_length=1, max_length=12000)
 
 
+class ImagesArgs(Args):
+    """`browser_get_images` 的参数。"""
+
+    limit: int = Field(
+        default=IMAGES_DEFAULT_LIMIT,
+        ge=1,
+        le=200,
+        description="最多返回几张图片（默认 30）。列表页常有几十上百张，先少取再看。",
+    )
+
+
+class ConsoleArgs(Args):
+    """`browser_console` 的参数。"""
+
+    limit: int = Field(
+        default=CONSOLE_DEFAULT_LIMIT,
+        ge=1,
+        le=200,
+        description="返回最近多少条日志（默认 50，含 pageerror 未捕获错误）",
+    )
+
+
+class DialogArgs(Args):
+    """`browser_dialog` 的参数。"""
+
+    action: str = Field(description="accept=确认（点「确定」）；dismiss=取消（点「取消」/关掉）")
+    text: str = Field(
+        default="",
+        max_length=2000,
+        description="prompt 输入框里要填的文本；只有 prompt 类型用得上，其余类型忽略",
+    )
+
+
 class VaultLoginArgs(Args):
     host: str = Field(description="密钥存储里保存过账号密码的站点主机名")
     version: int = Field(description="最新 observe 返回的版本号")
@@ -71,6 +138,31 @@ BROWSER_TOOLS = [
     Tool("browser_fill", "填写最新观察中的输入元素；需要确认。", FillArgs, True),
     Tool("browser_press", "按一个键；需要确认。", PressArgs, True),
     Tool("browser_scroll", "滚动页面。", ScrollArgs),
+    Tool(
+        "browser_back",
+        "后退到上一页，返回新的 URL 与标题。**没有上一页时如实返回 went_back=false**，"
+        "不会假装成功；后退后元素引用失效，需要重新观察。",
+        Empty,
+    ),
+    Tool(
+        "browser_get_images",
+        "列出当前页面的图片：**绝对 URL** + alt 文本 + 宽高。相对地址已转成绝对地址，"
+        "1×1 之类的追踪像素已过滤。要看页面上有什么图、或把图片地址交给别的工具时用它。",
+        ImagesArgs,
+    ),
+    Tool(
+        "browser_console",
+        "读当前页面最近的 console 日志与 JS 未捕获错误（pageerror），默认最近 50 条。"
+        "日志从页面创建时就开始收集，所以能看到打开页面期间发生的报错。",
+        ConsoleArgs,
+    ),
+    Tool(
+        "browser_dialog",
+        "处理页面弹出的原生对话框（alert / confirm / prompt / beforeunload）："
+        "accept=确认，dismiss=取消；prompt 可用 text 填输入框。"
+        "**没有待处理对话框时如实返回 handled=false**。",
+        DialogArgs,
+    ),
     Tool(
         "vault_login",
         "用密钥存储中保存的账号密码登录站点：填写用户名与密码，并在给出 submit_ref 时点击提交，"
@@ -143,6 +235,27 @@ EXTRACT_JS = """() => {
 }"""
 
 
+#: 抽图片用。**只抽原始数据，不做判断**：过滤与相对 URL 转换全在 Python 侧
+#: （:func:`normalize_images`），因为那部分能离线单测，而 JS 里写的逻辑只能靠真浏览器验。
+#:
+#: 上限 200 张：图库里几百张图时没必要全搬回 Python 再截断，跨进程传一趟就是白花时间。
+IMAGES_JS = """() => {
+  const out = [];
+  for (const img of document.querySelectorAll('img')) {
+    if (out.length >= 200) break;
+    const rect = img.getBoundingClientRect();
+    out.push({
+      src: img.currentSrc || img.getAttribute('src') || '',
+      alt: img.getAttribute('alt') || '',
+      // naturalWidth 是图片的真实像素尺寸（判断追踪像素要靠它，不能靠 CSS 布局尺寸）。
+      width: Math.round(img.naturalWidth || rect.width || 0),
+      height: Math.round(img.naturalHeight || rect.height || 0),
+    });
+  }
+  return out;
+}"""
+
+
 class BrowserSessionError(RuntimeError):
     def __init__(self, stage: str, message: str):
         super().__init__(message)
@@ -173,6 +286,234 @@ def safe_page_url(url: str) -> str:
     return parsed._replace(netloc=host, query="", fragment="", params="").geturl()
 
 
+# ── 四个新工具的纯逻辑（**不启浏览器也能测**）──────────────────────────────────
+#
+# 这一段刻意不碰 playwright：图片过滤与相对 URL 转换、console 条目裁剪、dialog 状态机
+# 都是纯对象/纯函数。于是没有 chromium、没有网络的机器上也能把这些逻辑测透；
+# 真浏览器那一层只负责"把事件喂进来"，判定规则不写第二遍。
+
+
+def clock_text(at: str | None = None) -> str:
+    """日志/对话框的时间戳（本地时间，精确到秒）。
+
+    只保留到秒：模型要的是"这几条谁先谁后"，毫秒级时间戳只是多占字符。
+    """
+    return at or time.strftime("%H:%M:%S")
+
+
+def console_entry(level, text, at: str | None = None) -> dict:
+    """一条 console 记录的**唯一**形状：只有 level / text / 时间。
+
+    为什么不把整条 `ConsoleMessage`（或它的 JSHandle）交给模型：那些对象的
+    可序列化内容要么为空、要么把一整棵远程对象描述塞进上下文，模型既看不懂也用不上。
+    """
+    return {
+        "level": str(level or "log")[:40],
+        "text": str(text or "")[:CONSOLE_TEXT_CHARS],
+        "at": clock_text(at),
+    }
+
+
+class ConsoleLog:
+    """一个页面的 console / pageerror 有界缓冲。
+
+    为什么要自己数 ``dropped``：只看最后 50 条时，"这个页面到底吐了 5 条还是 500 条"
+    是判断"页面是不是在报错刷屏"的关键差别。丢了多少必须能被说出来，
+    否则"只看到最后几条"会被误读成"只有这几条"。
+    """
+
+    def __init__(self, capacity: int = CONSOLE_BUFFER):
+        self.capacity = max(1, int(capacity))
+        self.entries: deque[dict] = deque(maxlen=self.capacity)
+        self.dropped = 0
+
+    def add(self, level, text, at: str | None = None) -> dict:
+        """追加一条。缓冲满了就丢最旧的那条，并把丢弃计数加一。"""
+        if len(self.entries) == self.capacity:
+            self.dropped += 1
+        entry = console_entry(level, text, at)
+        self.entries.append(entry)
+        return entry
+
+    def tail(self, limit: int = CONSOLE_DEFAULT_LIMIT) -> list[dict]:
+        """最近 ``limit`` 条（顺序照发生先后，最早的在前面）。"""
+        return list(self.entries)[-max(1, int(limit)) :]
+
+    def snapshot(self, limit: int = CONSOLE_DEFAULT_LIMIT) -> dict:
+        """给模型的载荷：最近 N 条 + "总共收了多少、丢了多少"。"""
+        entries = self.tail(limit)
+        return {
+            "entries": entries,
+            "count": len(entries),
+            "total": len(self.entries),
+            "dropped": self.dropped,
+            "limit": max(1, int(limit)),
+        }
+
+    def clear(self) -> None:
+        self.entries.clear()
+        self.dropped = 0
+
+
+def _pixels(value) -> int:
+    """把 JS 侧给的尺寸转成整数像素（坏值按 0 处理，不抛错——一张图不该让整次调用失败）。"""
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_images(
+    raw, base_url: str, limit: int = IMAGES_DEFAULT_LIMIT
+) -> dict:
+    """把页面里抽出的 img 清单整成模型能直接用的形状。
+
+    三件事都在这里做，因为它们都是纯逻辑、都能离线测：
+
+    * **相对 URL 转绝对**（用页面 URL 做 base）。模型拿到 ``/img/a.png`` 没法用——
+      它不知道该拼哪个站点；
+    * **过滤追踪像素**（宽高都 ≤ :data:`TRACKING_PIXEL_MAX`）。1×1 统计像素对模型
+      零信息量，只占位置。注意 0×0（懒加载还没加载出来的图）同样被滤掉，理由相同：
+      尺寸都不知道的图，模型也没法用；
+    * **去重与截断**。同一张图在页面上出现多次（logo、占位图）只留一条。
+
+    返回里带 ``skipped`` 计数：少了几张必须能解释，静默丢弃会让模型以为页面只有这么点图。
+    """
+    count = max(1, int(limit))
+    images: list[dict] = []
+    seen: set[str] = set()
+    skipped = {"empty": 0, "too_long": 0, "tracking_pixel": 0, "duplicate": 0, "over_limit": 0}
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        src = str(item.get("src") or "").strip()
+        if not src:
+            skipped["empty"] += 1
+            continue
+        # urljoin 同时处理绝对地址（原样返回）、站内绝对路径（补 host）与相对路径。
+        absolute = urljoin(base_url or "", src)
+        if len(absolute) > IMAGE_SRC_CHARS:
+            skipped["too_long"] += 1
+            continue
+        width, height = _pixels(item.get("width")), _pixels(item.get("height"))
+        if width <= TRACKING_PIXEL_MAX and height <= TRACKING_PIXEL_MAX:
+            skipped["tracking_pixel"] += 1
+            continue
+        if absolute in seen:
+            skipped["duplicate"] += 1
+            continue
+        if len(images) >= count:
+            skipped["over_limit"] += 1
+            continue
+        seen.add(absolute)
+        images.append(
+            {
+                "src": absolute,
+                "alt": str(item.get("alt") or "")[:200],
+                "width": width,
+                "height": height,
+            }
+        )
+    return {"images": images, "count": len(images), "base": base_url, "skipped": skipped}
+
+
+class DialogLog:
+    """页面原生对话框（alert / confirm / prompt / beforeunload）的状态机。
+
+    为什么单独抽出来：Playwright 有一条硬约定——**有** dialog 监听器就必须由监听器
+    accept/dismiss，否则页面冻结、导航不发生。于是这里必须同时做三件事，少一件就出事：
+
+    1. **记录**：模型要看得见"刚才弹过什么、什么类型、默认值是什么"；
+    2. **暂存**：把活着的 dialog 对象留住，等 ``browser_dialog`` 按模型的意愿处理；
+    3. **兜底**：没人及时处理就自动 dismiss（见 ``BrowserController._on_dialog``），
+       绝不把整次工具调用挂死。
+
+    这三件事的顺序也是死的：先记录再暂存，否则"待处理"永远查不到历史。
+    """
+
+    def __init__(self, capacity: int = DIALOG_BUFFER):
+        self.capacity = max(1, int(capacity))
+        self.entries: deque[dict] = deque(maxlen=self.capacity)
+        #: 活着的 playwright Dialog 对象（只在 pending 期间非 None）。
+        self.dialog = None
+        #: 待处理的那条记录（和 ``entries`` 里是同一条 dict，就地改 ``action``）。
+        self.pending: dict | None = None
+
+    def record(self, kind: str, message: str, default_value: str = "", at=None) -> dict:
+        entry = {
+            "type": str(kind or "dialog")[:40],
+            "message": str(message or "")[:CONSOLE_TEXT_CHARS],
+            "default_value": str(default_value or "")[:200],
+            "at": clock_text(at),
+            "action": "",
+        }
+        self.entries.append(entry)
+        self.pending = entry
+        return entry
+
+    def bind(self, dialog) -> None:
+        """把活着的 Dialog 对象挂到当前待处理记录上。"""
+        self.dialog = dialog
+
+    def is_pending(self, entry) -> bool:
+        """这条记录是不是仍然是待处理的那一条（兜底任务用它判断"还要不要动手"）。"""
+        return self.pending is entry
+
+    def take(self):
+        """取出待处理的那个 ``(dialog, entry)``；没有就返回 None。
+
+        **只取不处理**：真正的 accept/dismiss 由调用方做，因为那一步要 await 且可能失败。
+        """
+        if self.pending is None or self.dialog is None:
+            return None
+        return self.dialog, self.pending
+
+    def resolve(self, action: str) -> dict | None:
+        """把待处理记录标成已处理（``action`` 写进历史，模型据此知道它被谁处理了）。"""
+        entry = self.pending
+        if entry is None:
+            return None
+        entry["action"] = action
+        self.pending = None
+        self.dialog = None
+        return entry
+
+    def snapshot(self, limit: int = 5) -> dict:
+        """给模型的载荷：有没有待处理的、它是哪一条、最近几条历史。"""
+        recent = [dict(item) for item in list(self.entries)[-max(1, int(limit)) :]]
+        return {
+            "pending": self.pending is not None,
+            "dialog": dict(self.pending) if self.pending is not None else None,
+            "recent": recent,
+            "total": len(self.entries),
+        }
+
+    def clear(self) -> None:
+        self.entries.clear()
+        self.pending = None
+        self.dialog = None
+
+
+class PageEvents:
+    """一个页面一份的事件状态：console 缓冲 + dialog 状态机 + 是否已挂监听器。
+
+    为什么按页面存而不是整个控制器一份：新标签页是**另一份** console/dialog 流。
+    混在一起，模型会把 A 页的报错当成 B 页的——排查方向当场跑偏。
+    """
+
+    __slots__ = ("console", "dialogs", "attached")
+
+    def __init__(self):
+        self.console = ConsoleLog()
+        self.dialogs = DialogLog()
+        #: 监听器是否已挂上。重复挂会让同一条日志收两遍。
+        self.attached = False
+
+    def clear(self) -> None:
+        self.console.clear()
+        self.dialogs.clear()
+
+
 class BrowserController:
     def __init__(self, settings, store):
         self.settings, self.store = settings, store
@@ -184,6 +525,8 @@ class BrowserController:
         self._headless: bool | None = None
         self._context_closed = False
         self._last_screenshot: str | None = None
+        #: 页面对象 → 该页面的事件状态（有界，见 :data:`PAGE_EVENTS_MAX`）。
+        self._page_events: dict = {}
 
     async def start(self):
         async with self._lifecycle_lock:
@@ -216,6 +559,10 @@ class BrowserController:
                     "page", lambda page: self.new_page(page) if self.context is context else None
                 )
                 self.page = next((page for page in context.pages if not page.is_closed()), None)
+                # 持久化上下文可能自带一个已经存在的页面：它不走 new_page()，所以这里
+                # 也得挂一次监听器，否则"打开就有页面"的情况下 console 永远收不到东西。
+                if self.page is not None:
+                    self._attach_listeners(self.page)
             if self.page is None or self.page.is_closed():
                 self.new_page(await self.context.new_page())
             return self.page
@@ -241,6 +588,8 @@ class BrowserController:
         self._context_closed = True
         self.page = None
         self._clear_observation()
+        # 页面没了，挂在它们上面的缓冲也就没意义了（留着只会让下一次会话读到旧日志）。
+        self._clear_page_events()
         # The close event can arrive before the pending context.close() RPC returns.
         # Stopping the driver here cuts that response off with TargetClosedError.
         # The next start()/close() cleans up the driver under the lifecycle lock.
@@ -250,9 +599,74 @@ class BrowserController:
         self.observed_url = ""
         self.version += 1
 
+    def _clear_page_events(self):
+        for state in self._page_events.values():
+            state.clear()
+        self._page_events = {}
+
     def new_page(self, page):
         self.page = page
         self._clear_observation()
+        # 监听器必须**在页面创建时**挂上（这里就是页面进入控制器的唯一入口）。
+        # 等模型想起调 browser_console 才挂，那些日志早就随页面过去了，工具永远是空的。
+        self._attach_listeners(page)
+
+    def page_events(self, page=None) -> PageEvents:
+        """取（必要时新建）某个页面的事件状态。``page`` 留空 = 当前页面。
+
+        没有页面时返回一份**空**状态而不是抛错：``browser_console`` 在浏览器还没开时
+        回"一条日志都没有"比回一个异常更有用（模型据此知道"页面还没打开"）。
+        """
+        target = self.page if page is None else page
+        if target is None:
+            return PageEvents()
+        state = self._page_events.get(target)
+        if state is None:
+            state = PageEvents()
+            self._page_events[target] = state
+            # 有界：一直开新标签页的长会话不能让旧页面的缓冲永远攒着。
+            while len(self._page_events) > PAGE_EVENTS_MAX:
+                self._page_events.pop(next(iter(self._page_events)))
+        return state
+
+    def _attach_listeners(self, page) -> None:
+        """给一个页面挂 console / pageerror / dialog 监听器（每个页面只挂一次）。"""
+        state = self.page_events(page)
+        if state.attached:
+            return
+        register = getattr(page, "on", None)
+        if not callable(register):
+            # 页面对象不支持事件（测试替身 / 精简实现）：挂不上只意味着收不到日志，
+            # 不该让"打开页面"这件事本身失败。
+            return
+        state.attached = True
+        register("console", lambda message: state.console.add(message.type, message.text))
+        register("pageerror", lambda error: state.console.add("pageerror", str(error)))
+        register("dialog", lambda dialog: self._on_dialog(state, dialog))
+
+    def _on_dialog(self, state: PageEvents, dialog) -> None:
+        """dialog 事件的落地：记录 + 暂存 + 起一个兜底任务。
+
+        **为什么必须有兜底**：Playwright 的约定是"有监听器就得由监听器 accept/dismiss，
+        否则页面冻结"。而模型要先看到 dialog 才能决定 accept 还是 dismiss——中间这段
+        时间页面本来就卡着。所以这里给它一个宽限期（:data:`DIALOG_GRACE_SECONDS`）：
+        模型来得及就由 ``browser_dialog`` 按它的意愿处理，来不及就自动 dismiss。
+        宁可让模型看到"这条被兜底处理了"，也不能让整次工具调用挂死到超时。
+        """
+        entry = state.dialogs.record(
+            dialog.type, dialog.message, getattr(dialog, "default_value", "") or ""
+        )
+        state.dialogs.bind(dialog)
+        with suppress(RuntimeError):
+            asyncio.get_running_loop().create_task(self._auto_dismiss(state, dialog, entry))
+
+    async def _auto_dismiss(self, state: PageEvents, dialog, entry) -> None:
+        await asyncio.sleep(DIALOG_GRACE_SECONDS)
+        if not state.dialogs.is_pending(entry):
+            return
+        with suppress(Exception):
+            await dialog.dismiss()
+        state.dialogs.resolve("dismiss（兜底自动处理）")
 
     async def close(self):
         async with self._lifecycle_lock:
@@ -266,6 +680,9 @@ class BrowserController:
         self._headless = None
         self._context_closed = False
         self._clear_observation()
+        # console / dialog 缓冲跟着会话走：关掉浏览器之后还留着旧日志，下一轮会话的模型
+        # 会把上一轮的报错当成现在的。
+        self._clear_page_events()
         try:
             if context is not None and not context_already_closed:
                 with suppress(Exception):
@@ -438,6 +855,96 @@ class BrowserController:
         except OSError:
             return None
 
+    async def go_back(self, page):
+        """后退到上一页，并把"到底退没退"如实说清。
+
+        `page.go_back()` 的返回值有两种"没有 HTTP 响应"的情形，必须分开：
+        真正没有上一页，与"上一页是 data:/about: 这类无响应导航（或同页跳转）"。
+        两者的返回值都是 None，只靠返回值判断会把"确实退回去了"报成"没退"
+        （反之，若一律当成后退成功，模型就会拿旧 refs 去点新页面）。
+        所以判据是 **URL 有没有变**，返回值只用来补状态码。
+        """
+        before = page.url
+        response = await page.go_back()
+        moved = page.url != before
+        if not moved:
+            return {
+                "status": "ok",
+                "data": {
+                    "url": page.url,
+                    "title": await page.title(),
+                    "went_back": False,
+                    "message": "没有上一页可后退：浏览器历史里只有当前这一页。",
+                },
+            }
+        await self.settle(page, full=True)
+        # 回到的是另一页，旧 refs 必须作废——否则模型会拿上一页的引用去点这一页。
+        self._clear_observation()
+        data = {
+            "url": page.url,
+            "title": await page.title(),
+            "went_back": True,
+            "version": self.version,
+            "message": "已后退一页；元素引用已失效，需要重新观察。",
+        }
+        if response is not None:
+            data["status_code"] = response.status
+        else:
+            data["note"] = "这次后退没有 HTTP 响应（同页跳转或 data:/about: 页面），所以没有状态码。"
+        return {"status": "ok", "data": data}
+
+    async def images(self, limit: int = IMAGES_DEFAULT_LIMIT) -> dict:
+        """抽当前页面的图片。判定规则全在 :func:`normalize_images` 里（可离线测）。"""
+        page = await self.start()
+        raw = await page.evaluate(IMAGES_JS)
+        return normalize_images(raw, page.url, limit)
+
+    async def handle_dialog(self, args):
+        """处理待处理的对话框：accept / dismiss。
+
+        **没有待处理 dialog 时如实返回 handled=false**。静默返回"成功"是最坏的一种谎：
+        模型会以为弹窗已经处理、页面可以继续，于是在"页面其实还卡着"的状态下继续点。
+        """
+        action = str(args.get("action") or "").strip().lower()
+        if action not in {"accept", "dismiss"}:
+            raise ValueError("action 只能是 accept 或 dismiss")
+        page = self.page
+        state = self.page_events(page)
+        taken = state.dialogs.take()
+        if taken is None:
+            data = state.dialogs.snapshot()
+            data["handled"] = False
+            data["message"] = (
+                "当前没有待处理的对话框。"
+                if not data["recent"]
+                else "当前没有待处理的对话框；最近弹过的几条见 recent（action 说明它们被谁处理了）。"
+            )
+            return {"status": "ok", "data": data}
+        dialog, entry = taken
+        text = str(args.get("text") or "")
+        try:
+            if action == "accept":
+                # prompt 才有输入框；其余类型传文本会被 playwright 拒绝，所以按类型分开调。
+                if entry.get("type") == "prompt" and text:
+                    await dialog.accept(text)
+                else:
+                    await dialog.accept()
+            else:
+                await dialog.dismiss()
+        except Exception as exc:  # 对话框可能已被页面自己关掉，或页面已经没了
+            state.dialogs.resolve(f"{action} 失败")
+            return {"status": "error", "error": f"处理对话框失败：{str(exc)[:400]}"}
+        state.dialogs.resolve(action)
+        if page is not None:
+            # accept 之后可能触发导航（确认删除→跳走），等它稳定再交回结果。
+            await self.settle(page)
+        data = state.dialogs.snapshot()
+        data["handled"] = True
+        data["action"] = action
+        data["dialog"] = dict(entry)
+        data["url"] = page.url if page is not None else ""
+        return {"status": "ok", "data": data}
+
     async def execute(self, name, args, task_id, operation_id):
         if name.startswith("notion_"):
             return await self.notion(name, args, task_id, operation_id)
@@ -457,6 +964,24 @@ class BrowserController:
                 return await self.open(args["url"], task_id, await self.start())
         if name == "browser_observe":
             return {"status": "ok", "data": await self.observe(task_id)}
+        # ── 四个只读/历史类工具：不经过 wait_for_change ────────────────────────
+        # 它们都不"操作页面"，所以既不该付等待变更的代价，也不该刷新观察版本。
+        if name == "browser_back":
+            return await self.go_back(page)
+        if name == "browser_get_images":
+            return {
+                "status": "ok",
+                "data": await self.images(args.get("limit", IMAGES_DEFAULT_LIMIT)),
+            }
+        if name == "browser_console":
+            return {
+                "status": "ok",
+                "data": self.page_events().console.snapshot(
+                    args.get("limit", CONSOLE_DEFAULT_LIMIT)
+                ),
+            }
+        if name == "browser_dialog":
+            return await self.handle_dialog(args)
         before = await self.page_signature(page)
         if name == "browser_click":
             await (await self.locate(args)).click()

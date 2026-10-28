@@ -344,12 +344,24 @@ async def test_budget_status_cleanup_removes_only_expired_files(env):
 
 
 def test_coverage_moved_from_31_to_33_and_the_new_rows_are_real():
+    """覆盖率**涨了**，且涨的那几条都是真工具。
+
+    数字随实现走：31（第二轮）→ 33（第三轮 +`send_message`/`message_agent`）
+    → **37**（第四轮 +4 个浏览器工具：`browser_back` / `browser_get_images` /
+    `browser_console` / `browser_dialog`，实现在 `app/browser.py`）。
+
+    **该守的不是数字，是"每条 covered 的名字都真的在池子里"**——下面那条
+    `name in pool` 断言才是这条测试的核心。
+    """
     coverage = tool_catalog.orbit_coverage()
     assert coverage.total == 94
-    assert coverage.covered_count == 33, (
-        f"覆盖应到 33（上一轮 31 + 本轮 2），现在 {coverage.covered_count}："
+    assert coverage.covered_count == 37, (
+        f"覆盖应到 37（第三轮 33 + 第四轮 4 个浏览器工具），现在 {coverage.covered_count}："
         f"missing={list(coverage.missing)[:5]}…"
     )
+    # 第四轮那 4 个必须真的算进来，且各自映射到自己
+    for name in ("browser_back", "browser_get_images", "browser_console", "browser_dialog"):
+        assert coverage.covered.get(name) == (name,), f"{name} 没有算进覆盖"
     assert coverage.covered["send_message"] == ("send_message",)
     assert coverage.covered["message_agent"] == ("send_message",)
     pool = set(coverage.pool)
