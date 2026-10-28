@@ -18,12 +18,26 @@
 ``browse``              ``browse()``                    最近会话（``updated_at`` 倒序）
 ======================  ==============================  ==================================
 
-**中文检索为什么不用 FTS5**：本机实测（``handoff/hermes-parity/research/07-memory-layer.md``
+**中文检索走哪条路（MATRIX 9.6 收尾）**：本机实测（``handoff/hermes-parity/research/07-memory-layer.md``
 §1.2 与 §3.3）SQLite 的 ``unicode61`` 分词把整段中文当成一个 token，``MATCH '记忆'``
-命中 **0**；trigram 那一路能命中，但 Orbit 的 ``messages`` 表没有 FTS5 索引，而迁移
-文件是禁改区（本轮不许加表）。所以这里走**子串匹配** ``lower(content) LIKE '%词%'``：
-中文天然可用，英文靠两侧 ``lower()`` 折大小写，``%`` / ``_`` / ``\\`` 做转义——不转义
-的话用户输入 ``100%`` 会变成通配符，把整库捞回来。
+命中 **0**；trigram 那一路能命中 ≥3 字词，但 2 字词（``决定`` / ``键盘``）照样 0 条。
+而 Orbit 的 ``messages`` 表没有 FTS5 索引，迁移文件又是禁改区（不许加表）——
+所以索引被放进了独立的 ``<data_dir>/fts.sqlite``（``app/session_index.py``，双 FTS5）。
+
+于是本模块的 ``discover`` 现在**优先走 FTS**，走不通才退回 LIKE 子串：
+
+1. 索引库存在且 FTS5 可用 → ``SessionIndex.search``（中文 2 字词靠 unicode61 的逐字
+   路径、≥3 字靠 trigram，英文整词靠 unicode61、词内子串靠 trigram）；
+2. 索引库不存在 / FTS5 不可用 / 查询被 FTS 语法拒绝 / **FTS 0 命中** → 退回
+   ``lower(content) LIKE '%词%'``。
+
+第 2 条里"0 命中也要退回"是刻意的：索引是**派生数据**，同步是显式的
+（``orbit sessions reindex``）。一个过期索引返回 0 命中，如果就这么当真，用户会以为
+"这条消息不存在"——静默丢结果比慢几百毫秒严重得多。
+
+**走的是哪条路必须可查**：每次 ``discover`` 都把结论记在 :attr:`SessionSearch.last_route`
+（``Route.backend`` = ``fts`` / ``like``，``Route.reason`` 是中文解释），``search()`` 的
+返回体里也带一份。这不是调试信息，而是"我的中文查询到底靠索引还是靠全表扫"的唯一答案。
 
 **扫描上限是硬约束**：``%词%`` 用不上任何索引，SQLite 只能全表扫；会话库会到十万条
 量级，一条无上限的 LIKE 扫描会把 CLI 卡死。所以 ``discover`` 的 ``scan`` 参数直接给
@@ -33,6 +47,7 @@ SQL 加 ``LIMIT``（默认 300，与 Hermes 的 ``_DISCOVER_SCAN_LIMIT`` 同值�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -68,12 +83,40 @@ _COMPACTION_PREFIXES = ("[CONTEXT COMPACTION", "[CONTEXT SUMMARY]:")
 #: 片段目标宽度（字符）。够看清上下文，又不至于把窗口预算挤满。
 SNIPPET_CHARS = 120
 
+#: 检索走的两条路。``Route.backend`` 只用这两个值——CLI/测试/文档三处引用同一组常量，
+#: 拼错一个就变成"第三条路"，而它根本不存在。
+ROUTE_FTS = "fts"
+ROUTE_LIKE = "like"
+
 
 class SessionSearchError(RuntimeError):
     """可预期的召回失败（消息/会话不存在、模式非法）。
 
     与"真 bug"区分开：CLI 侧把它翻成 ``CliError``（一行消息 + 返回码），不打栈。
     """
+
+
+@dataclass(frozen=True)
+class Route:
+    """这一次 ``discover`` **实际**走了哪条路，以及为什么。
+
+    为什么把它做成返回值的一部分而不是只写日志：中文检索的能力完全取决于走的是哪条
+    路（FTS 的 trigram 与 unicode61 各有覆盖盲区，LIKE 则一定命中但一定全表扫）。
+    "这次为什么慢 / 为什么 0 命中"必须能当场看到，而不是靠猜。
+    """
+
+    backend: str
+    reason: str
+    plan: str = ""
+    hits: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "backend": self.backend,
+            "reason": self.reason,
+            "plan": self.plan,
+            "hits": self.hits,
+        }
 
 
 @dataclass(frozen=True)
@@ -207,14 +250,40 @@ def _after_condition(anchor: Message) -> Any:
     )
 
 
+def _data_dir_of(store: Any) -> Path | None:
+    """从 ``Store`` 反推 ``data_dir``（``fts.sqlite`` 就在它旁边）。
+
+    为什么不用参数传：``SessionSearch(store)`` 的调用点分布在 ``app/tools.py`` 与 CLI
+    里，那些文件不是本轮能改的。而 ``Store.engine.url.database`` 本来就指向
+    ``<data_dir>/app.sqlite``——索引库与它同级，这是 ``app/session_index.py`` 自己定的
+    约定，反推比再加一个必填参数稳。
+    """
+    url = getattr(getattr(store, "engine", None), "url", None)
+    database = getattr(url, "database", None)
+    if not database:
+        return None
+    path = Path(str(database))
+    return path.parent if path.name else None
+
+
 # ── 召回本体 ────────────────────────────────────────────────────────────────
 
 
 class SessionSearch:
     """会话召回。全部方法 async、**只读**，且不 import 任何模型/连接器。"""
 
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, *, index: Any = None) -> None:
         self.store = store
+        #: ``SessionIndex``（或其替身）。``None`` = 还没解析，第一次 discover 时按
+        #: ``<data_dir>/fts.sqlite`` 现造一个。测试可以显式注入。
+        self._index = index
+        #: 上一次 ``discover`` 实际走的路。没跑过是 ``None``（"不知道"而不是"走了 LIKE"）。
+        self.last_route: Route | None = None
+
+    @property
+    def route(self) -> dict[str, Any]:
+        """上一次检索走的路（``{}`` = 还没检索过）。给 CLI / 测试直接读。"""
+        return self.last_route.as_dict() if self.last_route is not None else {}
 
     async def _rows(self, statement: Any) -> list[Message]:
         async with self.store.sessions() as session:
@@ -231,16 +300,112 @@ class SessionSearch:
     ) -> list[Anchor]:
         """DISCOVERY：按关键词找候选消息，返回锚点（不含窗口）。
 
-        ``scan`` 是**硬上限**：``%词%`` 用不上索引，SQLite 只能全表扫；会话库会到
-        十万条量级，把结果集卡在 300 行以内，最坏情况也有界（这是"CLI 不许被一次
-        搜索卡死"的唯一保障，不是性能优化）。
+        **优先走 FTS**（``<data_dir>/fts.sqlite`` 的双 FTS5），走不通才退回 LIKE 子串。
+        实际走了哪条路记在 :attr:`last_route`（见模块 docstring）。
+
+        ``scan`` 是**硬上限**：LIKE 那一路用不上索引，SQLite 只能全表扫；FTS 那一路
+        则受 ``app/session_index.MAX_LIMIT``（100）夹取。两边的上限都写清楚，
+        因为"最多扫多少"决定了最坏情况的耗时。
         """
         terms = _terms(query)
         if not terms:
+            self.last_route = Route(ROUTE_LIKE, "查询为空，未检索")
             return []
         limit = _clamp(limit, 1, MAX_LIMIT)
         scan = _clamp(scan, 1, MAX_SCAN)
 
+        anchors, reason = await self._discover_fts(
+            query, conversation_id=conversation_id, limit=limit, scan=scan
+        )
+        if anchors is not None:
+            return anchors
+        return await self._discover_like(
+            query,
+            terms,
+            conversation_id=conversation_id,
+            limit=limit,
+            scan=scan,
+            fallback_reason=reason,
+        )
+
+    async def _discover_fts(
+        self,
+        query: str,
+        *,
+        conversation_id: str | None,
+        limit: int,
+        scan: int,
+    ) -> tuple[list[Anchor] | None, str]:
+        """FTS 那一路。返回 ``(锚点, "")`` 表示成功；``(None, 原因)`` 表示该退回 LIKE。"""
+        # 函数内 import：模块顶部只允许 sqlalchemy / app.storage（``tests/test_session_search.py``
+        # 的白名单门禁钉住这条），而索引层要用 sqlite3 + 逐字切分。
+        from app.session_index import FtsUnavailable, SessionIndex, SessionIndexError
+
+        if self._index is None:
+            data_dir = _data_dir_of(self.store)
+            if data_dir is None:
+                return None, "拿不到 data_dir（Store 不是文件库），无法定位 fts.sqlite"
+            self._index = SessionIndex(data_dir)
+        index = self._index
+        path = getattr(index, "path", None)
+        if path is not None and not Path(path).exists():
+            # 不在这里"顺手建一个空索引"：SessionIndex.connect() 会建库，于是每次搜索都
+            # 在磁盘上留下一个空 fts.sqlite，而用户以为自己有索引。
+            return None, f"索引库不存在（{path}）：先跑 `orbit sessions reindex`"
+
+        try:
+            plan = index.plan(query)
+            hits = index.search(query, limit=min(scan, 100))
+        except FtsUnavailable as exc:
+            return None, f"FTS5 不可用（{exc}）"
+        except (SessionIndexError, OSError) as exc:
+            return None, f"FTS 查询失败（{exc}）"
+
+        if conversation_id:
+            hits = [hit for hit in hits if hit.conversation_id == conversation_id]
+        if not hits:
+            # 索引是派生数据、同步是显式的：过期索引返回 0 命中不能当真（见模块 docstring）。
+            return None, f"FTS（{plan.mode}）0 命中，索引可能是旧的，退回 LIKE 再确认一次"
+
+        # 与 LIKE 那一路同一口径：**最近的在最前**。FTS 的 bm25 次序是"相关度"，
+        # 而 discover 的契约是"按时间回看历史"，两路次序不一致会让同一查询在不同机器上
+        # 给出不同的锚点顺序，回跳体验随索引状态漂移。
+        hits.sort(key=lambda hit: (hit.created_at, hit.row_id), reverse=True)
+        self.last_route = Route(
+            ROUTE_FTS,
+            f"走 FTS（{plan.mode}）：{plan.reason}",
+            plan=plan.mode,
+            hits=len(hits),
+        )
+        return (
+            [
+                Anchor(
+                    message_id=hit.message_id,
+                    conversation_id=hit.conversation_id,
+                    role=hit.role,
+                    created_at=hit.created_at,
+                    snippet=hit.snippet,
+                )
+                for hit in hits[:limit]
+            ],
+            "",
+        )
+
+    async def _discover_like(
+        self,
+        query: str,
+        terms: list[str],
+        *,
+        conversation_id: str | None,
+        limit: int,
+        scan: int,
+        fallback_reason: str = "",
+    ) -> list[Anchor]:
+        """LIKE 子串那一路（FTS 走不通时的退路，也是唯一对 1–2 字中文必中的路）。
+
+        ``%词%`` 用不上索引，所以 ``scan`` 直接把结果集卡在 300 行以内——这是"CLI 不许
+        被一次搜索卡死"的唯一保障，不是性能优化。
+        """
         statement = (
             select(Message).order_by(Message.created_at.desc(), Message.id.desc()).limit(scan)
         )
@@ -254,7 +419,7 @@ class SessionSearch:
             )
 
         rows = await self._rows(statement)
-        return [
+        anchors = [
             Anchor(
                 message_id=row.id,
                 conversation_id=row.conversation_id,
@@ -264,6 +429,13 @@ class SessionSearch:
             )
             for row in rows[:limit]
         ]
+        why = fallback_reason or "没有可用的 FTS 索引"
+        self.last_route = Route(
+            ROUTE_LIKE,
+            f"走 LIKE 子串匹配（全表扫，上限 {scan} 行）：{why}",
+            hits=len(anchors),
+        )
+        return anchors
 
     # ── scroll ──────────────────────────────────────────────────────────────
     async def anchored_view(
@@ -449,6 +621,8 @@ class SessionSearch:
                 "mode": "discover",
                 "query": query,
                 "count": len(anchors),
+                # 走的是哪条路（fts / like）必须随结果一起返回，见模块 docstring。
+                "route": self.route,
                 "results": [anchor.as_dict() for anchor in anchors],
             }
         if normalized == "scroll":

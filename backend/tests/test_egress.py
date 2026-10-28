@@ -348,3 +348,183 @@ def test_cli_egress_policy_states_there_is_no_proxy(tmp_path, capsys):
 def test_cli_egress_proxy_lifecycle_commands_report_honestly(tmp_path):
     """`egress start` 一类必须**非零退出**：返回 0 会被脚本读成"代理起来了"。"""
     assert main(["--data-dir", str(tmp_path / "data"), "egress", "start"]) == 3
+
+
+# ── 7. 重定向：每一跳都要过闸 ──────────────────────────────────────────────
+#
+# `check()` 只看调用方显式写出来的那个 host。但 `curl -L` 会跟着 `Location` 一路走，
+# 对方只要在第二跳回一个内网地址，第一跳的 allow 规则就成了攻击者的跳板。
+
+
+def test_redirect_to_a_denied_host_is_refused(data_dir):
+    policy = _policy(data_dir, allow=["ok.example"], deny=["evil.example"], default=egress.DENY)
+    decision = policy.check("https://ok.example/x", redirects=["https://evil.example/collect"])
+    assert decision.action == egress.DENY
+    assert decision.host == "evil.example"
+    assert decision.rule == "evil.example"
+    # 报错要指向**被拒的那一跳**，否则人会去查一个完全正常的主机
+    assert "第 1 跳" in decision.reason
+    assert "ok.example" in decision.reason
+
+
+def test_redirect_to_a_host_with_no_rule_is_refused_under_default_deny(data_dir):
+    policy = _policy(data_dir, allow=["ok.example"], default=egress.DENY)
+    decision = policy.check_chain(["https://ok.example/x", "http://169.254.169.254/latest"])
+    assert decision.action == egress.DENY
+    assert "169.254.169.254" in decision.host
+
+
+def test_redirect_chain_that_stays_allowed_is_allowed(data_dir):
+    policy = _policy(data_dir, allow=["*.example.com"], default=egress.DENY)
+    decision = policy.check_chain(
+        ["https://a.example.com/x", "https://b.example.com/y", "https://c.example.com/z"]
+    )
+    assert decision.action == egress.ALLOW
+    assert "3 跳全部通过" in decision.reason
+
+
+def test_first_hop_denial_is_reported_without_redirect_wording(data_dir):
+    policy = _policy(data_dir, deny=["evil.example"])
+    decision = policy.check_chain(["https://evil.example/x", "https://ok.example/y"])
+    assert decision.action == egress.DENY
+    assert "跳" not in decision.reason
+
+
+def test_empty_redirect_list_behaves_like_a_plain_check(data_dir):
+    policy = _policy(data_dir, allow=["ok.example"], default=egress.DENY)
+    plain = policy.check("https://ok.example/x")
+    with_empty = policy.check("https://ok.example/x", redirects=[])
+    assert plain.action == with_empty.action == egress.ALLOW
+    assert plain.reason == with_empty.reason
+
+
+# ── 8. 多供应商头注入 ──────────────────────────────────────────────────────
+
+
+def test_anthropic_style_uses_x_api_key_without_a_bearer_prefix(data_dir):
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="api.anthropic.com", vendor="anthropic", key="ANTHROPIC_KEY")
+    ]
+    merged = policy.inject_headers(
+        "https://api.anthropic.com/v1/messages",
+        {},
+        resolver=_FakeResolver({"ANTHROPIC_KEY": SECRET_VALUE}),
+    )
+    assert merged["x-api-key"] == SECRET_VALUE  # 没有 `Bearer ` 前缀
+    assert merged["anthropic-version"] == "2023-06-01"
+    assert "Authorization" not in merged
+
+
+def test_azure_and_gemini_shapes(data_dir):
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="*.openai.azure.com", vendor="azure-openai", key="AZ"),
+        egress.CredentialRule(host="generativelanguage.googleapis.com", vendor="gemini", key="GG"),
+    ]
+    resolver = _FakeResolver({"AZ": "azure-value", "GG": "gemini-value"})
+    azure = policy.inject_headers("https://x.openai.azure.com/v1", {}, resolver=resolver)
+    assert azure["api-key"] == "azure-value"
+    gemini = policy.inject_headers(
+        "https://generativelanguage.googleapis.com/v1", {}, resolver=resolver
+    )
+    assert gemini["x-goog-api-key"] == "gemini-value"
+
+
+def test_explicit_header_and_scheme_win_over_the_preset(data_dir):
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(
+            host="api.example.com",
+            vendor="anthropic",
+            header="X-Custom-Key",
+            scheme="Token",
+            key="K",
+        )
+    ]
+    merged = policy.inject_headers(
+        "https://api.example.com/v1", {}, resolver=_FakeResolver({"K": SECRET_VALUE})
+    )
+    assert merged["X-Custom-Key"] == f"Token {SECRET_VALUE}"
+    assert "x-api-key" not in merged
+
+
+def test_several_rules_for_one_host_inject_several_headers(data_dir):
+    """多供应商共存：同一个 host 需要不止一个头时，不该只注入第一条。"""
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="gw.example.com", header="Authorization", key="A"),
+        egress.CredentialRule(host="gw.example.com", header="X-Api-Key", key="B"),
+    ]
+    merged = policy.inject_headers(
+        "https://gw.example.com/v1",
+        {},
+        resolver=_FakeResolver({"A": "one", "B": "two"}),
+    )
+    assert merged["Authorization"] == "Bearer one"
+    assert merged["X-Api-Key"] == "Bearer two"
+
+
+def test_two_rules_fighting_over_one_header_keep_the_first(data_dir):
+    """同一个头名以第一条命中的规则为准：顺序即优先级，否则先后就变成随机的。"""
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="gw.example.com", header="Authorization", key="A"),
+        egress.CredentialRule(host="gw.example.com", header="Authorization", key="B"),
+    ]
+    merged = policy.inject_headers(
+        "https://gw.example.com/v1", {}, resolver=_FakeResolver({"A": "one", "B": "two"})
+    )
+    assert merged["Authorization"] == "Bearer one"
+
+
+def test_static_headers_are_not_injected_when_the_secret_is_missing(data_dir):
+    """取不到密钥就整条规则跳过——不能只改一半请求。"""
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="api.anthropic.com", vendor="anthropic", key="MISSING")
+    ]
+    merged = policy.inject_headers(
+        "https://api.anthropic.com/v1", {}, resolver=_FakeResolver({})
+    )
+    assert merged == {}
+
+
+def test_vendor_survives_a_save_and_reload(data_dir):
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="api.anthropic.com", vendor="anthropic", key="ANTHROPIC_KEY")
+    ]
+    path = policy.save()
+    raw = path.read_text(encoding="utf-8")
+    reloaded = egress.EgressPolicy.load(data_dir)
+    assert reloaded.credentials[0].vendor == "anthropic"
+    assert reloaded.credentials[0].resolved_header == "x-api-key"
+    # 文件里仍然只有键名，没有值
+    assert "ANTHROPIC_KEY" in raw and SECRET_VALUE not in raw
+
+
+def test_injection_plan_detailed_reports_the_vendor_shape_without_values(data_dir):
+    policy = egress.EgressPolicy.load(data_dir)
+    policy.credentials = [
+        egress.CredentialRule(host="api.anthropic.com", vendor="anthropic", key="ANTHROPIC_KEY")
+    ]
+    plan = policy.injection_plan(
+        "https://api.anthropic.com/v1",
+        resolver=_FakeResolver({"ANTHROPIC_KEY": SECRET_VALUE}),
+        detailed=True,
+    )
+    assert plan[0]["header"] == "x-api-key"
+    assert plan[0]["vendor"] == "anthropic"
+    assert plan[0]["static_headers"] == ["anthropic-version"]
+    assert SECRET_VALUE not in json.dumps(plan, ensure_ascii=False)
+
+
+def test_describe_lists_the_six_missing_pieces_with_what_each_needs(data_dir):
+    """缺的东西要逐条写清"要真做需要什么"，而不是只列名词。"""
+    text = egress.EgressPolicy.load(data_dir).describe()
+    for missing in ("独立守护进程", "自签 CA", "代理令牌", "proxy.yaml", "mappings.json", "强制出站改道"):
+        assert missing in text, missing
+    assert "要真做需要什么" in text
+    # 以及它现在能做到的第三层：重定向再审
+    assert "check_chain" in text

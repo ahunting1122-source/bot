@@ -329,7 +329,11 @@ def test_plane_is_registered_with_its_subcommands():
     command = REGISTRY.get("plane")
     assert command is not None
     names = [sub.name for sub in command.subcommands]
-    assert names == ["timeline", "tail", "lineage", "show", "resume", "reap", "deliveries"]
+    # 只断言**本模块负责的**前七条与它们的先后（顺序即 `--help` 里的展示顺序）。
+    # 后面还会有别的模块往 `plane` 追加子命令（10.1 的 `backfill`、10.4 的
+    # `compact-check` 由 `session_extra2` 追加），而那些模块**不一定被本文件导入**——
+    # 写成全等断言会让这条用例的通过与否取决于"同一次 pytest 里还跑了哪些文件"。
+    assert names[:7] == ["timeline", "tail", "lineage", "show", "resume", "reap", "deliveries"]
     assert all(sub.handler is not None for sub in command.subcommands)
 
     sessions = REGISTRY.get("sessions")

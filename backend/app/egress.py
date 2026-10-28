@@ -13,13 +13,21 @@ Orbit 没有这一层，本模块**不假装有**。真正的"令牌代换"至�
 
 ## 那本模块做什么
 
-两件真能做、且现在就有用的事：
+三件真能做、且现在就有用的事：
 
 1. **出站前的静态检查**（:meth:`EgressPolicy.check`）：按 host 声明
    ``allow`` / ``deny`` / ``ask``，落 ``<data_dir>/egress.json``。
    这是"把请求发出去之前先问一句"的闸，不是代理。
-2. **请求头注入**（:meth:`EgressPolicy.inject_headers`）：按 host 规则从系统 keyring
+2. **重定向链再审**（:meth:`EgressPolicy.check_chain`）：允许一个主机出站，
+   不等于允许它把你**转发**到别的主机。`https://ok.example` 返回
+   `302 Location: http://169.254.169.254/…` 是经典的 SSRF 绕过——只看第一跳
+   就放行，等于把 deny 规则交给对方决定。所以每一跳都要过同一套判据。
+3. **请求头注入**（:meth:`EgressPolicy.inject_headers`）：按 host 规则从系统 keyring
    取凭证，**只在内存里**塞进 headers dict——不落盘、不回显、不写日志。
+   支持**多供应商**形状：`Authorization: Bearer …` 是 OpenAI 系的写法，
+   Anthropic 要 `x-api-key`（且没有 `Bearer` 前缀）外加 `anthropic-version`，
+   Azure OpenAI 要 `api-key`，Gemini 要 `x-goog-api-key`。
+   写死一种形状就等于"除了 OpenAI 系都得手改代码"。
 
 ## 它挡不住什么（写在这里，因为它决定了这层能不能当安全边界）
 
@@ -43,7 +51,8 @@ import fnmatch
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -79,20 +88,99 @@ FETCHERS: tuple[str, ...] = (
 
 
 @dataclass(frozen=True)
+class VendorPreset:
+    """一个供应商的**鉴权形状**（头名 / 前缀 / 固定头）。
+
+    为什么需要它：`Authorization: Bearer <key>` 只是 OpenAI 系（以及 OpenRouter /
+    Groq / Cloudflare 这些兼容层）的写法。Anthropic 用 `x-api-key` 且**不加**
+    `Bearer` 前缀，Azure OpenAI 用 `api-key`，Gemini 用 `x-goog-api-key`。
+    只支持一种形状，等于让每个非 OpenAI 供应商都得改代码。
+    """
+
+    name: str
+    header: str
+    scheme: str = ""
+    #: 与密钥无关、但缺了请求会被拒的固定头（如 `anthropic-version`）。
+    static_headers: tuple[tuple[str, str], ...] = ()
+
+
+#: 已知供应商形状。键是配置里的 `vendor` 值（小写）。
+VENDOR_PRESETS: dict[str, VendorPreset] = {
+    "openai": VendorPreset("openai", "Authorization", "Bearer"),
+    "openrouter": VendorPreset("openrouter", "Authorization", "Bearer"),
+    "groq": VendorPreset("groq", "Authorization", "Bearer"),
+    "cloudflare": VendorPreset("cloudflare", "Authorization", "Bearer"),
+    "anthropic": VendorPreset(
+        "anthropic",
+        "x-api-key",
+        "",
+        static_headers=(("anthropic-version", "2023-06-01"),),
+    ),
+    "azure-openai": VendorPreset("azure-openai", "api-key", ""),
+    "gemini": VendorPreset("gemini", "x-goog-api-key", ""),
+}
+
+
+@dataclass(frozen=True)
 class CredentialRule:
     """一条"给某个 host 注入哪个请求头"的规则。
 
     ``key`` 是 **keyring 里的键名**，不是密钥值。配置文件里只有键名——这是这份文件
     能安全进版本库/进备份的前提。
+
+    ``header`` / ``scheme`` 留空表示**跟随 ``vendor`` 预设**。刻意不用
+    `"Authorization"` / `"Bearer"` 当默认值：那样预设永远生效不了（默认值把
+    `vendor` 盖掉了），而"配了 vendor 却没生效"是最难查的一类配置错误。
+    显式写出来的值**优先于**预设。
     """
 
     host: str
-    header: str = "Authorization"
-    scheme: str = "Bearer"
+    header: str = ""
+    scheme: str | None = None
     key: str = ""
+    #: 供应商名（见 :data:`VENDOR_PRESETS`）。空 = 用 OpenAI 系的老形状。
+    vendor: str = ""
+    #: 额外的静态头（非密钥）。允许按规则覆盖预设里的同名头。
+    extra: tuple[tuple[str, str], ...] = ()
 
-    def as_dict(self) -> dict[str, str]:
-        return {"host": self.host, "header": self.header, "scheme": self.scheme, "key": self.key}
+    @property
+    def resolved_header(self) -> str:
+        """实际用的头名：显式值 > 供应商预设 > `Authorization`。"""
+        if self.header:
+            return self.header
+        preset = VENDOR_PRESETS.get(self.vendor.strip().lower())
+        return preset.header if preset is not None else "Authorization"
+
+    @property
+    def resolved_scheme(self) -> str:
+        """实际用的前缀：显式值（含空串）> 供应商预设 > `Bearer`。
+
+        注意 `scheme=""` 是**有意义的显式值**（"不要前缀"），所以这里必须区分
+        `None`（没写）与 `""`（写了空）。
+        """
+        if self.scheme is not None:
+            return self.scheme
+        preset = VENDOR_PRESETS.get(self.vendor.strip().lower())
+        return preset.scheme if preset is not None else "Bearer"
+
+    @property
+    def static_headers(self) -> tuple[tuple[str, str], ...]:
+        """预设的固定头 + 规则自己的 `extra`（后者覆盖前者）。"""
+        preset = VENDOR_PRESETS.get(self.vendor.strip().lower())
+        merged: dict[str, str] = dict(preset.static_headers) if preset is not None else {}
+        for name, value in self.extra:
+            merged[str(name)] = str(value)
+        return tuple(merged.items())
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "host": self.host,
+            "header": self.header,
+            "scheme": self.scheme,
+            "key": self.key,
+            "vendor": self.vendor,
+            "extra": [list(item) for item in self.extra],
+        }
 
 
 @dataclass(frozen=True)
@@ -251,12 +339,24 @@ class EgressPolicy:
             host = str(item.get("host") or "").strip()
             if not host:
                 continue
+            # `header` / `scheme` 没写就留空 / `None`，让 `vendor` 预设生效。
+            # 写死默认值会让预设永远不起作用（见 `CredentialRule` 的 docstring）。
+            raw_header = item.get("header")
+            raw_scheme = item.get("scheme")
+            extra: list[tuple[str, str]] = []
+            for pair in item.get("extra") or []:
+                if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                    extra.append((str(pair[0]), str(pair[1])))
+                elif isinstance(pair, dict):
+                    extra.extend((str(name), str(value)) for name, value in pair.items())
             credentials.append(
                 CredentialRule(
                     host=host,
-                    header=str(item.get("header") or "Authorization").strip() or "Authorization",
-                    scheme=str(item.get("scheme") if item.get("scheme") is not None else "Bearer"),
+                    header=str(raw_header).strip() if raw_header else "",
+                    scheme=str(raw_scheme) if raw_scheme is not None else None,
                     key=str(item.get("key") or "").strip(),
+                    vendor=str(item.get("vendor") or "").strip(),
+                    extra=tuple(extra),
                 )
             )
         return cls(
@@ -288,13 +388,68 @@ class EgressPolicy:
         return self.path
 
     # ── 判定 ────────────────────────────────────────────────────────────────
-    def check(self, url: str) -> EgressDecision:
+    def check(self, url: str, *, redirects: Sequence[str] = ()) -> EgressDecision:
         """判定一个目标能不能出站。
 
         判定顺序：**deny → allow → default**。deny 先判是刻意的：`allow` 是便利决策，
         `deny` 是安全决策，冲突时该选保守的那个（与 `app/toolsets.resolve` 里
         "禁用优先于启用"同一条理由）。
+
+        `redirects` 是**已知的重定向目标**（调用方从响应头里拿到的那串 `Location`）。
+        给了它就按"原始 URL + 每一跳"逐跳判，任何一跳被拒整体就被拒——
+        见 :meth:`check_chain`。
         """
+        if redirects:
+            return self.check_chain([url, *redirects])
+        return self._decide(url)
+
+    def check_chain(self, urls: Sequence[str]) -> EgressDecision:
+        """按重定向链逐跳检查。**任何一跳被拒，整体就拒。**
+
+        为什么需要这一步（这是 egress 最容易被绕过的地方）：`check()` 只看调用方
+        显式写出来的那个 host。但一次 `curl -L https://ok.example/x` 会跟着
+        `Location` 一路走——对方只要在第二跳回一个 `http://169.254.169.254/latest`
+        或 `http://internal.corp/`，第一跳的 allow 规则就变成了攻击者的跳板。
+        所以"允许 A 出站"不该推出"允许 A 把你送到任何地方"。
+
+        返回的 `EgressDecision` 里，`url` / `host` 是**被拒的那一跳**（不是第一跳），
+        否则报错信息会指向一个完全正常的主机，让人以为规则写错了。
+        """
+        hops = [str(item).strip() for item in urls if str(item or "").strip()]
+        if not hops:
+            return self._decide("")
+        previous = ""
+        last: EgressDecision | None = None
+        for index, hop in enumerate(hops):
+            decision = self._decide(hop)
+            if not decision.allowed:
+                if index == 0:
+                    return decision
+                return EgressDecision(
+                    url=decision.url,
+                    host=decision.host,
+                    action=decision.action,
+                    rule=decision.rule,
+                    reason=(
+                        f"重定向第 {index} 跳（从 {previous or '上一跳'} 跳到 "
+                        f"{decision.host or '未知主机'}）被拒：{decision.reason}"
+                    ),
+                )
+            previous = decision.host
+            last = decision
+        assert last is not None  # hops 非空，循环至少跑一次
+        if len(hops) > 1:
+            return replace(
+                last,
+                reason=(
+                    f"重定向链 {len(hops)} 跳全部通过（"
+                    f"{' → '.join(normalize_host(hop) or hop for hop in hops)}）：{last.reason}"
+                ),
+            )
+        return last
+
+    def _decide(self, url: str) -> EgressDecision:
+        """单跳判定（`check` 的实体）。"""
         host = normalize_host(url)
         if not host:
             return EgressDecision(
@@ -370,13 +525,18 @@ class EgressPolicy:
     ) -> dict[str, str]:
         """按 host 规则注入请求头，返回**新的** dict（不改入参）。
 
-        三条硬约束，都是"为什么这么写"：
+        四条硬约束，都是"为什么这么写"：
 
         1. **只在内存里**：不写盘、不进日志、不进返回值（返回值只有 header 名）。
         2. **取不到就不注入**：绝不塞一个 `Bearer <placeholder>` 之类的假值——
            那会让服务端返回 401，而排查方向会跑到"令牌是不是过期了"。
         3. **不覆盖调用方已有的同名头**：调用方显式给的头优先。这条规则让
            "手工调试时临时换一个令牌"成为可能，而不是被策略悄悄改回去。
+        4. **多供应商**：每条规则可以带 `vendor`，头名与前缀按预设取
+           （`x-api-key` / `api-key` / `x-goog-api-key` …），静态头
+           （`anthropic-version`）一起补上。**同一个头以第一条命中的规则为准**：
+           两条规则抢同一个头名时，后面的不覆盖前面的——顺序即优先级，
+           否则配置文件里的先后就变成随机行为了。
         """
         merged = dict(headers or {})
         host = normalize_host(url)
@@ -386,18 +546,31 @@ class EgressPolicy:
         for rule in self.credentials:
             if not match_host(rule.host, host):
                 continue
-            if rule.header in merged:
-                continue
+            # 静态头先补：它们与密钥无关，取不到密钥时也应当存在吗？**不**——
+            # 只在真的会注入凭证时才补，避免"配了个没生效的规则却改了一半请求"。
             value = _resolve_secret(rule.key, source)
             if not value:
                 continue
-            merged[rule.header] = f"{rule.scheme} {value}".strip() if rule.scheme else value
+            for name, static_value in rule.static_headers:
+                if name not in merged:
+                    merged[name] = static_value
+            header = rule.resolved_header
+            if header in merged:
+                continue
+            scheme = rule.resolved_scheme
+            merged[header] = f"{scheme} {value}".strip() if scheme else value
         return merged
 
-    def injection_plan(self, url: str, *, resolver: Any = None) -> list[dict[str, Any]]:
+    def injection_plan(
+        self, url: str, *, resolver: Any = None, detailed: bool = False
+    ) -> list[dict[str, Any]]:
         """诊断用：这条 URL 会注入哪些头、值从哪个键取、此刻取不取得到。
 
         **只回键名与布尔，不回值**——这个方法的调用点是 CLI 与日志。
+
+        `detailed=True` 时额外给出供应商形状（`scheme` / `vendor` / 静态头名）。
+        默认形状**保持不变**：它已经被既有测试与脚本依赖，加字段会让那些断言
+        无端失败，而"多供应商"这件事本来也不需要每次诊断都看到。
         """
         host = normalize_host(url)
         source = self.resolver(resolver)
@@ -405,14 +578,17 @@ class EgressPolicy:
         for rule in self.credentials:
             if not match_host(rule.host, host):
                 continue
-            rows.append(
-                {
-                    "host": rule.host,
-                    "header": rule.header,
-                    "key": rule.key,
-                    "resolved": bool(_resolve_secret(rule.key, source)),
-                }
-            )
+            row: dict[str, Any] = {
+                "host": rule.host,
+                "header": rule.resolved_header,
+                "key": rule.key,
+                "resolved": bool(_resolve_secret(rule.key, source)),
+            }
+            if detailed:
+                row["scheme"] = rule.resolved_scheme
+                row["vendor"] = rule.vendor
+                row["static_headers"] = [name for name, _value in rule.static_headers]
+            rows.append(row)
         return rows
 
     # ── 视图 ────────────────────────────────────────────────────────────────
@@ -426,16 +602,38 @@ class EgressPolicy:
         }
 
     def describe(self) -> str:
-        """如实说明这层是什么、不是什么。CLI 与文档共用同一份文字。"""
+        """如实说明这层是什么、不是什么。CLI 与文档共用同一份文字。
+
+        "缺的 6 样"逐条写清**要真做需要什么**，而不是只列名词：只列名词的话，
+        读的人知道"没有 CA"，但不知道"没有 CA 意味着做不了 TLS 中间人"。
+        """
         where = str(self.path) if self.path else "<未配置>"
+        vendors = sorted({rule.vendor or "openai" for rule in self.credentials})
         return (
-            "Orbit 的 egress 只有两层，**没有代理进程**：\n"
+            "Orbit 的 egress 只有三层，**没有代理进程**：\n"
             f"  1) 出站前的静态检查（allow {len(self.allow)} 条 / deny {len(self.deny)} 条 / "
             f"default={self.default}），策略文件 {where}；\n"
-            f"  2) 请求头注入（{len(self.credentials)} 条规则，值从系统 keyring 取，只在内存里）。\n"
-            "没有的：iron-proxy 那类独立守护进程、自签 CA、按供应商铸造的代理令牌、"
-            "proxy.yaml / mappings.json，以及把出站流量强制导向代理的那一层。\n"
-            "所以**调用方仍然拿得到真密钥**（注入的就是真值），也挡不住绕过 "
+            "  2) 重定向链逐跳再审（`check_chain`）：每一跳都要过同一套判据，"
+            "任何一跳被拒整体就拒；\n"
+            f"  3) 请求头注入（{len(self.credentials)} 条规则，"
+            f"供应商形状：{'、'.join(vendors) if vendors else '（无规则）'}；"
+            "值从系统 keyring 取，只在内存里）。\n"
+            "缺的 6 样，逐条说明「要真做需要什么」：\n"
+            "  1. iron-proxy 那类**独立守护进程** —— 需要一个能长期驻留、独立于 agent "
+            "进程生命周期的进程；现在没有进程可起停，所以 `egress start/stop` 只能如实"
+            "报告「没有这一层」。\n"
+            "  2. **自签 CA** —— 需要一份能签发叶证书的 CA（含私钥保护与轮换），并让"
+            "沙箱信任它；没有 CA 就做不了 TLS 中间人，也就看不到请求内容、换不掉凭据。\n"
+            "  3. **按供应商铸造的代理令牌** —— 需要令牌铸造/吊销/轮换机制与一张"
+            "「令牌 → 供应商」的对应表；现在注入的是**真密钥**，没有令牌这一层。\n"
+            "  4. **proxy.yaml** —— 需要按供应商声明上游地址、凭据引用、端口与 CA 路径；"
+            "现在只有 `egress.json` 里的 host 规则，没有上游映射。\n"
+            "  5. **mappings.json** —— 需要一张「代理令牌 → 真凭据」的映射表，"
+            "且它只能存在于代理侧；现在这张表不存在，所以真密钥必须由调用方持有。\n"
+            "  6. **强制出站改道** —— 需要防火墙规则 / 网络命名空间 / 容器网络策略，"
+            "把**所有**出站流量导向代理；现在只作用于经过 Orbit 代码的调用点，"
+            "机器上别的进程完全不受管。\n"
+            "所以**调用方仍然拿得到真密钥**（注入的就是真值），也**挡不住绕过** "
             "（`curl $(cat u)`、脚本自己发请求都认不出）。\n"
             "真正要做令牌代换，需要：独立进程 + 能签发叶证书的 CA + 令牌铸造与轮换 + "
             "强制出站改道（防火墙/命名空间）。本机没有容器也没有网络，做不了。"

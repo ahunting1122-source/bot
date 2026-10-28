@@ -33,7 +33,9 @@ from app.cli.commands import (  # isort: split
     ops,
     platform_extra,
     plugins,
+    plugins_extra,
     security,
+    security_extra,
     session_plane,
     sessions,
     setup,
@@ -42,6 +44,7 @@ from app.cli.commands import (  # isort: split
     tools,
     tools_extra,
     tools_extra2,
+    tools_extra3,
     ui,
     ui_extra,
 )
@@ -60,6 +63,7 @@ from app.cli.commands import (
     hermes_parity,  # noqa: F401
     model_extra2,  # noqa: E402,F401
     session_extra,  # noqa: E402,F401
+    session_extra2,  # noqa: E402,F401
     skill_extra2,  # noqa: E402,F401
 )
 
@@ -102,8 +106,11 @@ __all__ = [
     "ops",
     "platform_extra",
     "plugins",
+    "plugins_extra",
     "security",
+    "security_extra",
     "session_extra",
+    "session_extra2",
     "session_plane",
     "sessions",
     "setup",
@@ -113,6 +120,7 @@ __all__ = [
     "tools",
     "tools_extra",
     "tools_extra2",
+    "tools_extra3",
     "ui",
     "ui_extra",
     "hermes_parity",

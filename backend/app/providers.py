@@ -32,10 +32,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 import httpx
 from pydantic import SecretStr
@@ -204,6 +204,344 @@ FetchModelsHook = Callable[[], list[str]]
 #: 名字沿用 Hermes 的 `build_extra_body`（调研 06 §2.1 的 profile 钩子清单），
 #: 但语义按上面对齐——混用两者最容易出现"以为改了顶层其实被 extra_body 覆盖"。
 BuildExtraBodyHook = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+# ── 16 家的钩子覆盖表（MATRIX 4.1）─────────────────────────────────────────
+#
+# ## 为什么不直接填在 `PROVIDERS` 的字段上
+#
+# 那两个字段（`fetch_models` / `build_extra_body`）在 `ProviderProfile` 里是**纯新增、
+# 默认 None**，而 `tests/test_providers.py::test_new_hook_fields_default_to_none`
+# 明确断言"16 家一个都不填"——它是当初引入这两个字段时立的回归闸，防的是
+# "顺手改了 16 家的行为却没人发现"。直接把钩子填进 `PROVIDERS` 会让那道闸变红，
+# 而变红的闸比没有闸更糟（下一个人会去改测试，而不是读原因）。
+#
+# 所以钩子放在这张**覆盖表**里：`PROVIDERS` 保持"出厂身份"不变，钩子由
+# `with_hooks()` 按需叠加。两件事分开之后，两边都能被单独验证：
+# `PROVIDERS` 证明"身份没漂"，`PROVIDER_HOOKS` 证明"钩子齐了"。
+#
+# ## fetch_models 一律抛 NetworkUnavailable，不返回空列表
+#
+# 这是本表最重要的一条约定。Hermes 的 `fetch_models` 打 `GET /v1/models`；本机无网络、
+# 且本层禁止发真实请求。于是只有两种诚实的选择：
+#
+# * 抛 `NetworkUnavailable` —— 调用方知道"问不到"，可以退回出厂表 / 缓存 / 让用户填；
+# * 返回空列表 —— 调用方会把它读成"**这家没有模型**"，然后给用户一个空菜单。
+#
+# 第二种是**静默错误**，而静默错误在模型供应商这一层特别贵：用户看到"该供应商无可用
+# 模型"只会去换供应商，没人会想到是"本机没网"。所以 16 家全部抛，包括本地 Ollama
+# （它的清单要打 `127.0.0.1:11434/api/tags`，同样是"发请求"）。
+
+
+def _raise_network_unavailable(provider_id: str, detail: str) -> NoReturn:
+    """抛 :class:`app.capabilities.NetworkUnavailable`（**延迟 import**）。
+
+    为什么延迟：``app/capabilities.py`` 在模块顶层 ``from app import providers``，
+    反向顶层 import 会成环。函数内 import 拿到的仍是**同一个类对象**，所以
+    ``except capabilities.NetworkUnavailable`` 照样能接住——不会出现"两个同名类"。
+    """
+    from app.capabilities import NetworkUnavailable
+
+    raise NetworkUnavailable(
+        f"{provider_id}：模型清单只能实时拉取（{detail}），而本机没有网络。"
+        "用出厂 models 表、运行时缓存（data/provider_models_cache.json），"
+        "或用 `orbit model <provider>/<模型名>` 直接指定模型名。"
+        "**不要把它当成「这家没有模型」**——那是本函数刻意不返回空列表的原因。"
+    )
+
+
+def _fetch_needs_network(provider_id: str, detail: str) -> FetchModelsHook:
+    """造一个"需要联网"的 ``fetch_models`` 钩子（16 家共用同一份实现与同一套话术）。"""
+
+    def hook() -> list[str]:
+        _raise_network_unavailable(provider_id, detail)
+
+    return hook
+
+
+#: 推理强度 → Anthropic / Gemini 的思考预算（token）。
+#:
+#: 数字取 Hermes 调研 §3.5 的量级（low 约 1K、medium 约 4K、high 约 16K），
+#: 不是精确调优值：预算是**上限**，模型没用完不扣钱，估小才会截断思考。
+THINKING_BUDGETS: dict[str, int] = {"low": 1024, "medium": 4096, "high": 16384}
+
+
+def _drop_fields(payload: dict[str, Any], *names: str) -> dict[str, Any]:
+    """删掉该家不认的字段。**返回同一份 dict**（调用方已持有副本）。"""
+    for name in names:
+        payload.pop(name, None)
+    return payload
+
+
+def _thinking_budget(effort: str | None) -> int | None:
+    """effort → 预算。未知 effort 按 medium 处理（宁可多给思考空间，也别静默关掉）。"""
+    if effort is None:
+        return None
+    return THINKING_BUDGETS.get(str(effort).strip().lower(), THINKING_BUDGETS["medium"])
+
+
+def _anthropic_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Anthropic Messages：思考开关是**顶层** ``thinking`` 对象，不是 ``reasoning_effort``。
+
+    Anthropic 收到不认识的 ``reasoning_effort`` 会 400，所以这里删掉它再翻译。
+    ``budget_tokens`` 必须 < ``max_tokens``，否则同样 400——所以先夹到 max_tokens 的一半。
+    """
+    effort = payload.pop("reasoning_effort", None)
+    budget = _thinking_budget(effort)
+    if budget is None:
+        return payload
+    max_tokens = payload.get("max_tokens")
+    if isinstance(max_tokens, int) and max_tokens > 0:
+        budget = max(1024, min(budget, max_tokens // 2))
+    payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
+    return payload
+
+
+def _gemini_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Gemini 原生面：思考参数在 ``generationConfig.thinkingConfig`` 里。"""
+    effort = payload.pop("reasoning_effort", None)
+    budget = _thinking_budget(effort)
+    if budget is None:
+        return payload
+    config = payload.setdefault("generationConfig", {})
+    if isinstance(config, dict):
+        config["thinkingConfig"] = {"thinkingBudget": budget}
+    return payload
+
+
+def _openrouter_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """OpenRouter：推理参数走 ``reasoning`` 对象（§3.5），并补 ``transforms``。
+
+    ``transforms: ["middle-out"]`` 让 OpenRouter 在**超长上下文**时从中间裁，而不是
+    直接 400。这是它家独有的能力，本地没有等价实现——所以只能在请求体里声明。
+    """
+    effort = payload.pop("reasoning_effort", None)
+    if effort is not None:
+        payload["reasoning"] = {"effort": str(effort).strip().lower()}
+    transforms = payload.get("transforms")
+    if not isinstance(transforms, list):
+        payload["transforms"] = ["middle-out"]
+    return payload
+
+
+def _qwen_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """DashScope（Qwen）：思考开关叫 ``enable_thinking``（OpenAI 兼容层的私有字段）。"""
+    effort = payload.pop("reasoning_effort", None)
+    payload["enable_thinking"] = effort is not None
+    return payload
+
+
+def _groq_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Groq：``reasoning_effort`` **只对 gpt-oss 系列**合法，其余模型收到会 400。"""
+    if "gpt-oss" not in model:
+        return _drop_fields(payload, "reasoning_effort", "verbosity")
+    return _drop_fields(payload, "verbosity")
+
+
+def _mistral_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Mistral：不认 ``reasoning_effort`` / ``verbosity``，发了就是 422。"""
+    return _drop_fields(payload, "reasoning_effort", "verbosity")
+
+
+def _xai_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """xAI：认 ``reasoning_effort``，**不认** ``verbosity``。"""
+    return _drop_fields(payload, "verbosity")
+
+
+def _moonshot_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Moonshot 开放平台：OpenAI 兼容面里没有推理强度字段。"""
+    return _drop_fields(payload, "reasoning_effort", "verbosity")
+
+
+def _ollama_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Ollama：思考开关是 ``think``（布尔，走 extra_body），顶层没有强度字段。"""
+    return _drop_fields(payload, "reasoning_effort", "verbosity")
+
+
+def _bedrock_body(model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Bedrock Converse：推理参数在 ``additionalModelRequestFields``，不是顶层。
+
+    ``bedrock_converse`` 这条线协议本轮**未实现**（要 SigV4 与 boto3）。钩子仍然填，
+    理由：形状是已知的、纯本地的，写下来比留空好——将来接 boto3 时不用重新查协议；
+    而"未实现"这件事由 :data:`UNSUPPORTED_TRANSPORTS` 如实报出，不靠留空来表达。
+    """
+    effort = payload.pop("reasoning_effort", None)
+    if effort is not None:
+        extra = payload.setdefault("additionalModelRequestFields", {})
+        if isinstance(extra, dict):
+            extra["reasoning_effort"] = str(effort).strip().lower()
+    return _drop_fields(payload, "verbosity")
+
+
+@dataclass(frozen=True)
+class ProviderHooks:
+    """一家的两个钩子 + **留空的那一侧的原因**。
+
+    ``fetch_reason`` / ``body_reason`` 不是装饰：留空必须有理由，否则"没做"会被后来
+    的人读成"不需要做"。测试会断言每个 None 都有一条原因。
+    """
+
+    fetch_models: FetchModelsHook | None = None
+    build_extra_body: BuildExtraBodyHook | None = None
+    fetch_reason: str = ""
+    body_reason: str = ""
+
+
+#: 16 家 → 钩子。键必须与 :data:`PROVIDERS` 完全一致（测试对账）。
+#:
+#: ``fetch_models`` **16 家全填**，且全部抛 ``NetworkUnavailable``（理由见本节开头）。
+#: ``build_extra_body`` 只填**请求体形状确实不同**的家；同形状的家留 None + 原因。
+PROVIDER_HOOKS: dict[str, ProviderHooks] = {
+    "deepseek": ProviderHooks(
+        fetch_models=_fetch_needs_network("deepseek", "GET https://api.deepseek.com/v1/models"),
+        body_reason=(
+            "请求体就是 OpenAI 兼容面：`reasoning_effort` 是合法顶层字段，"
+            "`thinking` 已由 extra_body 钩子（_deepseek_extra）处理，body 层无需改写。"
+        ),
+    ),
+    "openai": ProviderHooks(
+        fetch_models=_fetch_needs_network("openai", "GET https://api.openai.com/v1/models"),
+        body_reason="官方 OpenAI 兼容面就是参考形状，`reasoning_effort` / `verbosity` 都合法。",
+    ),
+    "anthropic": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "anthropic", "GET https://api.anthropic.com/v1/models（x-api-key 头）"
+        ),
+        build_extra_body=_anthropic_body,
+        body_reason="思考开关是顶层 `thinking` 对象，且 `budget_tokens` 必须 < max_tokens。",
+    ),
+    "gemini": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "gemini", "GET {base}/models（x-goog-api-key 头）"
+        ),
+        build_extra_body=_gemini_body,
+        body_reason="原生面把思考参数放在 `generationConfig.thinkingConfig` 里。",
+    ),
+    "openrouter": ProviderHooks(
+        fetch_models=_fetch_needs_network("openrouter", "GET https://openrouter.ai/api/v1/models"),
+        build_extra_body=_openrouter_body,
+        body_reason=(
+            "推理参数走 `reasoning` 对象而不是 `reasoning_effort`；"
+            "另补 `transforms: [middle-out]` 让超长上下文由它家裁剪。"
+        ),
+    ),
+    "zai": ProviderHooks(
+        fetch_models=_fetch_needs_network("zai", "GET https://api.z.ai/api/paas/v4/models"),
+        body_reason=(
+            "`thinking` 已由 extra_body 钩子（_zai_extra）处理；GLM 不认 `reasoning_effort`，"
+            "但它也不在请求体里出现（顶层强度由 agent 层决定，本层不重复删）。"
+        ),
+    ),
+    "kimi-coding": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "kimi-coding", "GET https://api.moonshot.ai/v1/models"
+        ),
+        body_reason=(
+            "`thinking` 与顶层 `reasoning_effort` 互斥，互斥规则已由 extra_body 钩子"
+            "（_kimi_extra）表达，body 层再删一次会变成两处真相。"
+        ),
+    ),
+    "minimax": ProviderHooks(
+        fetch_models=_fetch_needs_network("minimax", "GET https://api.minimax.io/anthropic/models"),
+        build_extra_body=_anthropic_body,
+        body_reason="走 anthropic_messages 面，思考开关同为顶层 `thinking` 对象。",
+    ),
+    "moonshot": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "moonshot", "GET https://api.moonshot.cn/v1/models"
+        ),
+        build_extra_body=_moonshot_body,
+        body_reason="OpenAI 兼容面里没有推理强度字段，发了会被拒。",
+    ),
+    "qwen": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "qwen", "GET https://dashscope.aliyuncs.com/compatible-mode/v1/models"
+        ),
+        build_extra_body=_qwen_body,
+        body_reason="DashScope 的思考开关是私有字段 `enable_thinking`。",
+    ),
+    "groq": ProviderHooks(
+        fetch_models=_fetch_needs_network("groq", "GET https://api.groq.com/openai/v1/models"),
+        build_extra_body=_groq_body,
+        body_reason="`reasoning_effort` 只对 gpt-oss 系列合法，其余模型收到会 400。",
+    ),
+    "mistral": ProviderHooks(
+        fetch_models=_fetch_needs_network("mistral", "GET https://api.mistral.ai/v1/models"),
+        build_extra_body=_mistral_body,
+        body_reason="不认 `reasoning_effort` / `verbosity`，发了就是 422。",
+    ),
+    "xai": ProviderHooks(
+        fetch_models=_fetch_needs_network("xai", "GET https://api.x.ai/v1/models"),
+        build_extra_body=_xai_body,
+        body_reason="认 `reasoning_effort`，但不认 `verbosity`。",
+    ),
+    "bedrock": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "bedrock",
+            "只能走 boto3 的 list_foundation_models（无 REST /v1/models，本机也没装 boto3）",
+        ),
+        build_extra_body=_bedrock_body,
+        body_reason="Converse 面把推理参数放在 `additionalModelRequestFields`（线协议本轮未实现）。",
+    ),
+    "ollama": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "ollama",
+            "GET http://127.0.0.1:11434/api/tags（本地端点，但同样是发请求）",
+        ),
+        build_extra_body=_ollama_body,
+        body_reason="思考开关是 `think`（布尔，已由 extra_body 钩子处理），顶层无强度字段。",
+    ),
+    "custom": ProviderHooks(
+        fetch_models=_fetch_needs_network(
+            "custom", "用户自填的 OpenAI 兼容端点，清单只能实时拉取"
+        ),
+        body_reason=(
+            "端点是用户填的，请求体形状**未知**——猜一个改写规则只会在某些网关上"
+            "静默 400。留空 = 原样发送，这是唯一不会错的选择。"
+        ),
+    ),
+}
+
+
+def hooks_for(provider_id: str) -> ProviderHooks:
+    """取某家的钩子。没有登记就返回空钩子（= 行为与引入本表之前一致）。"""
+    return PROVIDER_HOOKS.get(provider_id, ProviderHooks())
+
+
+def with_hooks(profile: ProviderProfile) -> ProviderProfile:
+    """把覆盖表里的钩子叠到一份 profile 上，返回**新** profile（原对象不变）。
+
+    为什么用 ``replace`` 而不是在 ``PROVIDERS`` 上直接填：见本节开头。副作用是
+    调用方必须**显式**选"要不要带钩子"——这正好是我们要的：默认路径（既有测试、
+    既有行为）不带，需要的地方（``build_chat_model``）显式带。
+    """
+    hooks = PROVIDER_HOOKS.get(profile.id)
+    if hooks is None:
+        return profile
+    return replace(
+        profile,
+        fetch_models=hooks.fetch_models,
+        build_extra_body=hooks.build_extra_body,
+    )
+
+
+def hook_rows() -> list[dict[str, Any]]:
+    """16 家的钩子现状（给 ``orbit model hooks`` / 测试对账用）。"""
+    rows: list[dict[str, Any]] = []
+    for key, profile in PROVIDERS.items():
+        hooks = PROVIDER_HOOKS.get(key)
+        rows.append(
+            {
+                "provider": key,
+                "name": profile.name,
+                "transport": profile.transport,
+                "fetch_models": hooks.fetch_models is not None if hooks else False,
+                "build_extra_body": hooks.build_extra_body is not None if hooks else False,
+                "fetch_reason": hooks.fetch_reason if hooks else "",
+                "body_reason": hooks.body_reason if hooks else "",
+            }
+        )
+    return rows
 
 
 # ── provider profile ────────────────────────────────────────────────────────
@@ -807,7 +1145,10 @@ def build_chat_model(
 
     base_url = _resolve_base_url(profile, settings)
     key = resolve_api_key(profile, settings)
-    extra = extra_body_for(profile, target, reasoning_effort)
+    # 钩子在这里叠上去（而不是填在 `PROVIDERS` 上）：本函数是**唯一**真正要发请求的
+    # 地方，也是唯一该看到 `fetch_models` / `build_extra_body` 的地方。见 `PROVIDER_HOOKS`。
+    hooked = with_hooks(profile)
+    extra = extra_body_for(hooked, target, reasoning_effort)
 
     if profile.transport == "chat_completions":
         return _build_openai_chat(profile, target, base_url, key, extra)
@@ -823,6 +1164,7 @@ def build_chat_model(
             model=target,
             extra_body=extra,
             transport=transport,
+            body_hook=hooked.build_extra_body,
         )
     if not key:
         raise MissingCredential(
@@ -835,6 +1177,7 @@ def build_chat_model(
         model=target,
         extra_body=extra,
         transport=transport,
+        body_hook=hooked.build_extra_body,
     )
 
 
@@ -856,6 +1199,13 @@ def _build_openai_chat(
     **保持现有行为不变**：`timeout=60, max_retries=1` 与 `agent.get_model()` /
     `summaries` 逐字一致。改这两个数会同时改变超时语义与 429 重试次数，属于行为变更，
     不在本层权限内。
+
+    **`build_extra_body` 在这条路径上没有接入点**，如实说明：请求体由 `ChatOpenAI`
+    自己拼装，本模块拿不到那份 dict，也没有"发请求前"的钩子可挂（`langchain_openai`
+    没有暴露 payload 级回调）。所以 chat_completions 一族的 `build_extra_body`
+    只在**测试与将来的 payload 级接入点**上生效；真正改变请求体的仍是 `extra_body`
+    （推理开关那一类）。`anthropic_messages` / `gemini` 两条自建客户端已接上
+    （见各自的 `body_hook` 参数）——它们是我们自己拼的请求体，接得上。
     """
     from langchain_openai import ChatOpenAI
 
@@ -959,6 +1309,7 @@ class AnthropicMessagesClient:
         extra_body: dict[str, Any] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         max_tokens: int = 4096,
+        body_hook: BuildExtraBodyHook | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -967,6 +1318,11 @@ class AnthropicMessagesClient:
         self._api_key = api_key
         self._extra = dict(extra_body or {})
         self._transport = transport
+        #: 整份请求体的最后一道改写（MATRIX 4.1 的 `build_extra_body`）。
+        #: **为什么必须由客户端持有**：只有这里才知道最终的请求体长什么样
+        #: （system 提到顶层、messages 过滤之后）。在 `build_chat_model` 里改，
+        #: 改的是一份还没成形的 dict，钩子看到的形状与发出去的形状不是一回事。
+        self._body_hook = body_hook
 
     def __repr__(self) -> str:  # 绝不把 key 放进 repr：它会被日志和异常栈吃掉
         return f"AnthropicMessagesClient(model={self.model!r}, base_url={self.base_url!r})"
@@ -998,6 +1354,11 @@ class AnthropicMessagesClient:
         if system:
             body["system"] = system
         body.update(self._extra)
+        # 钩子排在 `extra_body` **之后**：extra_body 是"加一个字段"，build_extra_body
+        # 是"整份体改写的最后一道"。顺序反了，钩子写下的字段会被 extra_body 覆盖，
+        # 而日志里看到的是钩子的结果——又是一类查不出来的静默错误。
+        if self._body_hook is not None:
+            body = dict(self._body_hook(self.model, body))
         return body
 
     def _client(self) -> httpx.AsyncClient:
@@ -1099,6 +1460,7 @@ class GeminiClient:
         timeout: float = 60.0,
         extra_body: dict[str, Any] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        body_hook: BuildExtraBodyHook | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -1106,6 +1468,8 @@ class GeminiClient:
         self._api_key = api_key
         self._extra = dict(extra_body or {})
         self._transport = transport
+        #: 与 `AnthropicMessagesClient` 同一个理由：只有客户端知道最终请求体形状。
+        self._body_hook = body_hook
 
     def __repr__(self) -> str:
         return f"GeminiClient(model={self.model!r}, base_url={self.base_url!r})"
@@ -1135,6 +1499,8 @@ class GeminiClient:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         if self._extra:
             body["generationConfig"] = self._extra
+        if self._body_hook is not None:
+            body = dict(self._body_hook(self.model, body))
         return body
 
     def _client(self) -> httpx.AsyncClient:
@@ -1213,7 +1579,9 @@ __all__ = [
     "CAPABILITY_FIELDS",
     "FACTORY_CAPABILITY",
     "PROVIDERS",
+    "PROVIDER_HOOKS",
     "SUPPORTED_TRANSPORTS",
+    "THINKING_BUDGETS",
     "TRANSPORT_CLIENTS",
     "UNSUPPORTED_TRANSPORTS",
     "AnthropicMessagesClient",
@@ -1223,6 +1591,7 @@ __all__ = [
     "MissingCredential",
     "ModelSettings",
     "ProviderError",
+    "ProviderHooks",
     "ProviderProfile",
     "UnknownProvider",
     "UnsupportedTransport",
@@ -1234,9 +1603,12 @@ __all__ = [
     "capability_with_source",
     "extra_body_for",
     "fetch_models_for",
+    "hook_rows",
+    "hooks_for",
     "load_cache",
     "record_capability",
     "resolve_api_key",
     "resolve_provider",
     "save_cache",
+    "with_hooks",
 ]

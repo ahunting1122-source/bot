@@ -967,6 +967,81 @@ def schema_problems(spec: dict) -> list[str]:
     return problems
 
 
+#: 描述裁剪后的一句话上限（字符）。80 字符 ≈ 一句中文说明，够模型判断"这工具干嘛的"，
+#: 不够判断"参数怎么填"——后者本来就该走 `tool_search` 拿完整 schema。
+TRIMMED_DESCRIPTION_CHARS = 80
+
+
+def estimate_tokens(payload: Any) -> int:
+    """估算 token 数（字符数 / 4）。**不引 tokenizer**：本机装不了依赖。
+
+    实现放在 ``app/toolsets.py``（纯函数、零依赖），这里再导出一次：裁剪预算属于
+    工具层的事，读代码的人不该为了一个字符除法跳去另一个模块。
+    """
+    return toolsets.estimate_tokens(payload)
+
+
+def _one_line(description: str, limit: int = TRIMMED_DESCRIPTION_CHARS) -> str:
+    """把一段多句描述压成"第一句 + 省略号"。
+
+    为什么取第一句而不是截前 N 个字符：Orbit 的工具描述都是「先一句是什么，再若干句
+    什么时候用、和谁分工」。截断会正好砍在"什么时候用"上，留下半句没有主语的话；
+    取第一句至少保住了"这工具是干什么的"。
+    """
+    text = " ".join(str(description or "").split())
+    if len(text) <= limit:
+        return text
+    for mark in ("。", "；", ". ", "！", "？"):
+        index = text.find(mark)
+        if 0 < index < limit:
+            return text[: index + len(mark)]
+    return text[: limit - 1] + "…"
+
+
+def _trim_specs(
+    specs: list[dict], budget: int
+) -> tuple[list[dict], bool]:
+    """按 tier 逐级把描述压成一句，返回 ``(裁剪后的 specs, 是否仍然超预算)``。
+
+    规则（MATRIX 5.11）：
+
+    * **Tier 0 永不裁剪**（``toolsets.ALWAYS_EAGER``）：它们缺了这一轮根本没法开始；
+    * 超预算时先裁 Tier 2，仍超再裁 Tier 1；
+    * **参数 schema 一个字节都不动**——理由见 ``ToolRegistry.specs`` 的 docstring；
+    * **一个工具都不删**：删掉工具等于让模型"调不动"，比描述长得多严重得多。
+
+    返回值里那个 ``over_budget`` 是**诚实位**：schema 地板本身超预算时它就是 True，
+    调用方（CLI / 诊断）可以据此说"预算压不下来，原因是参数契约"，而不是假装达标。
+    悄悄返回一份仍然超预算的清单，是这类预算表最常见的谎。
+    """
+    trimmed = [dict(spec) for spec in specs]
+    # `function` 这一层也要复制：`_one_line` 会**原地改** description，而它挂在
+    # `spec["function"]` 下面。只复制外层等于改了调用方的对象——`specification()`
+    # 目前每次返回新 dict，但这条隐含假设不该由裁剪函数来赌。
+    for index, spec in enumerate(trimmed):
+        body = spec.get("function")
+        if isinstance(body, dict):
+            trimmed[index] = {**spec, "function": {**body}}
+    if toolsets.estimate_tokens(trimmed) <= budget:
+        return trimmed, False
+    for tier in (2, 1):
+        for spec in trimmed:
+            body = spec.get("function")
+            if not isinstance(body, dict):
+                continue
+            name = str(body.get("name") or "")
+            if toolsets.tier_of(name) != tier:
+                continue
+            description = str(body.get("description") or "")
+            short = _one_line(description)
+            if short and short != description:
+                body["description"] = short
+        if toolsets.estimate_tokens(trimmed) <= budget:
+            return trimmed, False
+    # 描述已全部压到一句（Tier 0 除外）仍然超：地板是参数 schema，不再动。
+    return trimmed, toolsets.estimate_tokens(trimmed) > budget
+
+
 def terminate_tree(process: subprocess.Popen) -> None:
     """终止整棵进程树。
 
@@ -1728,7 +1803,13 @@ class ToolRegistry:
             if not name.startswith(MCP_TOOL_PREFIX):
                 self._shadows[name] = dropped.source
 
-    def specs(self, platform: str = toolsets.DEFAULT_PLATFORM):
+    def specs(
+        self,
+        platform: str = toolsets.DEFAULT_PLATFORM,
+        *,
+        budget: int | None = toolsets.LISTING_BUDGET_TOKENS,
+        context: toolsets.FilterContext | None = None,
+    ):
         """当前暴露给模型的工具 schema，按 ``app/toolsets.resolve()`` 过滤。
 
         硬要求：``platform="cli"`` 且没有 ``data/tools.json`` 时**行为与引入过滤层之前
@@ -1739,8 +1820,35 @@ class ToolRegistry:
         整次请求被供应商 400 拒掉，而错误信息往往只说"第 N 个工具参数非法"，很难定位。
         坏工具**排除并记 error 日志**——排除一个工具比让整轮对话发不出去损失小得多，
         而日志会点名是哪个。
+
+        ## 分级披露（MATRIX 5.11）与 4,000 token 预算：能做什么、不能做什么
+
+        ``budget`` 控制**描述这一维**的披露量，规则是 :func:`_trim_specs`：
+
+        1. Tier 0（:data:`toolsets.ALWAYS_EAGER` 里的核心动作）**永不裁剪**；
+        2. 超预算时先把 Tier 2 的描述压成一句，仍超再压 Tier 1；
+        3. **参数 schema 一律不动**。
+
+        第 3 条是这张预算表最容易被误读的地方，所以写清楚：**4,000 token 不是这份
+        清单能达到的硬上限**。38 个内置工具的参数 schema 本身就约 4,300 token
+        （实测 ``estimate_tokens`` 在"描述全删"的地板上仍 > 4,000），而 schema 是
+        **调用契约**——删了它，模型不是"晚点知道"，而是**永远调不动这个工具**。
+        把契约当预算裁掉，换来的是一个看起来达标的数字和一个不会用工具的模型。
+
+        所以这里的诚实口径是：``budget`` 压的是描述，压到底仍然超出时
+        :func:`_trim_specs` 会返回 ``over_budget=True``，由调用方如实报出来。
+        真正的出路不是继续裁 schema，而是**延迟工具本身**——那是
+        ``app/tool_discovery.py``（懒发现）与 ``tool_search`` 的职责：
+        Tier 2 的工具可以根本不进首屏，等模型搜到再 ``ensure_loaded``。
+
+        ``budget=None`` = 不裁剪（旧行为，供对照与测试用）。
+        ``context`` 传入时走四层过滤（MATRIX 6.2）；留空只有平台层生效。
         """
-        exposed = set(toolsets.resolve(list(self.tools), platform, self.toolsets_config()))
+        exposed = set(
+            toolsets.resolve(
+                list(self.tools), platform, self.toolsets_config(), context=context
+            )
+        )
         result = []
         for name, tool in self.tools.items():
             if name not in exposed:
@@ -1751,7 +1859,10 @@ class ToolRegistry:
                 log.error("工具 %s 的 schema 不合法，已从暴露面移除：%s", name, "；".join(problems))
                 continue
             result.append(spec)
-        return result
+        if budget is None:
+            return result
+        trimmed, _over = _trim_specs(result, budget)
+        return trimmed
 
     def validate(self, name: str, args: dict) -> dict:
         tool = self.tools.get(name)
@@ -2687,6 +2798,9 @@ class ToolRegistry:
                             "name": name,
                             "description": description[:200],
                             "toolset": toolset,
+                            # tier 一起返回（MATRIX 5.11）：模型搜到 Tier 2 工具时能看出
+                            # "它本来就没进首屏"，不必怀疑自己是不是看漏了清单。
+                            "tier": toolsets.tier_of(name),
                             "parameters": sorted(
                                 (spec.get("parameters") or {}).get("properties", {})
                             ),

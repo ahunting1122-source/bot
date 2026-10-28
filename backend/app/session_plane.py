@@ -43,6 +43,33 @@ Hermes 的做法是 26 张业务表同库：``sessions``(56 列) + ``messages``(
 所以"交互会话的写入也过平面"这一条**还没做**——10.1 因此只能从 🟡 前进到"两源已统一、
 交互侧未统一"。这一点必须写在任何声称 10.1 完成的报告里，不能含糊。
 
+### 本轮补上的两件（:class:`PlaneSink` / :func:`backfill_from_store`）
+
+不能改那两个文件，但可以**把两边写成同一件事**，于是交互侧分两步落地：
+
+1. :func:`backfill_from_store`：把历史 ``task_events`` 全部补进平面（幂等、可重复跑）。
+   做完这一步，"同库同表"在**数据层面**成立——``plane timeline`` 立刻能看到历史交互
+   任务的每一步，而不是只看到接线之后新发生的事。
+2. :class:`PlaneSink`：``record_task_event`` 一次写两侧、共用同一个 ``message_key``；
+   ``attach()`` 把 ``store.event`` 换成"写完会话库顺手写平面"的包装，于是
+   ``graph/nodes.py`` 里每一处 ``await self.store.event(...)`` 都会自动进平面，
+   **那两个文件一个字都不用改**。
+
+但 ``attach()`` 的**调用点**（``app/main.py`` / ``app/agent.py``）同样是禁改区。
+所以 10.1 的判据「CLI / TUI / gateway / cron 四处的会话与事件能在一处查到」：
+
+- 读侧：✅（``plane timeline`` 合并三来源）；
+- 数据层面：✅（backfill 之后历史全在）；
+- **新事件自动流入：🟡 还差 ``app/main.py`` 里的一行** ``PlaneSink(plane, store).attach()``。
+
+### 压缩阈值（10.4）为什么放在这里
+
+阈值与目标比是**策略**，不是图结构；而真正的截短动作在 ``app/graph/nodes.py`` 的
+``compact_messages``（禁改区）。所以本模块只提供纯函数
+（:func:`compaction_needed` / :func:`compaction_target` / :func:`maybe_compact`）与
+:func:`describe`（把与 ``nodes.py`` 的口径差异摊开），主循环在每轮开始调一次
+``maybe_compact`` 就补上了 0.50 的提前判定。
+
 ### 挂到统一 session 名下的约定：:func:`plane_session_key`
 
 各来源的键**由本模块给规则**，而不是让每个写入方自己拼字符串：
@@ -66,11 +93,12 @@ id，这一点如实标注，不假装它是分布式序号（Hermes 的 SQLite 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -119,6 +147,17 @@ SOURCE_KEY_GATEWAY = "gateway"
 #: 重复事件会在下一次运行全部重放一遍）。
 PLANE_KEYS_FILENAME = "plane-keys.json"
 
+#: 任务事件的平面 ``kind``（10.1 写侧统一）。
+#: 为什么单开一个 ``task.event`` 而不是把 ``task_events.event_type`` 直接当 kind：
+#: 平面日志的 kind 是**分命名空间**的（``session.*`` / ``cron.*`` / ``gateway.*``），
+#: 而 ``task_events.event_type`` 是 ``node_entered`` / ``model_retry`` 这种裸名字。
+#: 混进同一层之后，"这个 kind 是平面自造的还是会话库里已有的"就分不清了。
+#: 原始类型放进字段 ``event_type``，查询时按字段筛，不靠猜 kind 的形状。
+KIND_TASK_EVENT = "task.event"
+
+#: ``task_events`` ↔ 平面事件共用的幂等键前缀（见 :func:`task_event_key`）。
+TASK_EVENT_KEY_PREFIX = "task"
+
 #: 统一时间线的三个来源（也是排序并列时的次序）。
 SOURCE_PLANE = "plane"
 SOURCE_MESSAGE = "message"
@@ -134,6 +173,34 @@ TIMELINE_TEXT_CHARS = 500
 
 #: 读文件尾找最后一个 id 的窗口。64KB 足够覆盖几十条事件，又不会在十万行日志上变慢。
 _TAIL_BYTES = 65_536
+
+# ── 压缩阈值（10.4）────────────────────────────────────────────────────────
+#
+# 两个数字都照抄 Hermes 的 ``compression`` 段（research 06 §20）：
+#
+# - **阈值 0.50**：上下文用到窗口一半就开始压，而不是等溢出。等到溢出再压意味着
+#   这一轮已经失败了（供应商返回 400），用户看到的是报错而不是一次平滑的压缩。
+# - **目标 0.20**：压到窗口的 20%。只压到"刚好够用"会让下一轮工具结果立刻又撑爆，
+#   来回压缩比直接报错更糟——这一点 ``app/graph/nodes.py`` 的注释里也写过。
+
+#: 触发压缩的占用比（Hermes ``compression.threshold: 0.5``）。
+COMPACTION_THRESHOLD = 0.50
+#: 压缩目标占窗口的比例（Hermes ``compression.target_ratio: 0.2``）。
+COMPACTION_TARGET_RATIO = 0.20
+#: 压缩产物的前缀，**逐字**照抄 Hermes。``session_search`` 靠它们识别"这是机器写的
+#: 交接载荷"并在书挡里剔除；两处字符串一旦不一致，压缩载荷就会借召回回流进新会话。
+COMPACTION_PREFIX = "[CONTEXT COMPACTION"
+SUMMARY_PREFIX = "[CONTEXT SUMMARY]:"
+COMPACTION_PREFIXES = (COMPACTION_PREFIX, SUMMARY_PREFIX)
+#: 字符/token 换算比（与 ``app/window.py`` 的 ``CHARS_PER_TOKEN`` 同口径）。
+#: 复写一份而不是 import：``app/window.py`` 只按 token 算阈值，本模块只按 token 收
+#: 输入，两边都**不做**换算——这里留一个常量只为给 CLI 的估算用。
+CHARS_PER_TOKEN = 4
+#: ``app/graph/nodes.py`` 里压缩目标的硬编码值（``COMPACT_TARGET_RATIO = 0.2``）。
+#: 禁改区不能 import（``app.graph.nodes`` 会把 langgraph 整条链拉起来，而本模块要能被
+#: 纯文件命令使用），所以复写一份；``tests/test_plane_write_side.py`` 直接解析那份源码
+#: 断言两处相等——复写会漂移，断言不会。
+NODES_COMPACT_TARGET_RATIO = 0.2
 
 
 class SessionPlaneError(RuntimeError):
@@ -184,6 +251,176 @@ def to_epoch(value: Any) -> float:
         # 无时区的历史数据按 UTC 解释：本机所有写入都是 UTC，猜本地时区会整体偏移。
         stamp = stamp.replace(tzinfo=UTC)
     return stamp.timestamp()
+
+
+# ── 压缩阈值（10.4）────────────────────────────────────────────────────────
+
+
+def tokens_for_chars(chars: Any) -> int:
+    """字符数 → token 估算（坏值 0）。只用于 CLI 的"大概占了多少"提示。"""
+    try:
+        value = int(chars)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value // CHARS_PER_TOKEN)
+
+
+def compaction_used_ratio(used_tokens: Any, window: Any) -> float:
+    """已用 token 占窗口的比例。窗口未知（≤0）时返回 ``0.0``——未知不等于满。"""
+    try:
+        used = max(0, int(used_tokens))
+        size = int(window)
+    except (TypeError, ValueError):
+        return 0.0
+    if size <= 0:
+        return 0.0
+    return used / size
+
+
+def compaction_needed(used_tokens: Any, window: Any) -> bool:
+    """要不要压缩：占用比 **≥ 0.50**。
+
+    边界口径：**正好 50% 就压**（``>=``，不是 ``>``）。理由是"到一半"已经是"再塞
+    一个工具结果就可能溢出"的状态，而压缩本身是廉价且可重放的本地操作；把边界放在
+    ``>`` 只是把同一件事推迟一轮，代价是那一轮可能直接 400。
+
+    未知窗口（``window <= 0``）**不触发**：算不出比例就不该假装算得出——压缩会丢正文
+    细节，凭一个假的 100% 去压，是把"没配置"惩罚成"每次都压"。
+    """
+    try:
+        size = int(window)
+        used = int(used_tokens)
+    except (TypeError, ValueError):
+        return False
+    if size <= 0 or used <= 0:
+        return False
+    return used >= size * COMPACTION_THRESHOLD
+
+
+def compaction_target(window: Any, *, ratio: float = COMPACTION_TARGET_RATIO) -> int:
+    """压缩后应占多少 token：窗口的 **20%**（向下取整）。
+
+    向下取整而不是四舍五入：目标值只用于"够不够短"的判定，多给一个 token 没有收益，
+    少给一个 token 只会让压缩稍微激进一点——后者是安全方向。
+    """
+    try:
+        size = max(0, int(window))
+    except (TypeError, ValueError):
+        return 0
+    return int(size * float(ratio))
+
+
+@dataclass(frozen=True)
+class CompactionPlan:
+    """一次"该不该压"的判定结果。**纯数据，不含 IO**。
+
+    ``needed=False`` 时其余字段仍然有值（目标、余量），因为调用方常要把"现在多少、
+    压了会到多少"一起打出来——判 false 就全变 0 会让报告失去解释力。
+    """
+
+    needed: bool
+    used_tokens: int
+    window: int
+    used_ratio: float
+    target_tokens: int
+    headroom_tokens: int
+    reason: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "needed": self.needed,
+            "used_tokens": self.used_tokens,
+            "window": self.window,
+            "used_ratio": round(self.used_ratio, 4),
+            "target_tokens": self.target_tokens,
+            "headroom_tokens": self.headroom_tokens,
+            "reason": self.reason,
+        }
+
+
+def maybe_compact(used_tokens: Any, window: Any) -> CompactionPlan:
+    """**主循环应在每一轮开始时调它**，再决定这一轮要不要压。
+
+    为什么做成纯函数而不是"顺手压一下"：真正把 ``messages`` 截短的是
+    ``app/graph/nodes.py`` 的 ``compact_messages``（禁改区，本轮不动），而"要不要压"
+    是纯判定。拆开之后主循环只多两行：
+
+        plan = maybe_compact(used_tokens, window)
+        if plan.needed:
+            messages = nodes.compact_messages(messages)   # 目标是 plan.target_tokens
+
+    ``nodes.compact_messages`` 目前**只在 ``context_overflow`` 之后被调用**
+    （见 :func:`describe`），所以这一行接线是 10.4 唯一还缺的东西——接线点在禁改区里。
+    """
+    try:
+        used = max(0, int(used_tokens))
+        size = int(window)
+    except (TypeError, ValueError):
+        used, size = 0, 0
+    ratio = compaction_used_ratio(used, size)
+    target = compaction_target(size)
+    needed = compaction_needed(used, size)
+    if size <= 0:
+        reason = "窗口未知（context_length 未配置或为 0），不判定压缩"
+    elif needed:
+        reason = (
+            f"已用 {used} token = 窗口的 {ratio:.1%}，达到阈值 {COMPACTION_THRESHOLD:.0%}；"
+            f"应压到 {target} token（{COMPACTION_TARGET_RATIO:.0%}）"
+        )
+    else:
+        reason = (
+            f"已用 {used} token = 窗口的 {ratio:.1%}，未到阈值 "
+            f"{COMPACTION_THRESHOLD:.0%}（还差 {max(0, int(size * COMPACTION_THRESHOLD) - used)} token）"
+        )
+    return CompactionPlan(
+        needed=needed,
+        used_tokens=used,
+        window=max(0, size),
+        used_ratio=ratio,
+        target_tokens=target,
+        headroom_tokens=max(0, size - used),
+        reason=reason,
+    )
+
+
+def describe(window: Any = None) -> dict[str, Any]:
+    """把本模块的压缩口径摊开，并**如实报出与 ``nodes.py`` 的差异**。
+
+    两个用途：
+
+    1. ``orbit plane compact-check`` 用它给出一屏可核对的数字；
+    2. 出问题时不用读代码——"阈值是多少、目标是多少、主循环到底有没有提前判"都在
+       这一份数据里。
+
+    差异（本轮实测，``app/graph/nodes.py``）：
+
+    - **目标比一致**：那边 ``COMPACT_TARGET_RATIO = 0.2``，与这里
+      :data:`COMPACTION_TARGET_RATIO` 相同（有测试钉住）；
+    - **触发时机不一致**：那边**没有 0.50 的提前判定**，只有模型返回
+      ``context_overflow`` 之后才压（``errors_retry.decide`` 的 ``COMPACT`` 分支）。
+      也就是说"到一半就压"这件事，Orbit 目前**没有生效**——本函数把它写出来，
+      而不是假装已经接上。
+    """
+    plan = maybe_compact(0, window) if window is not None else None
+    return {
+        "threshold": COMPACTION_THRESHOLD,
+        "target_ratio": COMPACTION_TARGET_RATIO,
+        "prefixes": list(COMPACTION_PREFIXES),
+        "window": int(window) if window is not None else None,
+        "target_tokens": compaction_target(window) if window is not None else None,
+        "sample": plan.as_dict() if plan is not None else None,
+        "nodes_py": {
+            "target_ratio": NODES_COMPACT_TARGET_RATIO,
+            "target_matches": NODES_COMPACT_TARGET_RATIO == COMPACTION_TARGET_RATIO,
+            "trigger": "reactive（只在 context_overflow 之后压）",
+            "trigger_matches": False,
+            "note": (
+                "app/graph/nodes.py 的 compact_messages 用同一组目标比（0.2），但触发是"
+                "被动的：先等模型返回 context_overflow，再压缩重试。主循环在每轮开始时"
+                "调 maybe_compact(...) 才补上 0.50 的提前判定——那两行在禁改区里。"
+            ),
+        },
+    }
 
 
 # ── 统一 session 键 ─────────────────────────────────────────────────────────
@@ -530,6 +767,21 @@ class SessionPlane:
             return AppendOutcome(event=written, written=True, message_key=key)
 
     # ── 幂等索引 ──
+    def known(self, message_key: str) -> dict[str, Any] | None:
+        """该 ``message_key`` 是否已经写过；写过则返回**当初那一行**，否则 ``None``。
+
+        与 :meth:`append_once` 的区别只在"不写"：``PlaneSink`` 要先问一句
+        "这条要不要写"，因为答案决定**两个存储**都要不要动（见其注释）。
+        """
+        key = str(message_key or "").strip()
+        if not key:
+            return None
+        with self._keys_lock:
+            hit = self._load_keys().get(key)
+        if not isinstance(hit, Mapping):
+            return None
+        return self._event_by_id(_as_int(hit.get("id")))
+
     def _load_keys(self) -> dict[str, Any]:
         """读索引。坏文件当空表（下一轮会重建；索引丢了最坏结果是重复一条事件）。"""
         if not self.keys_path.exists():
@@ -697,30 +949,59 @@ class SessionPlane:
 
         ``store`` 为 ``None`` 时只返回平面事件——没有数据库的机器上这条命令仍然可用，
         而不是报错（"平面"不该比它合并的东西更脆弱）。
+
+        ## 回填之后不能把同一条事实显示两遍
+
+        ``backfill_from_store`` 会把 ``task_events`` 复制进平面（一条 ``task.event``
+        镜像，带 ``task_event_id`` 回指原行）。于是同一个事实会同时以
+        **平面镜像**与 **task_event 原行**两种身份出现——如果原样合并，``plane
+        timeline`` 里每一步都会重复一行，而那正是"统一平面"最不该有的样子。
+
+        所以这里按 ``task_event_id`` 去重，并且**保留原行、丢掉镜像**：原行的 ``ref``
+        是 ``task_events.id``（能回跳到真实存储），镜像的 ``ref`` 只是平面自己的行号。
         """
         target = str(session_id or "").strip()
         if not target:
             raise SessionPlaneError("timeline 需要会话 id")
 
-        entries: list[TimelineEntry] = []
+        #: ``(时间线条目, 它镜像的 task_events.id)``。镜像 id 为 0 表示"这不是镜像"。
+        plane_entries: list[tuple[TimelineEntry, int]] = []
         if SOURCE_PLANE in sources:
             for item in self.events(target):
-                entries.append(
-                    TimelineEntry(
-                        source=SOURCE_PLANE,
-                        ts=str(item.get("ts") or ""),
-                        kind=str(item.get("kind") or ""),
-                        ref=str(item.get("id") or ""),
-                        session_id=target,
-                        text=_clip(_plane_text(item)),
-                        chars=len(_plane_text(item)),
-                        detail=item,
+                mirror_of = 0
+                if str(item.get("kind") or "") == KIND_TASK_EVENT:
+                    mirror_of = _as_int(item.get("task_event_id"))
+                plane_entries.append(
+                    (
+                        TimelineEntry(
+                            source=SOURCE_PLANE,
+                            ts=str(item.get("ts") or ""),
+                            kind=str(item.get("kind") or ""),
+                            ref=str(item.get("id") or ""),
+                            session_id=target,
+                            text=_clip(_plane_text(item)),
+                            chars=len(_plane_text(item)),
+                            detail=item,
+                        ),
+                        mirror_of,
                     )
                 )
+
+        task_entries: list[TimelineEntry] = []
+        if store is not None and SOURCE_TASK_EVENT in sources:
+            task_entries = await self._task_event_entries(store, target)
+        #: 库里真实存在的 ``task_events.id``。只有它们才有资格"顶掉"平面镜像——
+        #: 原行被删掉之后，镜像是这条事实唯一的痕迹，那时必须留着它。
+        live_ids = {_as_int(entry.ref) for entry in task_entries}
+
+        entries: list[TimelineEntry] = [
+            entry
+            for entry, mirror_of in plane_entries
+            if mirror_of <= 0 or mirror_of not in live_ids
+        ]
         if store is not None and SOURCE_MESSAGE in sources:
             entries.extend(await self._message_entries(store, target))
-        if store is not None and SOURCE_TASK_EVENT in sources:
-            entries.extend(await self._task_event_entries(store, target))
+        entries.extend(task_entries)
 
         entries.sort(key=lambda item: item.sort_key)
         if limit and limit > 0:
@@ -797,6 +1078,329 @@ class SessionPlane:
         return entries
 
 
+# ── 写侧统一：task_events ↔ 平面（10.1）────────────────────────────────────
+
+
+def task_event_key(task_id: str, event_type: str, payload: Mapping[str, Any]) -> str:
+    """``task_events`` 一行与它对应的平面事件**共用的幂等键**。
+
+    键由**内容**决定（``task:<id>:<类型>:<payload 摘要>``），不由"写了几次"决定。
+    这是 :meth:`PlaneSink.record_task_event` 与 :func:`backfill_from_store` 能对齐的
+    唯一前提：两条路径面对的是同一行事实，必须算出同一个键，否则 backfill 会把
+    实时写入过的事件再补一遍，平面日志当场翻倍。
+
+    代价如实标注：**两次内容完全相同的事件会被去重成一条**（例如同一步重试两次、
+    payload 逐字节相同）。要区分它们，调用方显式传 ``message_key``
+    （与 ``AppendLog`` 的 id 续号、``EventLog`` 的内容指纹是同一类取舍）。
+    """
+    body = json.dumps(
+        dict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
+    digest = hashlib.sha256(f"{task_id}|{event_type}|{body}".encode()).hexdigest()[:16]
+    return f"{TASK_EVENT_KEY_PREFIX}:{task_id}:{event_type}:{digest}"
+
+
+@dataclass(frozen=True)
+class SinkOutcome:
+    """一次"两边都写"的结果。
+
+    ``written_*`` 分开报：命中幂等时两个都是 ``False``（一条都不新增），
+    只写一侧的情况（``attach`` 挂在 ``store.event`` 上时 store 行由原方法写）
+    也能如实表达，不会被压成一句"成功"。
+    """
+
+    task_id: str
+    event_type: str
+    message_key: str
+    session_id: str
+    plane_id: int = 0
+    written_plane: bool = False
+    store_id: int = 0
+    written_store: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "event_type": self.event_type,
+            "message_key": self.message_key,
+            "session_id": self.session_id,
+            "plane_id": self.plane_id,
+            "written_plane": self.written_plane,
+            "store_id": self.store_id,
+            "written_store": self.written_store,
+        }
+
+
+@dataclass(frozen=True)
+class BackfillReport:
+    """一次历史回填的账。``skipped`` = 命中了幂等索引（已经写过）。"""
+
+    scanned: int = 0
+    written: int = 0
+    skipped: int = 0
+    cursor: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "scanned": self.scanned,
+            "written": self.written,
+            "skipped": self.skipped,
+            "cursor": self.cursor,
+        }
+
+
+class PlaneSink:
+    """把 ``app.storage.task_events`` 与平面 JSONL **双向对齐**的唯一入口。
+
+    ## 为什么需要它（10.1 的最后一块）
+
+    ``cron`` / ``gateway`` 已经直接写平面了，但交互会话的写入路径在
+    ``app/agent.py`` 与 ``app/graph/*`` 里——那是本轮禁改区。于是"统一平面"只有
+    读侧成立：时间线上永远看不到交互侧新发生的事。
+
+    不能改那两个文件，能做的是**把两边写成同一件事**：
+
+    - :meth:`record_task_event`：写一次，两边各落一行，共用同一个 ``message_key``；
+    - :func:`backfill_from_store`：把历史 ``task_events`` 一次性补进平面（幂等）；
+    - :meth:`attach`：把 ``store.event`` 换成"写完会话库顺手写平面"的包装。**这一步
+      只需要一行调用**（``PlaneSink(plane, store).attach()``），而那一行必须写在
+      ``app/main.py`` / ``app/agent.py`` 里——禁改区。所以 10.1 的判据
+      「CLI / TUI / gateway / cron 四处的会话与事件能在一处查到」在数据层面已经成立，
+      但"新事件自动流入"仍差那一行，**只能标 🟡**。
+
+    ## 为什么不新增一张"对齐表"
+
+    ``app/storage.py`` 与 alembic 迁移是禁改区（见模块 docstring 前三条理由），
+    所以对齐状态就是平面自己的 ``plane-keys.json``：``message_key → 事件 id``。
+    它已经存在、已经原子落盘、已经被 ``append_once`` 用着——再发明一套只会多一处
+    可能与它不一致的真相源。
+    """
+
+    def __init__(self, plane: SessionPlane, store: Any = None) -> None:
+        self.plane = plane
+        self.store = store
+        #: ``task_id → conversation_id`` 缓存。任务不会换会话，而 ``attach`` 挂在
+        #: 主循环的热路径上——每条事件多查一次 tasks 表是不可接受的。
+        self._conversations: dict[str, str] = {}
+        #: ``attach`` 期间被吞掉的平面写入错误（见 :meth:`attach`）。
+        self.errors: list[str] = []
+
+    # ── 写（两侧）──
+    async def record_task_event(
+        self,
+        task_id: str,
+        event: str,
+        *,
+        session_id: str = "",
+        message_key: str = "",
+        **fields: Any,
+    ) -> SinkOutcome:
+        """记一条任务事件：``task_events`` 一行 + 平面一行，``message_key`` 幂等。
+
+        幂等粒度是**内容**（见 :func:`task_event_key`）：同一个任务、同一类型、同一
+        payload 重复调用只落一次，两个存储都不会多出一行。命中时返回**当初那一行**
+        的 id（``written_*=False``），所以调用方拿到的 id 始终指向真实存在的行。
+        """
+        target = str(task_id or "").strip()
+        kind = str(event or "").strip()
+        if not target:
+            raise SessionPlaneError("record_task_event 需要 task_id")
+        if not kind:
+            raise SessionPlaneError("record_task_event 需要事件类型（例如 node_entered）")
+        payload = dict(fields)
+        key = str(message_key or "").strip() or task_event_key(target, kind, payload)
+        resolved = str(session_id or "").strip() or await self._conversation_of(target)
+
+        existing = self.plane.known(key)
+        if existing is not None:
+            # 两侧都跳过：只补平面而不补 store，会让"平面里两次、会话库里一次"，
+            # 时间线上同一步出现两遍；反过来更糟（事件凭空多一行）。
+            return SinkOutcome(
+                task_id=target,
+                event_type=kind,
+                message_key=key,
+                session_id=resolved or str(existing.get("session_id") or ""),
+                plane_id=_as_int(existing.get("id")),
+                written_plane=False,
+                store_id=_as_int(existing.get("task_event_id")),
+                written_store=False,
+            )
+
+        store_id = await self._write_store(target, kind, payload)
+        written = self._record_plane(
+            target,
+            kind,
+            payload,
+            session_id=resolved,
+            message_key=key,
+            store_id=store_id,
+        )
+        return SinkOutcome(
+            task_id=target,
+            event_type=kind,
+            message_key=key,
+            session_id=resolved,
+            plane_id=_as_int(written.get("id")),
+            written_plane=True,
+            store_id=store_id,
+            written_store=store_id > 0,
+        )
+
+    async def backfill(self, *, limit: int = 0) -> BackfillReport:
+        """把历史 ``task_events`` 补进平面（幂等，可重复跑）。"""
+        if self.store is None:
+            raise SessionPlaneError("backfill 需要 store（本实例没有绑定数据库）")
+        return await backfill_from_store(self.store, plane=self.plane, limit=limit)
+
+    # ── 挂到 store.event 上（需要禁改区里的那一行调用）──
+    def attach(self) -> Callable[[], None]:
+        """把 ``store.event`` 换成"写会话库 + 顺手写平面"的包装，返回卸载函数。
+
+        **这是 10.1 唯一还差的接线**：``app/agent.py`` / ``app/graph/nodes.py`` 里
+        每一处 ``await self.store.event(...)`` 都会因此自动进平面，而那两个文件一个字
+        都不用改。但**调用这一行的地方**（``app/main.py`` 或 ``app/agent.py``）是禁改区，
+        所以本轮只能把它做成"一行就能接上"的钩子，不能声称已经接上。
+
+        包装里的平面写入失败**被吞掉并计数**（:attr:`errors`）：主循环不能因为
+        "记账失败"而让一条正在跑的对话崩掉，但也不能假装没发生——所以计数可查。
+        """
+        if self.store is None:
+            raise SessionPlaneError("attach 需要 store（没有它就没有 store.event 可挂）")
+        store = self.store
+        original = store.event
+        if getattr(original, "_orbit_plane_sink", False):
+            raise SessionPlaneError("这个 store 已经挂过 PlaneSink（重复挂会写两份平面事件）")
+
+        async def event(task_id: str, kind: str, **payload: Any) -> Any:
+            row = await original(task_id, kind, **payload)
+            try:
+                session_id = await self._conversation_of(str(task_id))
+                self._record_plane(
+                    str(task_id),
+                    str(kind),
+                    dict(payload),
+                    session_id=session_id,
+                    message_key=task_event_key(str(task_id), str(kind), payload),
+                    store_id=_as_int(getattr(row, "id", 0)),
+                )
+            except Exception as exc:  # 记账失败不该打断正在跑的对话
+                self.errors.append(f"{kind}: {exc}")
+            return row
+
+        event._orbit_plane_sink = True  # type: ignore[attr-defined]
+        store.event = event
+
+        def detach() -> None:
+            store.event = original
+
+        return detach
+
+    # ── 内部 ──
+    async def _write_store(self, task_id: str, kind: str, payload: Mapping[str, Any]) -> int:
+        """写一行 ``task_events``，返回它的整数 id（失败/无 store 时 0）。"""
+        if self.store is None:
+            return 0
+        from app.storage import TaskEvent
+
+        saved = await self.store.save(TaskEvent(task_id=task_id, event_type=kind, payload=dict(payload)))
+        return _as_int(getattr(saved, "id", 0))
+
+    def _record_plane(
+        self,
+        task_id: str,
+        kind: str,
+        payload: Mapping[str, Any],
+        *,
+        session_id: str,
+        message_key: str,
+        store_id: int = 0,
+        ts: str = "",
+    ) -> dict[str, Any]:
+        """只写平面那一半（幂等）。``summary`` 给时间线一个可读的一行。"""
+        document: dict[str, Any] = {
+            "kind": KIND_TASK_EVENT,
+            "session_id": str(session_id or ""),
+            "task_id": task_id,
+            "event_type": kind,
+            "payload": dict(payload),
+            "task_event_id": int(store_id),
+            "summary": f"{kind}: {json.dumps(dict(payload), ensure_ascii=False)[:160]}",
+        }
+        if ts:
+            document["ts"] = ts
+        return self.plane.append_once(document, message_key=message_key).event
+
+    async def _conversation_of(self, task_id: str) -> str:
+        """``task_id → conversation_id``（带缓存；无 store 时返回空串）。"""
+        cached = self._conversations.get(task_id)
+        if cached is not None:
+            return cached
+        if self.store is None:
+            return ""
+        from app.storage import Task
+
+        task = await self.store.get(Task, task_id)
+        conversation = str(getattr(task, "conversation_id", "") or "") if task is not None else ""
+        self._conversations[task_id] = conversation
+        return conversation
+
+
+async def backfill_from_store(
+    store: Any, *, plane: SessionPlane, limit: int = 0
+) -> BackfillReport:
+    """把历史 ``task_events`` **一次性补进平面**（幂等，可重复跑）。
+
+    为什么需要它：写侧接线（:meth:`PlaneSink.attach`）要等禁改区里的那一行，但
+    "同库同表"这件事在**数据层面**现在就能成立——把已有的 ``task_events`` 全部按
+    :func:`task_event_key` 补进平面之后，``plane timeline`` 立刻能看到历史交互任务
+    的每一步，而不是只有接线之后新发生的事。
+
+    三个刻意的选择：
+
+    1. **``ts`` 用原来的 ``created_at``**，不是"现在"。补进去的事件必须落在它真正
+       发生的位置，否则时间线会把三个月的历史全挤在最后一行。
+    2. **``session_id`` 取 ``tasks.conversation_id``**（join 一次）。``task_events``
+       自己只挂 ``task_id``，不 join 就补不进任何会话的时间线——那等于白补。
+    3. **``limit`` 只限制本批扫描行数**，不是"只补最新的 N 条"：补历史要从最早的
+       开始，跳着补会让幂等索引出现空洞。
+    """
+    from sqlalchemy import select
+
+    from app.storage import Task, TaskEvent
+
+    statement = (
+        select(TaskEvent, Task.conversation_id)
+        .join(Task, Task.id == TaskEvent.task_id)
+        .order_by(TaskEvent.id.asc())
+    )
+    if limit and limit > 0:
+        statement = statement.limit(int(limit))
+    async with store.sessions() as session:
+        rows = (await session.execute(statement)).all()
+
+    scanned = written = skipped = 0
+    for event, conversation_id in rows:
+        scanned += 1
+        payload = event.payload if isinstance(event.payload, dict) else {"value": event.payload}
+        key = task_event_key(str(event.task_id), str(event.event_type), payload)
+        document = {
+            "kind": KIND_TASK_EVENT,
+            "session_id": str(conversation_id or ""),
+            "task_id": str(event.task_id),
+            "event_type": str(event.event_type),
+            "payload": payload,
+            "task_event_id": _as_int(event.id),
+            "summary": f"{event.event_type}: {json.dumps(payload, ensure_ascii=False)[:160]}",
+            "ts": str(event.created_at or ""),
+        }
+        outcome = plane.append_once(document, message_key=key)
+        if outcome.written:
+            written += 1
+        else:
+            skipped += 1
+    return BackfillReport(scanned=scanned, written=written, skipped=skipped, cursor=plane.cursor())
+
+
 def _plane_text(event: Mapping[str, Any]) -> str:
     """平面事件的显示文本：摘要优先，否则退化成"类型 + 其余字段"。"""
     summary = str(event.get("summary") or "").strip()
@@ -811,6 +1415,11 @@ def _plane_text(event: Mapping[str, Any]) -> str:
 
 
 __all__ = [
+    "CHARS_PER_TOKEN",
+    "COMPACTION_PREFIX",
+    "COMPACTION_PREFIXES",
+    "COMPACTION_TARGET_RATIO",
+    "COMPACTION_THRESHOLD",
     "KIND_ARCHIVED",
     "KIND_COMPRESSED",
     "KIND_CREATED",
@@ -823,8 +1432,10 @@ __all__ = [
     "KIND_PRUNED",
     "KIND_PROMPT_FROZEN",
     "KIND_RESUMED",
+    "KIND_TASK_EVENT",
     "KIND_UNARCHIVED",
     "MAX_LINEAGE_DEPTH",
+    "NODES_COMPACT_TARGET_RATIO",
     "PLANE_DIRNAME",
     "PLANE_FILENAME",
     "PLANE_KEYS_FILENAME",
@@ -833,13 +1444,27 @@ __all__ = [
     "SOURCE_MESSAGE",
     "SOURCE_PLANE",
     "SOURCE_TASK_EVENT",
+    "SUMMARY_PREFIX",
+    "TASK_EVENT_KEY_PREFIX",
     "TIMELINE_TEXT_CHARS",
     "AppendLog",
     "AppendOutcome",
+    "BackfillReport",
+    "CompactionPlan",
+    "PlaneSink",
     "SessionPlane",
     "SessionPlaneError",
+    "SinkOutcome",
     "TimelineEntry",
+    "backfill_from_store",
+    "compaction_needed",
+    "compaction_target",
+    "compaction_used_ratio",
+    "describe",
+    "maybe_compact",
     "now_iso",
     "plane_session_key",
+    "task_event_key",
     "to_epoch",
+    "tokens_for_chars",
 ]

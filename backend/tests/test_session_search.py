@@ -463,7 +463,21 @@ def test_module_imports_no_model_code():
     for name in imported:
         assert not any(name == bad or name.startswith(f"{bad}.") for bad in forbidden), name
     # 白名单而不是黑名单：将来新增一个 import 必须有人主动确认它不碰模型。
-    assert imported <= {"__future__", "dataclasses", "typing", "sqlalchemy", "app.storage"}, imported
+    #
+    # 9.6 收尾时新增了两个，逐个确认过：
+    # - ``pathlib``：只为从 ``Store.engine.url`` 反推 ``data_dir``（找 fts.sqlite）；
+    # - ``app.session_index``：**函数内 import**（模块级仍是上面那几个），它是纯
+    #   ``sqlite3`` + 标准库的检索层，既不碰模型也不碰连接器。允许它进来是 9.6 的
+    #   前提——否则"优先走 FTS"这条根本没法实现。
+    assert imported <= {
+        "__future__",
+        "dataclasses",
+        "pathlib",
+        "typing",
+        "sqlalchemy",
+        "app.session_index",
+        "app.storage",
+    }, imported
 
 
 # ── CLI：sessions ───────────────────────────────────────────────────────────

@@ -115,6 +115,16 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         await asyncio.to_thread(migrate, settings)
         app.state.store = Store(settings.data_dir / "app.sqlite")
         await app.state.store.tune()
+        # 会话平面写侧统一（MATRIX 10.1）：把 `store.event()` 换成"写完会话库顺手写平面"。
+        #
+        # 为什么必须在这里挂：`agent.py` 与 `graph/nodes.py` 里的每一处 `await
+        # self.store.event(...)` 都走实例属性，所以在这里替换一次，那两处**不用改**就能
+        # 自动进平面。少了这一行，CLI/TUI/gateway/cron 四处的事件仍然各写各的——
+        # 读侧早就合并了，写侧不统一，时间线就会缺交互会话那一段。
+        from app.session_plane import PlaneSink, SessionPlane
+
+        app.state.plane_sink = PlaneSink(SessionPlane(settings.data_dir), app.state.store)
+        app.state.plane_detach = app.state.plane_sink.attach()
         app.state.connector_config = ConnectorConfig(settings)
         await asyncio.to_thread(app.state.connector_config.load)
         app.state.browser = BrowserController(settings, app.state.store)

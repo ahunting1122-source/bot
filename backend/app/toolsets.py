@@ -70,6 +70,20 @@ TOOLSETS: dict[str, str] = {
     "skills": "技能库读取与沉淀（skill_*）",
     "web": "联网搜索与正文抓取（web_search / web_extract）",
     "mcp": "MCP 服务动态暴露的工具（mcp__<server>__<tool>）",
+    # ── 只有域、没有成员（MATRIX 5.15）────────────────────────────────────
+    # 下面 8 个条目存在的**唯一**理由：让 19 个功能域各自可查（:func:`describe_domains`）。
+    # 空域也必须有条目——否则"这个域确实没有工具"与"这个域根本没人想到"在输出里长得
+    # 一模一样，而这两件事的后续动作完全不同（前者写进文档，后者写进排期）。
+    # 它们永远不会有成员（原因见 :data:`EMPTY_TOOLSETS`），因此把它们写进
+    # ``data/tools.json`` 的 ``disabled`` 是**合法的 no-op**，不是拼写错误。
+    "delegation": "委派与子 agent（域内无模型工具：委派是图节点行为，不是可调用工具）",
+    "media": "媒体生成：图片 / 视频（域内无工具：要联网调付费 provider）",
+    "vision": "视觉与视频理解（域内无工具：多模态由模型自带，不需要工具桥）",
+    "tts": "语音合成（域内无工具：走 app/voice.py 与平台通道，不经模型工具）",
+    "kanban": "看板（域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端）",
+    "cron": "定时任务（域内无工具：定时由 app/cron.py + `orbit cron` 承担）",
+    "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
+    "home": "智能家居（域内无工具：要 Home Assistant 之类的网关与设备凭证）",
 }
 
 #: 声明式映射：工具名 → toolset。**新增工具必须在这里加一行**，否则落进
@@ -158,6 +172,223 @@ PREFIX_TOOLSETS: tuple[tuple[str, str], ...] = (
     ("github_", "github"),
     ("web_", "web"),
 )
+
+
+# ── 19 个功能域（MATRIX 6.1 / 5.15）─────────────────────────────────────────
+#
+# 这张表和 ``app/tool_catalog.py`` 的 ``DOMAINS`` **逐字相同**，但**不能直接 import
+# 它**：``tool_catalog`` 在模块顶层 ``from app import toolsets``，反过来 import 就成环。
+# 于是这里复制一份，用测试（``tests/test_toolset_filtering.py``）盯住两边不许漂——
+# 复制 + 门禁，比"延迟 import 造环"更便宜，也比"两边各写一份没人管"更可靠。
+
+#: 19 个功能域 → 一行中文说明。顺序照 Hermes 报告 §4（与 ``tool_catalog.DOMAINS`` 一致）。
+DOMAINS: dict[str, str] = {
+    "file": "文件读写与编辑",
+    "terminal": "终端与进程",
+    "code": "代码执行",
+    "browser": "浏览器",
+    "web": "网页搜索与抓取",
+    "search": "专项检索（X / 历史会话）",
+    "memory": "记忆",
+    "skills": "技能",
+    "mcp": "外部工具接入（MCP）",
+    "delegation": "委派与子 agent",
+    "media": "媒体生成（图 / 视频）",
+    "vision": "视觉与视频理解",
+    "tts": "语音合成",
+    "kanban": "看板",
+    "cron": "定时任务",
+    "desktop": "桌面与窗口",
+    "collab": "协作与消息平台",
+    "home": "智能家居",
+    "meta": "元工具（清单 / 澄清 / 工具桥）",
+}
+
+#: 域 → 服务它的 toolset（可多个）。**每一层的语义**：
+#:
+#: * 一个 toolset 只能属于一个域（测试会断言覆盖关系是划分，不是重叠）——
+#:   否则"域覆盖"会重复计数，看起来覆盖得比实际好。
+#: * 域划分来自 Hermes，但 Hermes 没有 Orbit 独有的 ``vault`` / ``github`` /
+#:   ``history`` / ``retrieval`` / ``notion`` 这五组。所以这张表是**Orbit 自己的
+#:   归并账**：凭据填充归 browser（同一套浏览器会话）、GitHub 只读检索归 code
+#:   （读的是代码托管）、历史任务与已读内容回看归 search（都是"找回以前的东西"）、
+#:   Notion 归 collab（协作工具；Slack/Discord 是入站通道 ``app/platforms.py``，
+#:   不是模型工具）。**这是归并，不是掩饰**：``describe_domains()`` 会把每个域的
+#:   真实工具名列出来，读者一眼能看出某域是被"借"来的工具撑着的。
+DOMAIN_TOOLSETS: dict[str, tuple[str, ...]] = {
+    "file": ("files",),
+    "terminal": ("shell",),
+    "code": ("code", "github"),
+    "browser": ("browser", "vault"),
+    "web": ("web",),
+    "search": ("session", "history", "retrieval"),
+    "memory": ("memory",),
+    "skills": ("skills",),
+    "mcp": ("mcp",),
+    "delegation": ("delegation",),
+    "media": ("media",),
+    "vision": ("vision",),
+    "tts": ("tts",),
+    "kanban": ("kanban",),
+    "cron": ("cron",),
+    "desktop": ("desktop",),
+    "collab": ("notion",),
+    "home": ("home",),
+    "meta": ("core",),
+}
+
+#: 域里有 toolset 但**永远没有工具**的域 → 原因。``describe_domains()`` 用它填
+#: ``empty=True`` 的那一列；缺了原因的空域会被测试拦下来（"空"必须解释得出来）。
+EMPTY_TOOLSETS: dict[str, str] = {
+    "delegation": (
+        "委派在 Orbit 里是图节点行为（app/graph + app/delegate.py），不是模型可调用的工具。"
+        "Hermes 的 delegate_task 对应 `orbit delegate` 命令面。"
+    ),
+    "media": "图片 / 视频生成要联网调付费 provider（DALL·E / Sora 之类），本机无网络、无凭证。",
+    "vision": "视觉理解由多模态模型自带（providers.py 的 supports_vision），不需要工具桥。",
+    "tts": "语音合成走 app/voice.py 与平台通道，是「输出方式」而不是「模型动作」。",
+    "kanban": "Orbit 用 todo 工具 + 前端面板表达任务状态，没有独立看板后端可接。",
+    "cron": "定时任务由 app/cron.py 与 `orbit cron` 承担；模型侧没有「给自己排期」的工具。",
+    "desktop": "桌面 / 窗口控制要 pyautogui 之类的桌面运行时，本机未安装且不允许安装。",
+    "home": "智能家居要 Home Assistant 之类的网关与设备凭证，本机没有。",
+}
+
+
+def domain_of(toolset: str) -> str:
+    """toolset → 功能域。查不到返回空串（未归域，测试会拦）。"""
+    for domain, group in DOMAIN_TOOLSETS.items():
+        if toolset in group:
+            return domain
+    return ""
+
+
+def domain_of_tool(name: str) -> str:
+    """工具名 → 功能域。先归 toolset 再归域，保证两条路由永远一致。"""
+    return domain_of(toolset_of(name))
+
+
+# ── 分级披露（MATRIX 5.11）──────────────────────────────────────────────────
+#
+# `tier` 是"这个工具在首次请求里该拿多少披露"的等级，**写进 toolset 声明**而不是
+# 逐个工具手写：同组的工具几乎总是同进同退，逐条写只会让新增工具默认掉到最差等级
+# （没人记得改），而分级的目的恰恰是"默认别把罕见工具全塞进去"。
+#
+# 三级的分界不是"重要 / 不重要"，而是**错了的代价不对称**：
+# * Tier 0 —— 缺了它这一轮对话根本没法开始（没有 run_command 就没法干活，
+#   没有 tool_search 就找不到别的工具）。所以永不裁剪、永不延迟。
+# * Tier 1 —— 日常路径，绝大多数轮次会用到（读写文件、跑命令、联网、记忆）。
+#   描述保留全文，只有在预算实在压不下来时才动。
+# * Tier 2 —— 少数轮次才用到（浏览器、MCP、技能、历史召回…）。预算紧张时
+#   最先被压成一句，模型需要细节时用 `tool_search` 取。
+
+#: tier 编号 → 一句话含义。``orbit tools list`` / ``tools domains`` 用它解释列。
+TIERS: dict[int, str] = {
+    0: "必备：永不裁剪、永不延迟（核心动作）",
+    1: "常用：描述保留全文，预算吃紧时最后才动",
+    2: "罕见：预算紧张时先压成一句，细节用 tool_search 取",
+}
+
+#: toolset → 默认 tier。没登记的 toolset 一律按 Tier 2 处理（**保守方向**：
+#: 新增 toolset 默认是"可以晚点披露"，而不是默认抢占首屏预算）。
+TOOLSET_TIERS: dict[str, int] = {
+    "core": 0,
+    "files": 1,
+    "shell": 1,
+    "web": 1,
+    "memory": 1,
+    "code": 2,
+    "browser": 2,
+    "vault": 2,
+    "notion": 2,
+    "github": 2,
+    "history": 2,
+    "session": 2,
+    "retrieval": 2,
+    "skills": 2,
+    "mcp": 2,
+    # 8 个空域没有成员，写在这里是为了"域 → tier"这张表自身完整、可被测试对账。
+    "delegation": 2,
+    "media": 2,
+    "vision": 2,
+    "tts": 2,
+    "kanban": 2,
+    "cron": 2,
+    "desktop": 2,
+    "home": 2,
+}
+
+#: 单个工具的 tier 覆盖（比 toolset 声明优先）。目前为空，机制先立着：
+#: 一旦某个工具和它同组邻居的频率差得远（比如 shell 组里的 `process`），
+#: 就在这里单独调，而不是把整组抬上去。
+TOOL_TIERS: dict[str, int] = {}
+
+#: **永不延迟**的工具（MATRIX 5.11 的硬要求）。名字是 Orbit 的叫法，括号里是
+#: Hermes 的同名工具——两边不同名的地方最容易漏，所以写清楚：
+#:
+#: * ``run_command``（terminal）—— 没有它，模型连"看看这个仓库有什么"都做不到；
+#: * ``local_read_file``（read_file）—— 读文件是最基础的观察动作；
+#: * ``local_write_file``（write_file）—— 写文件是最基础的产出动作；
+#: * ``apply_patch``（patch）—— 改文件的结构化形态，和 write_file 是同一档；
+#: * ``todo``（todo）—— 任务清单：缺了它，多步任务会退化成靠记忆；
+#: * ``clarify``（clarify）—— 结构化澄清：缺了它只能靠散文提问；
+#: * ``ask_user``（ask_user）—— 人工介入的唯一出口（图节点注册的工具）；
+#: * ``tool_search``（tool_search）—— **元工具**：它被延迟就等于"找不到工具的工具
+#:   自己也找不到"，整个分级披露当场失效。
+#:
+#: GUI 侧（`browser_*`）刻意**不在**这里：浏览器一族要 playwright + chromium，
+#: 装了才有意义，属于"按需披露"的典型，而不是"每轮必备"。
+ALWAYS_EAGER: frozenset[str] = frozenset(
+    {
+        "run_command",
+        "local_read_file",
+        "local_write_file",
+        "apply_patch",
+        "todo",
+        "clarify",
+        "ask_user",
+        "tool_search",
+    }
+)
+
+#: 工具 → tier。``ALWAYS_EAGER`` 里的工具**无条件**是 Tier 0（哪怕它所在的 toolset
+#: 被声明成 Tier 1/2）——这正是"永不延迟"的实现点，而不是一句注释。
+def tier_of(name: str) -> int:
+    """工具名 → 披露等级（0/1/2）。"""
+    if name in ALWAYS_EAGER:
+        return 0
+    explicit = TOOL_TIERS.get(name)
+    if explicit is not None:
+        return explicit
+    return TOOLSET_TIERS.get(toolset_of(name), 2)
+
+
+# ── 预算估算（MATRIX 5.11）─────────────────────────────────────────────────
+
+#: 首次请求里工具清单的 token 预算。
+#:
+#: 4,000 是 Hermes 的口径（调研 §1「分级披露」）。**它不是一个能达到的硬上限**，
+#: 理由见 :func:`app.tools.ToolRegistry.specs` 的 docstring：参数 schema 是调用契约，
+#: 不能删；38 个内置工具的 schema 本身就是 ~4,300 token。所以这里的语义是
+#: "描述这一维最多占多少"，超了就按 tier 从低到高把描述压成一句。
+LISTING_BUDGET_TOKENS = 4000
+
+#: 字符 → token 的粗略系数。**不引 tokenizer**：装不了依赖，而不同家的 tokenizer
+#: 对中文/JSON 的偏差本来就大，估个量级足够做"要不要裁剪"这个二值判断。
+#: 偏保守（4 字符/token 对中文是低估 token 数），宁可多裁一点也不要爆预算。
+CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(payload: Any) -> int:
+    """把任意 JSON 可序列化对象估成 token 数（字符数 / :data:`CHARS_PER_TOKEN`，向上取整）。
+
+    为什么接受任意对象而不只是 specs：调用方会拿它量"整份清单"、"单条描述"、
+    "某个工具的参数 schema"三种粒度，统一一个函数比三份实现更不容易漂。
+    """
+    if isinstance(payload, str):
+        text = payload
+    else:
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
 
 
 # ── 归属判定 ────────────────────────────────────────────────────────────────
@@ -537,6 +768,210 @@ def invalidate_probe_cache() -> None:
     _PROBE_CACHE.clear()
 
 
+# ── 四层过滤（MATRIX 6.2）───────────────────────────────────────────────────
+#
+# 只有"平台层"是不够的。同一个工具在四个不同维度上会有四种答案：
+#
+#   1. **平台层**——`data/tools.json` 的 `platforms.<platform>`。回答"这个渠道上有
+#      没有"（Telegram 不给 run_command，CLI 给）。
+#   2. **场景层**——这一轮是谁在跑（`chat` / `cron` / `subagent` / `acp`）。
+#      回答"此刻有没有意义"。cron 里没人能回答 clarify 的问题，给了只会空转。
+#   3. **profile 层**——`data/tools.json` 的 `profiles.<name>`。回答"这个人/这个
+#      配置有没有开"。同一台机器上，只读审查 profile 和开发 profile 的暴露面不同。
+#   4. **委托层**——这一轮是不是被委派出来的。回答"能不能再往下传"。
+#
+# 为什么要分成四层而不是一张大表：**每一层的失败模式不同**，排查时必须能定位到
+# 是哪一层拦的。所以 :func:`explain` 逐层给结论，而不是一句"不可见"。
+
+#: 允许的场景。新增场景必须同时想清楚"它和 chat 差在哪"——差别说不出来就不该新开。
+SCENES: tuple[str, ...] = ("chat", "cron", "subagent", "acp")
+
+#: 默认场景：交互式对话。与 :data:`DEFAULT_PLATFORM` 同一个道理——不带参数时落到
+#: 最常用、限制最少的那个。
+DEFAULT_SCENE = "chat"
+
+#: 场景 → 该场景**额外排除**的条目（工具名 / toolset 名 / MCP 写法，同 ``_hits`` 语义）。
+#:
+#: 只写"这个场景里做了也没用"的条目，不写"风险高"的条目——风险归平台层和 profile 层，
+#: 混在一起会让"为什么 cron 没有 run_command"变成查不出来的问题。
+SCENE_EXCLUDES: dict[str, tuple[str, ...]] = {
+    # chat：交互式对话，什么都不额外排除。
+    "chat": (),
+    # cron：定时任务跑在没人看着的时钟上。交互类工具问出去的问题**永远不会有回答**，
+    # 模型只能空转到超时，然后把"我提了个问题"写进结果。整组摘掉比让它试一次好。
+    "cron": ("ask_user", "clarify", "todo"),
+    # subagent：子 agent 不该再起子 agent。递归没有深度上限，一次失控就是指数级 spawn，
+    # 而且每一层都带着自己的上下文预算——账单会先炸。
+    "subagent": ("delegate_task",),
+    # acp：编辑器内嵌面板。它在**编辑器的进程里**跑，弹浏览器会跑到用户的桌面会话上
+    # （窗口从哪冒出来的没人知道，也没人能接管登录），所以凭据填充不给。
+    "acp": ("vault_login",),
+}
+
+#: 委托层：``FilterContext.delegated=True``（这一轮是被委派出来的）时排除的条目。
+#:
+#: * ``delegate_task``：防无限递归（与 subagent 场景同一理由，但这一层独立存在——
+#:   一个 delegated 的 run 完全可能声明自己是 ``scene="chat"``）；
+#: * ``ask_user`` / ``clarify``：被委派者与用户之间隔着委派者。直接问用户等于绕过
+#:   委派者的汇总与判断，用户会看到一堆互不相关的问题。
+DELEGATION_EXCLUDES: tuple[str, ...] = ("delegate_task", "ask_user", "clarify")
+
+#: 层名 → 中文标签。``explain()`` 用它，让输出与代码里的层一一对应。
+LAYERS: dict[str, str] = {
+    "platform": "平台层",
+    "scene": "场景层",
+    "profile": "profile 层",
+    "delegated": "委托层",
+}
+
+
+@dataclass(frozen=True)
+class FilterContext:
+    """一轮请求的过滤上下文：四层各一个维度。
+
+    frozen：它会被当作参数在调用链上传来传去，中途被谁改了会让"同一轮里两次
+    ``resolve`` 结果不同"——那是最难查的一类 bug。
+    """
+
+    platform: str = DEFAULT_PLATFORM
+    scene: str = DEFAULT_SCENE
+    #: profile 名（``data/tools.json`` 的 ``profiles.<name>``）。空串 = 不做 profile 收窄。
+    profile: str = ""
+    #: True = 这一轮是被委派出来的（``delegate_task`` 起的那条链）。
+    delegated: bool = False
+
+    def __post_init__(self) -> None:
+        if self.scene not in SCENES:
+            raise ValueError(f"未知场景 {self.scene!r}（可选：{' / '.join(SCENES)}）")
+
+
+def profile_state(
+    config: Mapping[str, Any] | None, profile: str
+) -> tuple[list[str], list[str]]:
+    """返回该 profile 的 ``(disabled, enabled)``。语义与 :func:`platform_state` 一致。
+
+    ``profile`` 为空、或配置里没有这一段，都返回 ``([], [])``（= 不收窄）。
+    为什么 profile 层不默认"全关"：profile 是**加法的便利**（给某类工作收窄），
+    不是安全边界；安全边界在平台层。把 profile 当成"没配就等于全关"，会让新增
+    profile 的人先把 agent 弄成哑巴。
+    """
+    if not profile:
+        return [], []
+    profiles = (config or {}).get("profiles")
+    if not isinstance(profiles, Mapping):
+        return [], []
+    entry = profiles.get(profile)
+    if not isinstance(entry, Mapping):
+        return [], []
+    return _str_list(entry.get("disabled")), _str_list(entry.get("enabled"))
+
+
+def _layer_exclusion(
+    name: str, layer: str, context: FilterContext, config: Mapping[str, Any] | None
+) -> str:
+    """某一层是否排除这个工具。返回**命中的条目**（空串 = 这一层放行）。
+
+    四层各一段，故意不写成一张表：每层的判定来源不同（配置 / 常量 / 布尔标志），
+    塞进同一张表就要加一堆 ``if layer == ...``，反而看不出每层在判什么。
+    """
+    toolset = toolset_of(name)
+    if layer == "platform":
+        disabled, enabled = platform_state(config, context.platform)
+        if disabled and (entry := _matching_entry(disabled, name, toolset)):
+            return entry
+        if enabled and not _matching_entry(enabled, name, toolset):
+            return "（不在 enabled 白名单里）"
+        return ""
+    if layer == "scene":
+        return _matching_entry(SCENE_EXCLUDES.get(context.scene, ()), name, toolset)
+    if layer == "profile":
+        disabled, enabled = profile_state(config, context.profile)
+        if disabled and (entry := _matching_entry(disabled, name, toolset)):
+            return entry
+        if enabled and not _matching_entry(enabled, name, toolset):
+            return "（不在 enabled 白名单里）"
+        return ""
+    if layer == "delegated":
+        if not context.delegated:
+            return ""
+        return _matching_entry(DELEGATION_EXCLUDES, name, toolset)
+    raise ValueError(f"未知过滤层：{layer}")
+
+
+def _layer_reason(name: str, layer: str, hit: str, context: FilterContext) -> str:
+    """把"命中哪一层 + 命中哪条"翻成一句人话。**这是 explain 的全部价值所在**：
+    用户看到的必须是"cron 场景不给交互类工具，因为没人能回答"，而不是"被排除了"。"""
+    if layer == "platform":
+        if hit.startswith("（"):
+            return f"{context.platform} 平台：{hit.strip('（）')}"
+        return f"{context.platform} 平台的禁用集命中「{hit}」"
+    if layer == "scene":
+        if context.scene == "cron" and hit in {"ask_user", "clarify", "todo"}:
+            return f"cron 场景不给交互类工具（命中「{hit}」）：定时任务没人能回答，问了只会空转到超时"
+        if context.scene == "subagent" and hit == "delegate_task":
+            return "subagent 场景不给 delegate_task：子 agent 再起子 agent 会无限递归"
+        if context.scene == "acp" and hit == "vault_login":
+            return "acp 场景不给 vault_login：编辑器内嵌面板里没人能接管浏览器登录"
+        return f"{context.scene} 场景排除「{hit}」"
+    if layer == "profile":
+        if hit.startswith("（"):
+            return f"profile「{context.profile}」的白名单里没有它"
+        return f"profile「{context.profile}」的禁用集命中「{hit}」"
+    if hit == "delegate_task":
+        return "委托链里不给 delegate_task：防无限递归"
+    return f"委托链里不给「{hit}」：被委派者与用户之间隔着委派者，直接问会绕过它"
+
+
+def explain(
+    tool: str,
+    context: FilterContext,
+    config: Mapping[str, Any] | None = None,
+) -> str:
+    """逐层解释一个工具为什么可见 / 不可见（MATRIX 6.2 的"每一层都要能解释"）。
+
+    返回多行文本，**每一层都有一行**——包括放行的层。只打印拦它的那一层看起来更短，
+    但排查时最常问的是"另外三层为什么不拦它"，缺了就得回头读代码。
+    """
+    toolset = toolset_of(tool)
+    lines = [
+        f"{tool}（toolset={toolset}，域={domain_of(toolset) or '未归域'}，"
+        f"tier={tier_of(tool)}，场景={context.scene}，平台={context.platform}，"
+        f"profile={context.profile or '（未指定）'}）"
+    ]
+    blocked_by = ""
+    for layer in ("platform", "scene", "profile", "delegated"):
+        hit = _layer_exclusion(tool, layer, context, config)
+        label = LAYERS[layer]
+        if hit:
+            reason = _layer_reason(tool, layer, hit, context)
+            lines.append(f"  {label}：排除 —— {reason}")
+            blocked_by = blocked_by or label
+        else:
+            detail = {
+                "platform": f"{context.platform} 上没有针对它的禁用 / 白名单条目",
+                "scene": f"{context.scene} 场景不排除它",
+                "profile": (
+                    "未指定 profile，本层不收窄"
+                    if not context.profile
+                    else f"profile「{context.profile}」不排除它"
+                ),
+                "delegated": (
+                    "委托链里也不排除它"
+                    if context.delegated
+                    else "不是被委派的一轮，本层不生效"
+                ),
+            }[layer]
+            lines.append(f"  {label}：放行 —— {detail}")
+    # 可用性探针是第五个（不属于四层，但同样决定"调得到调不到"），
+    # 只读缓存：explain 不该顺手触发真实探测。
+    available, reason = cached_probe(tool)
+    lines.append(
+        "  可用性：可用" if available else f"  可用性：不可用 —— {reason}"
+    )
+    lines.append(f"  结论：{'不可见（' + blocked_by + '拦下）' if blocked_by else '可见'}")
+    return "\n".join(lines)
+
+
 # ── 解析 / 视图 ─────────────────────────────────────────────────────────────
 
 
@@ -545,27 +980,40 @@ def resolve(
     platform: str = DEFAULT_PLATFORM,
     config: Mapping[str, Any] | None = None,
     *,
+    context: FilterContext | None = None,
     now: float | None = None,
 ) -> list[str]:
-    """算出该平台**实际暴露**的工具名（保持传入顺序）。
+    """算出**实际暴露**的工具名（保持传入顺序）。
 
     判定顺序（先禁用、再收窄、最后看可用性）：
-    1. 命中 ``disabled`` → 排除；
-    2. ``enabled`` 非空且不命中 → 排除（白名单模式）；
-    3. 探针缓存里**明确判定不可用** → 排除；
-    4. 其余暴露。
+    1. 平台层：命中 ``disabled`` → 排除；``enabled`` 非空且不命中 → 排除（白名单）；
+    2. 场景层：命中 :data:`SCENE_EXCLUDES` → 排除（给了 ``context`` 才生效）；
+    3. profile 层：命中 ``profiles.<profile>`` 的禁用 / 白名单 → 排除（同上）；
+    4. 委托层：``context.delegated`` 且命中 :data:`DELEGATION_EXCLUDES` → 排除；
+    5. 探针缓存里**明确判定不可用** → 排除；
+    6. 其余暴露。
 
     禁用优先于启用：同时写了 ``disable web`` 和 ``enable web_search`` 时，显式禁用赢。
     理由是"关掉"通常是安全决策，"开着"只是便利决策，冲突时该选保守的那个。
 
-    第 3 步**只读缓存**（``probe(trigger=False)``），绝不触发真实探测：``resolve``
+    ``context`` 留空 = **只有平台层生效**，与引入四层之前的签名与行为逐字一致。
+    这是刻意的：``ToolRegistry.specs()`` 每轮都走这条路，把它一次性改成四层会让
+    所有既有调用点（以及几十条测试）一起漂；四层是**显式传入**才生效的。
+
+    探针那一步**只读缓存**（``probe(trigger=False)``），绝不触发真实探测：``resolve``
     落在每轮请求的暴露面计算上，而探针会读盘、读密钥、glob 浏览器目录。没探测过
     或结果过期时按"可用"处理——**宁多暴露一个调不通的工具，也不因为没探测就把工具
     悄悄摘掉**。真正的探测由 ``orbit tools probe`` / ``probe_all`` 触发。
     """
-    disabled, enabled = platform_state(config, platform)
+    if context is not None:
+        platform = context.platform
     exposed: list[str] = []
     for name in _config_exposure(names, platform, config):
+        if context is not None and any(
+            _layer_exclusion(name, layer, context, config)
+            for layer in ("scene", "profile", "delegated")
+        ):
+            continue
         if not cached_probe(name, now=now)[0]:
             continue
         exposed.append(name)
@@ -603,6 +1051,7 @@ def describe(
     *,
     settings: Any = None,
     probe_fresh: bool = True,
+    by_domain: bool = False,
 ) -> list[dict[str, Any]]:
     """``orbit tools list`` 的完整视图：工具名 / toolset / 是否暴露 / 为什么被排除。
 
@@ -617,7 +1066,13 @@ def describe(
     ``probe_fresh``（默认开）：``tools list`` 是**人主动发起的一次性诊断命令**，
     在这里跑一次探针是合理的——不然"为什么这个工具用不了"永远只能靠猜。反过来
     ``resolve``（每轮请求都跑）只读缓存，两者刻意不对称。
+
+    ``by_domain=True``：改按 **19 个功能域**输出（MATRIX 5.15 的判据是"每个域的覆盖
+    情况可查"，逐工具的行读不出这件事）。默认 ``False`` 保持逐工具的旧形状——``tools
+    list`` 与既有测试都按那个形状写的，换形状等于把回归闸一起拆了。
     """
+    if by_domain:
+        return describe_domains(names)
     pool = list(names) if names is not None else declared_tool_names()
     disabled, enabled = platform_state(config, platform)
     rows: list[dict[str, Any]] = []
@@ -641,10 +1096,66 @@ def describe(
             {
                 "name": name,
                 "toolset": toolset,
+                # 域也放进逐工具视图：`tools list` 的输出里能一眼看出"这个工具算哪个
+                # 功能域"，不必再跑一次 `tools domains` 反查。
+                "domain": domain_of(toolset),
+                "tier": tier_of(name),
                 "exposed": not reason,
                 "reason": reason,
                 "note": note,
                 "requirement": requirement_of(name),
+            }
+        )
+    return rows
+
+
+def describe_domains(names: Iterable[str] | None = None) -> list[dict[str, Any]]:
+    """**按 19 个功能域**输出覆盖情况（MATRIX 5.15 的判据就是这一条）。
+
+    每一行回答四件事，缺一件这个域就没法"可查"：
+
+    * ``toolsets`` —— 服务这个域的 toolset（可能是空的，见 :data:`DOMAIN_TOOLSETS`）；
+    * ``tools`` —— 真实工具名（空列表就是"这个域确实没有工具"，不是"忘了填"）；
+    * ``empty`` + ``reason`` —— 空域**必须**给出原因。没原因的空域等于一个没人负责的
+      坑：下一个人看到 `empty=True` 只会以为是笔误。
+    * ``dynamic`` —— 该域的工具是运行时才知道名字的（只有 ``mcp``）。这类域的
+      ``tools`` 空不代表没能力，所以不能跟真空域混成一类。
+
+    ``names`` 留空时只看声明表；调用方通常传真实工具名（注册表里的全部），
+    这样"声明有、实际没注册"的工具也能被算出来。
+    """
+    pool = list(names) if names is not None else declared_tool_names()
+    rows: list[dict[str, Any]] = []
+    for domain, label in DOMAINS.items():
+        toolsets_of_domain = DOMAIN_TOOLSETS.get(domain, ())
+        tools = [name for name in pool if toolset_of(name) in toolsets_of_domain]
+        dynamic = domain == "mcp"  # MCP 工具名运行时生成（mcp__<server>__<tool>）
+        reason = ""
+        if not tools:
+            declared_here = [
+                name for name in declared_tool_names() if toolset_of(name) in toolsets_of_domain
+            ]
+            if dynamic:
+                reason = "工具名由 MCP 服务在运行时给出，连接前无法枚举——空列表不等于没能力"
+            elif declared_here:
+                # 域本身有工具，只是**这一批**没带上（注册表还没加载 / 调用方只传了子集）。
+                # 与"这个域本来就没有工具"必须分开说，否则一次子集查询会被读成功能缺口。
+                reason = "该域有声明过的工具，但都不在当前工具池里（未注册或未加载）"
+            else:
+                reason = EMPTY_TOOLSETS.get(
+                    toolsets_of_domain[0] if toolsets_of_domain else "",
+                    "该域已声明但没有登记任何工具，且没有写原因（测试会拦）",
+                )
+        rows.append(
+            {
+                "domain": domain,
+                "label": label,
+                "toolsets": list(toolsets_of_domain),
+                "tools": sorted(tools),
+                "count": len(tools),
+                "empty": not tools,
+                "dynamic": dynamic,
+                "reason": reason,
             }
         )
     return rows

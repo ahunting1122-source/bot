@@ -24,6 +24,10 @@ Orbit 的 dashboard 是 **React 前端 + FastAPI**（``app/main.py``），而 ``
    没有 dashboard 依赖、也没有网络的环境里跑。
 3. **生成路由描述**（:func:`routes_for`）：把 ``router`` 上声明的路由翻译成
    ``/api/plugins/<name>/…`` 形态的 :class:`RouteSpec` 列表，供将来接线与 ``--json`` 消费。
+4. **登记页面**（:class:`PageRegistry`，MATRIX 13.4）：``ctx.register_dashboard_page``
+   的**真实落点**。上一轮注册完只留在 ``PluginContext`` 里，上下文一死就查不到了；
+   登记表让"插件注册了哪些页面、要挂在哪、还缺什么"变成可枚举、可断言的事实
+   （``orbit plugins pages`` 就是它的消费者）。
 
 **真正挂载未实现**，:func:`describe` 里 ``state`` 恒为 ``partial``、``mounted`` 恒为
 ``False``，并把"要挂上去还缺什么"逐条写出来。不假装能挂：一个"挂上了但 404"的
@@ -602,6 +606,85 @@ def describe(plugin: DashboardManifest) -> dict[str, Any]:
     }
 
 
+# ── 页面登记表：`ctx.register_dashboard_page` 的真实落点（MATRIX 13.4）───────
+
+
+@dataclass
+class PageRegistry:
+    """插件 dashboard 页面的登记表（宿主侧结构）。
+
+    **为什么需要它**：上一轮 ``register_dashboard_page`` 只把描述写进
+    ``PluginContext.dashboard_pages``——上下文随 ``load()`` 一起死掉，于是"插件注册了
+    一个页面"这件事**没有任何人查得到**，等于没注册。登记表补上这一层：
+    注册 → 登记表 → ``orbit plugins pages`` 消费。
+
+    它**仍然不挂载路由**（``mounted`` 恒为 False，理由见 :func:`describe`），
+    但"注册了哪些页面、各自要挂在哪、还缺什么"从此可枚举、可断言。
+    """
+
+    #: 页面名 → {"manifest": DashboardManifest, "described": dict}
+    _pages: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def add(
+        self, manifest: DashboardManifest, described: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """登记一个页面。同名覆盖（插件重载时后一份为准，与工具注册同一条纪律）。"""
+        entry: dict[str, Any] = {
+            "manifest": manifest,
+            "described": described if described is not None else describe(manifest),
+        }
+        self._pages[manifest.name] = entry
+        result: dict[str, Any] = entry["described"]
+        return result
+
+    def remove(self, name: str) -> bool:
+        """摘掉一个页面（插件被禁用/移除时）。返回是否真的摘掉了。"""
+        return self._pages.pop(name, None) is not None
+
+    def clear(self) -> None:
+        """清空（测试隔离与热重载用）。"""
+        self._pages.clear()
+
+    def names(self) -> list[str]:
+        """已登记的页面名（保持登记顺序）。"""
+        return list(self._pages)
+
+    def by_name(self, name: str) -> dict[str, Any] | None:
+        entry = self._pages.get(name)
+        return entry["described"] if entry else None
+
+    def manifests(self) -> list[DashboardManifest]:
+        return [entry["manifest"] for entry in self._pages.values()]
+
+    def routes(self) -> list[RouteSpec]:
+        """全部页面声明的路由（已翻译成 ``/api/plugins/<name>/…``）。"""
+        out: list[RouteSpec] = []
+        for entry in self._pages.values():
+            out.extend(routes_for(entry["manifest"]))
+        return out
+
+    def as_dict(self) -> dict[str, Any]:
+        """结构化快照。``mounted`` 恒为 0：没有挂载点，这一点不许含糊。"""
+        return {
+            "pages": [entry["described"] for entry in self._pages.values()],
+            "routes": [item.as_dict() for item in self.routes()],
+            "registered": len(self._pages),
+            "mounted": 0,
+            "pending_mount": list(self._pages),
+            "reason": (
+                "登记表是真实落点（注册后 `orbit plugins pages` 立刻查得到），"
+                "但 app/main.py 没有 include_router 的插件分支，所以一条路由都没挂上"
+            ),
+        }
+
+
+#: 进程级默认登记表。宿主（``PluginRuntime`` / ``plugins.load``）把它当 ``page_sink``
+#: 注入，插件的 ``register_dashboard_page`` 就直接落到这里。
+#: **为什么是对象而不是模块级字典**：测试与热重载要能换一个干净的实例（``clear()``），
+#: 共享一个裸 dict 会让"上一个用例注册的页面"漏到下一个用例里。
+PAGES = PageRegistry()
+
+
 # ── 小工具 ──────────────────────────────────────────────────────────────────
 
 
@@ -615,12 +698,14 @@ __all__ = [
     "DASHBOARD_FIELDS",
     "EXCLUDED_DIRS",
     "OPTIONAL_DASHBOARD_FIELDS",
+    "PAGES",
     "DashboardDiscovery",
     "DashboardError",
     "DashboardIssue",
     "DashboardManifest",
     "DashboardTab",
     "DashboardValidation",
+    "PageRegistry",
     "RouteSpec",
     "describe",
     "discover",

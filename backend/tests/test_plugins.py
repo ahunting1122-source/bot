@@ -807,15 +807,30 @@ def test_cli_plugins_enable_disable(tmp_path, capsys):
     assert "已启用" in capsys.readouterr().out
 
 
-def test_cli_plugins_capabilities_lists_19_and_17(tmp_path, capsys):
+def test_cli_plugins_capabilities_lists_all_nineteen(tmp_path, capsys):
+    """19 种 `ctx.register_*` 都要列出来，并给出三态计数。
+
+    原断言检查的是旧实现里的「17 个实证」/「推断」字样。那套口径已经被
+    `app/plugin_capabilities.py` 取代（wired / exposed / unsupported 三态，
+    且 exposed 与 unsupported 必须写清缺哪一层）。**数量会变，三态自洽不会**——
+    所以改成断言后者。
+    """
+    from app import plugin_capabilities
+
     data_dir = str(tmp_path / "data")
     assert main(["--data-dir", data_dir, "plugins", "capabilities"]) == 0
     out = capsys.readouterr().out
-    for capability in plugins.PLUGIN_CAPABILITIES:
-        assert capability in out, capability
-    assert "on_session_start" in out
-    assert "17 个实证" in out
-    assert "推断" in out
+    summary = plugin_capabilities.summary()
+    assert summary["total"] == 19
+    assert summary["wired"] + summary["exposed"] + summary["unsupported"] == 19
+    assert "19 种 register_*" in out
+    assert f"wired {summary['wired']}" in out
+    assert f"exposed {summary['exposed']}" in out
+    assert f"unsupported {summary['unsupported']}" in out
+    # 每一条都要有落点或缺失原因——只说「不支持」等于没说
+    for item in plugin_capabilities.CAPABILITIES:
+        assert item.name in out, item.name
+        assert item.orbit_landing.strip(), f"{item.name} 没写落点/缺哪一层"
 
 
 def test_cli_plugins_capabilities_for_one_plugin(tmp_path, capsys):
@@ -939,6 +954,13 @@ def test_plugins_command_is_registered_with_all_subcommands():
         "capabilities",
         "pack",
         "update",
+        # 本轮新增（`plugins_extra.py`）：能力面收尾
+        "info",
+        "validate",
+        "reload",
+        "deps",
+        "override",
+        "pages",
     }
     assert command.state == "partial", "install/search/pack/update 有未实现部分，不能标 done"
     for sub in command.subcommands:
