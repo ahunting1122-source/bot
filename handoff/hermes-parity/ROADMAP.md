@@ -33,7 +33,7 @@
 | --- | --- | --- | --- |
 | W0 | 调研：9 份逐层清单 + Orbit 现状矩阵 | 全部 | ✅ 完成 |
 | W1 | CLI 地基 + 核心命令（status/doctor/config/dump/logs/prompt-size/completion） | 入口/CLI 层 | ✅ 完成 |
-| W2 | CLI 命令面补齐：81 顶层 / 484 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 **255/484**（另有 22 partial、207 todo） |
+| W2 | CLI 命令面补齐：81 顶层 / 506 展平条目全部登记，选项说明 100% 覆盖 | 入口/CLI 层、运维 | 🟡 命令面已完成，实现 **290/506**（另有 28 partial、188 todo） |
 | W3 | 配置与模型适配层：16 家 provider、3 种 transport、fallback 链、凭证池、三层 prompt | 模型适配层 + 上下文装配层 | 🟡 provider/fallback/auth/三层 prompt 已落地；per-model 路由、推理线翻译表、auxiliary slots、MoA 运行时待做；**fallback 与凭证池未接线运行时** |
 | W4 | 工具层：注册表遮蔽门禁、toolset 过滤、三层结果治理、危险命令两级、元工具 | 工具层 + 注册/toolset 层 | 🟡 遮蔽门禁 / toolset 过滤 / 三层结果治理 / 危险命令两级 / web 工具**全已落地**；缺元工具（todo / clarify / tool_search）与 12 个功能域 |
 | W5 | Skill 层：多根 tier、16 字段 frontmatter、渐进披露、写侧校验链、curator 状态机、hub/bundles/sync | Skill/curator 层 | 🟡 多根 tier / frontmatter / 渐进披露 / 快照缓存 / ledger / curator 状态机 / 归档回滚 / `.usage.json` **已落地**；linter 12 规则、AST 审计、staging 审批、hub、bundles、sync、journey 待做 |

