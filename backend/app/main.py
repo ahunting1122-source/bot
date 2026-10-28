@@ -204,6 +204,31 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
 
         app.state.exporters = _exporters.default_exporters(settings.data_dir)
         app.state.observability = observability_sink.attach(app.state.exporters)
+
+        # 启动时清一次孤儿账本（MATRIX 10.7）。
+        #
+        # **之前 `reap()` 的唯一调用方是 `orbit plane reap`**——也就是说，进程崩过之后
+        # 残留的登记条目只有用户自己想起来敲那条命令才会被清。于是 `orbit plane`
+        # 会一直报着几个早就死掉的进程，而"报告说谎"比"不报告"更糟。
+        #
+        # **为什么这里敢用 `dry_run=False`**：`OrphanReaper.reap()` 的 docstring
+        # 写死了「**绝不 kill 进程**」——它只删 `processes.json` / `spawn-ledger.json` 里
+        # 判为 dead 或 reused 的条目，以及判为死的 `dispatcher.lock` 文件本身。
+        # 纯账本清理，没有副作用风险。
+        #
+        # 失败不拦启动：回收是卫生工作，不该让服务起不来。
+        try:
+            from app.orphan_reaper import OrphanReaper
+
+            _report = OrphanReaper(settings.data_dir).reap(dry_run=False)
+            if _report.removed or _report.lock_removed:
+                log.info(
+                    "启动回收：清掉 %s 条孤儿登记%s",
+                    _report.removed,
+                    "，并删掉残留的 dispatcher.lock" if _report.lock_removed else "",
+                )
+        except Exception as exc:  # noqa: BLE001 —— 卫生工作不该拦启动
+            log.warning("启动孤儿回收失败（不影响服务）：%s", exc)
         # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。
         from app.indexing import build_indexer
 

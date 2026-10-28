@@ -159,19 +159,24 @@ ALL_EVENTS: tuple[str, ...] = HOOK_EVENTS + INFERRED_EVENTS
 #: 只写「17 个里 4 个能用」这种散文，第三方开发者仍不知道**哪 4 个**能用；
 #: 这个集合是可编程的契约——插件可以在注册前先 `if ev in EMITTED_EVENTS`。
 #:
-#: 目前 4 个发射点都在 `app/graph/nodes.py`：
-#:   - `pre_llm_call` / `post_llm_call`（`ask_model` 每次尝试）
-#:   - `pre_tool_call` / `post_tool_call`（`run_tool` 每次调用）
+#: 目前 6 个发射点：
+#:   - `pre_llm_call` / `post_llm_call`（`graph/nodes.py::ask_model` 每次尝试）
+#:   - `pre_tool_call` / `post_tool_call`（`graph/nodes.py::run_tool` 每次调用）
+#:   - `on_session_start` / `on_session_end`（`agent.py` 任务起止；
+#:     `on_session_end` 放在 `finally` 里，**失败/取消的任务也发**——
+#:     否则观测端的会话数永远少于实际跑过的任务，而「少记」比「记错」更难发现）
 #:
-#: 剩下 13 个还没有发射点，落点各自明确：审批前后在 `tools.py::_approve_command`、
-#: 会话起止在 `agent.py`、压缩前后在 `compaction`、子 agent 在 `delegate`、
-#: API 请求前后在 `nodes.stream_model`、`transform_tool_result` 在 `digest`。
+#: 剩下 11 个还没有发射点，落点各自明确：审批前后在 `tools.py::_approve_command`、
+#: 压缩前后在 `compaction`、子 agent 在 `delegate`、API 请求前后在 `nodes.stream_model`、
+#: `transform_tool_result` 在 `digest`。
 EMITTED_EVENTS = frozenset(
     {
         "pre_llm_call",
         "post_llm_call",
         "pre_tool_call",
         "post_tool_call",
+        "on_session_start",
+        "on_session_end",
     }
 )
 

@@ -52,6 +52,20 @@ def _build_stack(context: Context):
     settings.prepare()
     migrate(settings)
 
+    # 把 `clarify` 的投递通道指向控制台（MATRIX 5.13）。
+    #
+    # **为什么这里要做**：`clarify_payload()` 不知道用户在哪个平台，任务表里也没有
+    # 平台字段。所以由宿主在开始驱动任务前声明通道。不声明的话 `clarify` 只返回
+    # `needs_user` 载荷、由前端自己渲染——`render_choices` / `send_clarify` 那套
+    # 「≤5 个出按钮、>5 个降级编号文本」的规则就永远不会被执行（这正是之前的缺陷：
+    # 那两个函数写好了、测过了，唯一调用方却是 `peer_extra` 的手动演示入口）。
+    #
+    # 控制台没有按钮，`send_clarify` 会自动退回编号文本——**降级路径本身也值得被走一遍**。
+    from app import clarify_delivery, platforms
+
+    clarify_delivery.configure(platforms.ConsoleAdapter(), "cli")
+    context.note("clarify 投递通道：console/cli（无按钮，自动退回编号文本）")
+
     async def _setup():
         store = Store(settings.data_dir / "app.sqlite")
         await store.tune()

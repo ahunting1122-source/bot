@@ -17,6 +17,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 
 from app import fallback as fb
+from app import hooks
 from app import providers as pv
 from app.graph import build_graph
 from app.graph.nodes import ModelFailureError, Nodes, register_ask_user
@@ -553,6 +554,20 @@ class AgentRunner:
             await self.store.transition(task.id, "RUNNING", waiting={}, error="")
             # 模型名随事件落库：换了模型之后回看历史任务能分清是哪次改的。
             await self.store.event(task.id, "task_started", model=str(self.settings.model or ""))
+            # `on_session_start` 发射点（MATRIX 13.5）。
+            #
+            # 为什么加：`app/exporters.py` 的 `LANGFUSE_HOOKS` 订阅了这个事件，
+            # 而在此之前**17 个钩子事件里只有 4 个有发射点**——Langfuse / Nemo 那些
+            # exporter 订阅了会话生命周期事件却永远收不到。**订阅了不会触发的回调，
+            # 比没订阅更糟**（插件作者以为接上了）。
+            hooks.emit(
+                "on_session_start",
+                {
+                    "task_id": task.id,
+                    "conversation_id": task.conversation_id,
+                    "resumed": bool(resume),
+                },
+            )
             snapshot = await self.graph.aget_state(config)
             if not snapshot.values:
                 initial: Any = {
@@ -620,6 +635,22 @@ class AgentRunner:
         finally:
             self.partial.pop(task.id, None)
             self._token_usage.pop(task.id, None)
+            # `on_session_end` 发射点（MATRIX 13.5）：与 `on_session_start` 配对。
+            # 放在 `finally` 里，**失败/取消的任务也要发**——否则观测端的会话数永远少于
+            # 实际跑过的任务，而"少记"比"记错"更难发现。
+            try:
+                _final = await self.store.get(Task, task.id)
+                hooks.emit(
+                    "on_session_end",
+                    {
+                        "task_id": task.id,
+                        "conversation_id": task.conversation_id,
+                        "status": str(getattr(_final, "status", "") or ""),
+                        "error": str(getattr(_final, "error", "") or ""),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 —— 观测钩子不该影响任务收尾
+                log.warning("on_session_end 发射失败（不影响任务）：%s", exc)
             if self.summaries:
                 current = await self.store.get(Task, task.id)
                 if current and current.status in {"SUCCEEDED", "FAILED", "CANCELLED"}:

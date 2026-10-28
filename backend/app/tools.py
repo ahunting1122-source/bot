@@ -20,6 +20,7 @@ from app import (
     approval_channel,
     approvals,
     budget,
+    clarify_delivery,
     code_exec,
     egress,
     memory_write,
@@ -1522,7 +1523,7 @@ def clarify_payload(args: dict) -> dict:
     else:
         # 明确写死"只能选"，否则模型/用户会以为还能自由作答。
         lines.append(f"**只能从上面选一个**：请回复序号（1-{len(options)}），不接受其它回答。")
-    return {
+    payload: dict[str, Any] = {
         "status": "needs_user",
         "reason": "clarification",
         "message": "\n".join(lines),
@@ -1532,6 +1533,16 @@ def clarify_payload(args: dict) -> dict:
         "tool": "clarify",
         "notice": "拿到回答后继续原任务，不要在等待期间重复提问。",
     }
+    # 投递（MATRIX 5.13）：宿主配了平台通道才真的发按钮/编号文本。
+    # **没配就什么都不做**——`needs_user` 载荷照常返回，前端自己渲染，
+    # 行为与之前完全一致。投递失败也不抛：用户连问题都看不到比"没发按钮"糟得多。
+    labels: list[str] = [str(item["label"]) for item in rendered_options]
+    delivery = clarify_delivery.deliver(
+        question, labels, allow_free_text=allow_free_text
+    )
+    if delivery is not None:
+        payload["delivery"] = delivery
+    return payload
 
 
 class ToolRegistry:
