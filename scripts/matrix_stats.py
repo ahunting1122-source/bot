@@ -152,6 +152,16 @@ def status_column_problems(text: str) -> list[str]:
         if not match:
             continue
         ident = f"{match.group(1)}.{match.group(2)}"
+        # 结构门禁：一行必须是 8 段（首尾空 + 编号/描述/来源/波次/状态/证据）。
+        # 证据里的裸 `|` 会把行切成 9~11 段——Markdown 表格会画歪，
+        # 而**取值检查抓不到这个**（状态列照样读得对，因为它读的是第 6 列，
+        # 多余的管道符都在它后面）。监视子agent 那句话值得照抄：
+        # **凡是「人写、机器读」的格式都该有结构检查兜底。**
+        if len(line.replace("\\|", "\x00").split("|")) != 8:
+            problems.append(
+                f"{ident}：这一行不是 8 段（证据里有未转义的 `|`）——"
+                "表格会画歪，且编辑脚本会静默跳过它。管道符要写成 `\\|`"
+            )
         status = status_of(line)
         if status not in SYMBOLS:
             problems.append(f"{ident}：状态列不是四符号之一（{status!r}）")
@@ -198,7 +208,7 @@ def duplicate_ids(text: str) -> list[str]:
     这是必须查的：编号重复会让"条目总数"虚高，而总数是完成度的分母——
     分母错了，百分比就没有意义。实际踩过一次（1.7 被两条不同的行占用）。
     """
-    ids = [match.group(0) for match in re.finditer(r"^\| (\d+\.\d+[a-z]?) \|", text, re.M)]
+    ids = [match.group(0) for match in re.finditer(r"^\| (\d+\.\d+[a-z]?) \|", text, re.MULTILINE)]
     seen: set[str] = set()
     dupes: list[str] = []
     for identifier in ids:
