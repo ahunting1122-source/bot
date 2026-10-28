@@ -537,7 +537,9 @@ def test_all_four_capabilities_report_a_ready_host_entry():
     summary = caps.summary()
     # 第三轮把 slack 动作与斜杠命令升成 wired，所以 exposed 不再是 4；`ready` 才是
     # "入口就位"这件事的计数，它必须仍是 4。
-    assert summary["exposed"] == 2
+    # 1：只剩 `register_memory_provider`（缺装配处把插件 provider 传给 build_router）。
+    # `register_observability_exporter` 本轮升 wired。
+    assert summary["exposed"] == 1
     assert summary["ready"] == 4, summary
     entries = caps.host_entries()
     for name in (

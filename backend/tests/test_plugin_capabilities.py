@@ -341,8 +341,11 @@ def test_observability_exporter_bridges_onto_the_hook_registry():
     assert set(ctx.hooks.events()) == set(ALL_EVENTS)
     ctx.hooks.emit("pre_tool_call", {"tool": "run_command"})
     assert received and received[0]["tool"] == "run_command"
-    # 状态仍是 exposed：发射点未接线，主循环不会 emit
-    assert caps.status_of("register_observability_exporter") == caps.EXPOSED
+    # 状态已升 wired：主循环的四个发射点（`graph/nodes.py`）已补，
+    # `app/observability_sink.py::attach()` 已接进 `main.py`。
+    # 这条断言守的是「状态与真实接线一致」——状态变了就该改，但要有据：
+    # 证据在 `tests/test_observability_wiring.py`（含真 jsonl 端到端落盘）。
+    assert caps.status_of("register_observability_exporter") == caps.WIRED
 
 
 def test_middleware_kinds_map_to_hook_pairs():

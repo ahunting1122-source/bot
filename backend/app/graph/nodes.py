@@ -25,7 +25,7 @@ from langgraph.types import interrupt
 from pydantic import Field
 from sqlalchemy import select
 
-from app import compaction, errors
+from app import compaction, errors, hooks
 from app import errors_retry as retry
 from app.budget import TurnBudget
 from app.context import FROZEN_PREFIX_KEY, PROMPT_VERSION, frozen_prefix, prefix_of
@@ -708,8 +708,26 @@ class Nodes:
         failure: errors.Failure | None = None
         while True:
             attempts += 1
+            # 钩子发射点（MATRIX 13.4）：插件的 `register_hook` 订阅的就是这些名字。
+            # **包 try**：钩子是旁路，旁路出问题不该让主循环死——但也不能静默，
+            # 所以记一条 warning（`orbit logs` 能看到）。
             try:
-                return await self.stream_model(model, working, task_id, identity)
+                hooks.emit(
+                    "pre_llm_call",
+                    {"task_id": task_id, "attempt": attempts, "model": str(model)},
+                )
+            except Exception as exc:  # noqa: BLE001 —— 旁路，见上
+                log.warning("pre_llm_call 钩子出错（已忽略）：%s", exc)
+            try:
+                result = await self.stream_model(model, working, task_id, identity)
+                try:
+                    hooks.emit(
+                        "post_llm_call",
+                        {"task_id": task_id, "attempt": attempts, "ok": True},
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("post_llm_call 钩子出错（已忽略）：%s", exc)
+                return result
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1175,6 +1193,18 @@ class Nodes:
         不中断就得等它自然结束：一个 `run_command` 跑十分钟，用户点了停止也要等
         十分钟——那正是这次要修的东西。
         """
+        # 钩子发射点（MATRIX 13.4）：工具派发前后。
+        # `pre_tool_call` 拿到的是**将要执行的参数**，插件可以据此审计或记账；
+        # 它**不能改参数**——改参数会让"日志里看到的"和"实际跑的"不一致，
+        # 那正是审计最不能容忍的事。
+        tool_name = str(call.get("name") or "")
+        try:
+            hooks.emit(
+                "pre_tool_call",
+                {"task_id": task_id, "tool": tool_name, "args": call.get("args") or {}},
+            )
+        except Exception as exc:  # noqa: BLE001 —— 旁路，见上
+            log.warning("pre_tool_call 钩子出错（已忽略）：%s", exc)
         job = asyncio.ensure_future(
             self.registry.execute(
                 task_id, operation_id, call["name"], call["args"], state.get("messages")
@@ -1194,7 +1224,20 @@ class Nodes:
                         call.get("name"),
                     )
                     return None, True
-            return job.result(), False
+            result = job.result()
+            try:
+                hooks.emit(
+                    "post_tool_call",
+                    {
+                        "task_id": task_id,
+                        "tool": tool_name,
+                        "ok": True,
+                        "result_chars": len(str(result)),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("post_tool_call 钩子出错（已忽略）：%s", exc)
+            return result, False
         except asyncio.CancelledError:
             # 外层（`cancel()` / 进程退出）把整个任务取消了：别把工具 Task 留在
             # 后台孤儿跑——它还会继续写库、继续操作浏览器。

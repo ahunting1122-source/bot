@@ -192,6 +192,18 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         app.state.round3_tools = register_round3_tools(
             registry, settings=settings, store=app.state.store, data_dir=settings.data_dir
         )
+        # 观测 exporter 接到钩子上（MATRIX 13.4 / 15.x）。
+        #
+        # 为什么现在才有意义：`exporters.Exporter.hooks()` 返回的是**生命周期事件名**
+        # （`pre_llm_call` / `post_tool_call` / …），而 `graph/nodes.py` 在此之前
+        # **一个钩子都不发**。本轮补了发射点，这条线才通。
+        # `attach()` 只注册 `available()` 为真的 exporter，不可用的进 `skipped` 并给原因
+        # ——**静默跳过会让"没数据"变成谜**。
+        from app import exporters as _exporters
+        from app import observability_sink
+
+        app.state.exporters = _exporters.default_exporters(settings.data_dir)
+        app.state.observability = observability_sink.attach(app.state.exporters)
         # 资源入 RAG 需要索引写入器：MCPManager 连接时把 index_resources 服务的内容写进 chunks。
         from app.indexing import build_indexer
 

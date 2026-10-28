@@ -457,7 +457,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     _cap(
         "register_observability_exporter",
-        orbit_status=EXPOSED,
+        orbit_status=WIRED,
         orbit_landing=(
             "app/plugin_capabilities.py::attach_observability_exporter → 把 exporter 的 "
             "record(payload) 挂到 ctx.hooks 的 19 个事件上（落点是真实的 HookRegistry），"
@@ -465,7 +465,11 @@ CAPABILITIES: tuple[Capability, ...] = (
             "app/plugin_host.py::PluginHost.exporters() 收成 `{name: exporter}` 供装配层与 "
             "`app/exporters.py::default_exporters()` 的池子合并（**第三轮又加了 "
             "PluginHost.exporters_for(event)**：只取挂在这个事件上的那几个）；"
-            "**缺**推送端：主循环的 5 个发射点仍未接线（app/hooks.py::WIRING_POINTS）"
+            "**推送端已接**：`app/graph/nodes.py` 发 `pre_llm_call` / `post_llm_call` / "
+            "`pre_tool_call` / `post_tool_call`，`app/observability_sink.py::attach()` "
+            "把 exporter 的 `hooks()` 注册进 `DEFAULT_HOOKS`，`app/main.py` 已调用；"
+            "`tests/test_observability_wiring.py` 4 条，含真 jsonl 端到端（发钩子 → "
+            "盘上多一行 JSON）"
         ),
         reason=(
             "宿主侧入口齐了（host.exporters() 收全量、host.exporters_for(event) 按事件取，"

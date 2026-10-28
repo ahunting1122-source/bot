@@ -329,18 +329,20 @@ def test_mount_routes_is_skipped_for_a_non_fastapi_app(wired_host):
 
 
 def test_capability_distribution_moved_to_13_wired():
-    """本轮：wired 11 → 13，exposed 4 → 2，unsupported 4 不变（合计仍 19）。"""
+    """wired 13 → 14，exposed 2 → 1，unsupported 4 不变（合计仍 19）。"""
     summary = caps.summary()
     assert summary["total"] == 19
-    assert summary["wired"] == 13, summary
-    assert summary["exposed"] == 2, summary
+    # 14：`register_observability_exporter` 本轮升 wired（主循环发射点已补，
+    # 见 tests/test_observability_wiring.py）。数字会随接线推进而变，
+    # **该守的是「wired + exposed + unsupported == total」与「每次变化有据」**。
+    assert summary["wired"] == 14, summary
+    assert summary["exposed"] == 1, summary
     assert summary["unsupported"] == 4, summary
     assert summary["wired"] + summary["exposed"] + summary["unsupported"] == 19
-    # 仍 exposed 的正好是"缺的那一步不在本模块"的两条
-    assert {item.name for item in caps.by_status(caps.EXPOSED)} == {
-        "register_memory_provider",
-        "register_observability_exporter",
-    }
+    # 仍 exposed 的只剩一条：`register_memory_provider`——缺的是装配处把插件
+    # provider 传给 `build_router`。`register_observability_exporter` 本轮升 wired
+    # （主循环四个发射点已补 + `observability_sink.attach()` 已接线）。
+    assert {item.name for item in caps.by_status(caps.EXPOSED)} == {"register_memory_provider"}
 
 
 @pytest.mark.parametrize(
@@ -358,17 +360,31 @@ def test_newly_wired_rows_point_at_a_real_host_entry(capability):
     assert callable(getattr(PluginHost, method, None)), f"{capability} 的宿主入口不存在"
 
 
-def test_the_two_still_exposed_rows_say_which_layer_is_missing():
-    """剩下两条仍是 exposed：缺哪一层必须点名（不许写"暂不支持"）。"""
-    for name in ("register_memory_provider", "register_observability_exporter"):
-        item = caps.by_name(name)
-        assert item is not None and not item.wired
-        assert item.ready is True, "宿主侧入口已就位这件事不能因为没 wired 就不报"
-        assert "缺" in item.orbit_landing, item.orbit_landing
-        assert "暂不支持" not in item.orbit_landing
-    # 两条缺的都是"别人那一步"，各自写清了具体文件/结构
+def test_the_still_exposed_row_says_which_layer_is_missing():
+    """仍 exposed 的那条：缺哪一层必须点名（不许写"暂不支持"）。"""
+    item = caps.by_name("register_memory_provider")
+    assert item is not None and not item.wired
+    assert item.ready is True, "宿主侧入口已就位这件事不能因为没 wired 就不报"
+    assert "缺" in item.orbit_landing, item.orbit_landing
+    assert "暂不支持" not in item.orbit_landing
+    # 缺的是"别人那一步"，写清了具体文件/结构
     assert "build_router" in caps.landing_of("register_memory_provider")
-    assert "WIRING_POINTS" in caps.landing_of("register_observability_exporter")
+
+
+def test_the_observability_exporter_now_has_a_real_emit_path():
+    """刚升 wired 的那条：**必须能说出推送端在哪**，不能只是把状态改了。
+
+    状态从 exposed 改成 wired 很容易变成"改个字符串"，所以这里额外要求：
+    落点里要能读到主循环的发射点，且 `observability_sink` 真的存在。
+    """
+    item = caps.by_name("register_observability_exporter")
+    assert item is not None and item.wired
+    landing = caps.landing_of("register_observability_exporter")
+    assert "graph/nodes.py" in landing, landing
+    assert "observability_sink" in landing, landing
+    from app import observability_sink
+
+    assert callable(observability_sink.attach)
 
 
 def test_hermes_coverage_is_still_19_of_19():
