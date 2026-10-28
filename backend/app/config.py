@@ -147,6 +147,16 @@ class Settings(BaseSettings):
     # `__dict__`——所以它"能用"但**不是模型字段**：`Settings.model_fields` 里查不到，
     # 序列化时会丢，静态阅读时看不见。**与 `max_turns` 同一类病。**
     reasoning_level: str = ""
+    # 「不注入项目上下文」（`orbit chat --safe-mode` / `--ignore-rules`）。
+    #
+    # **必须声明**：`chat.py` 用 `model_copy(update={"safe_mode": True})` 写它们，
+    # 而 `app/context.py` 用 `getattr(settings, "safe_mode", False)` 读它们。
+    # 两边都对，**但写的是裸属性**——pydantic 不校验也不报错，于是它"能用"：
+    # `model_copy` 把键塞进 `__dict__`，`getattr` 就真读到了 True。
+    # **这与 `reasoning_level` 是同一族**：能跑，但不是字段（序列化会丢、
+    # `model_fields` 里查不到、静态阅读看不见）。**靠巧合工作的代码迟早会坏。**
+    safe_mode: bool = False
+    ignore_rules: bool = False
     # 单轮回复的时间上限（秒）。到点后**任务转后台继续**、先给用户一份中间结论，
     # 而不是直接把任务掐断（`agent.py` 的预算兜底仍会硬停，这里只是默认档位）。
     max_seconds: int = 360

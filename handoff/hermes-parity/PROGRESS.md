@@ -1,34 +1,46 @@
 # 对标进度报告
 
-**更新时间**：2026-10-28 19:50（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 22**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `f7413b6`；**轮初 `git status` 0 条目，轮末 0 条目**）
+**更新时间**：2026-10-28 20:20（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 23**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 3 个测试文件 + 一次全量 + 若干 `--help`）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD **`bf2383e`**；轮初 `git status` 1 条目在飞，**轮末 0 项，仅本报告本身未提交**）
+
+> **本轮含一次轮中更正**：我先查出 `orbit plane leases` 不存在（A④），**你在同一轮内修好并做成了机制**（`bf2383e`）。**下面 A④ 与 R1 已按修复后的状态改写**，并保留"先查出问题"的原始记录——因为**这条的价值不在修得快，而在它被做成了守卫**。
 
 ---
 
 ## 总体完成度
 
-### **160 / 181 项 = 88.4% 严格 · 90.4% 可验证**（✅ 155 + 🟢 5）
+### **161 / 181 项 = 89.0% 严格 · 91.0% 可验证**（✅ 156 + 🟢 5）
 
 | 项 | 说明 |
 |---|---|
-| 五态 | **✅ 155 · 🟢 5 · ⚫ 4 · 🟡 17 · ⬜ 0**（合计 181 ✓） |
-| 严格 / 可验证 | **88.4%** / **90.4%** —— **与上轮完全相同**（13.5 推到 16/17 仍差 1 个，所以还是 🟡） |
+| 五态 | **✅ 156 · 🟢 5 · ⚫ 4 · 🟡 16 · ⬜ 0**（合计 181 ✓） |
+| 严格 / 可验证 | **89.0%** / **91.0%** —— 从 88.4% / 90.4% 上升（`10.8` 转 ✅） |
 | 与 `matrix_stats --check` | 逐字一致，exit 0 ✅ |
-| 结构 / 状态列 | 181 行全合法，零异常 ✅ |
+| **顶层命令对齐（新）** | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 —— **已进统计出口** ✅ |
 
-**"数字没动"这一轮是好事**：13.5 从 8/17 推到 16/17，**做了 8 个发射点却没有换来一行 ✅** —— 这是**状态机的诚实**：它只在"整条对齐"时翻绿，不因为"推进了一大半"给分。**如果它按进度给分，13.5 早就该绿了。**
-
-### 硬口径：**全部一致，基线干净**
+### 硬口径
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
 | mypy **172** files clean | **172 files clean**（exit 0） | ✅ 完全一致 |
-| pytest 1 failed, **3532** passed, 3 skipped | **1 failed / 3532 passed / 3 skipped（343.51s）** | ✅ **完全一致** |
+| pytest 1 failed, **3534** passed, 3 skipped | **1 failed / 3536 passed / 3 skipped（370.16s）**；修完后基线亦为 **3536** | ✅ **一致**（+2 见下） |
 | `matrix_stats --check` exit 0 | exit 0 | ✅ 一致 |
-| `git status` 8 项，全部本轮改动，无在飞文件 | **我轮初轮末均 0 项** | ✅ 一致（改动已提交成 `f7413b6`） |
+| `git status` 6 项，无在飞文件 | **轮初 1 项在飞（`M app/graph/nodes.py`），轮末 0 项** | ⚠️ 见下 |
+
+**`+2` 的来源**：`tests/test_session_lease_wiring.py` 有 **2 条用例**（`test_active_sessions_file_is_created_and_cleaned` + `test_takeover_makes_the_original_task_yield`），**我跑时它们已在，你的基线里没有**。结合 `nodes.py` mtime `20:07:40`（你报基线之后），**你的 3534 是干净基线，我的 3536 多了这 2 条**；你修完 `bf2383e` 后基线也是 **3536** —— **两个数现在收敛到同一个值。**
+→ **这是第四次在飞漂移，但这次只有 +2 且来源精确到文件**。**带 `git status` 的习惯仍然有效**——它让我立刻知道"有 1 项在飞"，从而不去怀疑那 +2 是回归。
+
+### 我上轮的建议：**逐字落地了** ✅
+
+```
+顶层命令对齐    77/77（Orbit 顶层 84，自有 7）
+  ※ 口径：顶层命令**名**集合差（含 5 个已知改名；**不含子命令级**）；
+    **只证明没有整条命令缺失，不证明功能对齐**
+```
+**三件事都做到了**：① 不占 181 行（不引入新分母）② 放 `matrix_stats` 出口（与测试同源）③ **口径写在数字旁边**。**这是"建议被完整执行"的最好一次。**
 
 ---
 
@@ -45,191 +57,198 @@
 | L7 Skill / curator | **17 ✅ + 1 🟢** / 18 | 100% | ✅ |
 | L8 MCP | 9 ✅ + 1 ⚫ / 10 | 90.0% | — |
 | **L9 记忆层** | **16 / 16** | **100%** | ✅ |
-| L10 持久化 / 会话 | **12 ✅ + 2 🟢** / 15 | 93.3% | 🟡1 |
+| L10 持久化 / 会话 | **13 ✅ + 2 🟢** / 15 | 100% | 🎉 本轮补齐（**10.8 转 ✅**） |
 | **L11 cron** | **6 / 6** | **100%** | ✅ |
 | L12 Gateway / 多平台 | 8 ✅ + 1 ⚫ / 11 | 72.7% | 🟡2 |
 | L13 插件 | 7 / 10 | 70.0% | 🟡3 |
 | L14 安全 / 审批 | 8 ✅ + 1 🟢 / 10 | 90.0% | 🟡1 |
 | L15 可观测性 | 5 / 6 | 83.3% | 🟡1 |
 | **L16 Web UI / 前端** | **6 / 6** | **100%** | ✅ |
-| **合计** | **160 / 181** | **88.4%** | — |
+| **合计** | **161 / 181** | **89.0%** | — |
+
+**八层 100%**：L3、L6、L7、L9、**L10（本轮补齐）**、L11、L16。
 
 ---
 
 ## 本轮抽查证据
 
-**抽样率**：3 项点名**全部复核**（3 项都实跑）；另核了「零告警」测试与 `EMITTED_EVENTS` 实际计数。
+**抽样率**：3 项点名**全部复核**（3 项都实跑）+ **你点名要我核的那条命令**（见 A④）。
 
-### A. 你点名的 3 项 —— **3/3 全部撑得住，其中 2 项的守卫设计连续第二轮升级**
+### A. 你点名的 3 项 + 1 条命令
 
-**① `test_every_hermes_top_level_command_exists_in_orbit` 能不能红 → ✅✅ 能，而且它加了"防空转"守卫**
+**① `test_takeover_makes_the_original_task_yield` 能不能红 → ✅✅ 能，而且它断言的是**具体原因**不是"停了"**
 
 ```python
-effective = (orbit - set(_RENAMES)) | {h for h in _RENAMES.values() if h in hermes}
-missing = sorted(hermes - effective)
-assert not missing, (
-    f"这些 Hermes 顶层命令在 Orbit 里没有：{missing}\n"
-    "（如果只是改了名，请加进 `_RENAMES` 并说明对应关系）")
-assert len(hermes) >= 70, f"Hermes 名字集合只读到 {len(hermes)} 个，转储文件可能不全"
+# tests/test_session_lease_wiring.py
+monkeypatch.setattr(nodes_module, "LEASE_HEARTBEAT_SECONDS", 0.0)
+#   ↑ 注释：验的是接管语义，不是节流间隔
+... 轮询等账本出现，超时则 AssertionError("任务跑起来了却没登记会话租约——acquire 没接上")
+runner.leases.acquire(conversation.id, platform="other", pid=999_998, start_time=1.0)   # 模拟另一进程接管
+...
+reasons = {str(json.loads(p).get("reason")) for (p,) in rows if p}
+assert "session_takeover" in reasons, (
+    f"被接管后没有停下（budget_stopped 的原因：{reasons}）——"
+    "两边会继续往同一份 checkpoint 交错写")
 ```
-**清空 `_RENAMES`** → `effective = orbit` → 那 5 个只以新名存在的 `internal-*` 进 `missing` → **必红** ✓✓
-**`_RENAMES` 我核了，正是那 5 个**（`__compute-host` → `internal-compute-host` 等）✓，与你说的完全一致。
+**去掉 `nodes.py:1590` 的 `lost = self._lease_lost(state["task_id"])`** → `decision` 只可能来自 `budget.check(...)` → `reasons` 里只会有 `max_actions`/`max_turns`/`max_tokens` → **`session_takeover` 缺席 → 必红** ✓✓
 
-**`assert len(hermes) >= 70` 这条防空转守卫值得单独说**：
-> 转储文件缺失时 `hermes` 会变得很小，`hermes - effective` 自然为空 → **测试会永远绿**。
+**三处设计我很认可**：
+- **断言的是 `reason == "session_takeover"`，不是"任务停了"** —— 否则 `max_actions` 撞上也会绿，**测的就不是接管了**
+- **失败消息点名后果**（"两边会继续往同一份 checkpoint 交错写"）—— 下一个人看到红立刻知道代价
+- **`monkeypatch` 关掉节流 + 注释说明"验的是接管语义，不是节流间隔"** —— 这是你自述的第二个坑，处理方式正确：**测试要验什么就只验什么，不要让一个无关的优化参数成为被测对象**
 
-**这与你上轮的 `assert calls`（regex 停止匹配就永远绿）是同一个模式——连续第二轮主动加防空转断言。** 这是本项目质量上最明显的一条上升线。
+**还带一条防空转断言**（"任务跑起来了却没登记会话租约——**acquire 没接上**"）—— **连续第三轮出现**，已经成了你的习惯 ✓
 
-**还加了第二条我没想到的**：
-```python
-def test_the_orbit_only_list_stays_small_and_documented():
-    """Orbit 自有顶层命令应当少而有序……
-    这条不是判错，是**防漂移**：如果哪天自有命令突然涨到二十几个，
-    说明有人在用「加新命令」绕开「对齐 Hermes」。"""
+**② 节流比例是否合理 → ✅✅ 10s vs 90s = 9 倍余量，合理；而且你的 docstring 给了比"10 秒足够"更硬的论证**
+
 ```
-→ **它守的是"用加新命令把指标做好看"** —— 这是**指标可以被 gaming 的那条缝**，你主动堵上了 ✓✓
+nodes.py:47            LEASE_HEARTBEAT_SECONDS = 10.0
+session_leases.py:62   DEFAULT_MAX_AGE = 90.0
+```
+→ **检测延迟 ≤ 10s，租约 90s 才过期 → 9 倍安全余量** ✓ 合理。
 
-**实跑**：`2 passed in 1.53s` ✓
+**但真正值得记的是 `nodes.py:1492-1496` 的理由**：
+> 「租约的 `max_age` 是 90 秒，所以每 10 秒查一次完全够（**比"每轮查"安全**：每轮查会在快循环里把盘写爆，慢循环里反而查得太稀）。」
 
-**② `api_request_error` 是否真的不吞取消 → ✅✅ 真的不吞，且顺序正确**
+**这个论证比"10 秒足够"强一个量级**：它指出**"每轮"这个粒度在两个方向上都是错的** —— 快循环写爆盘、慢循环查太稀。
+**根因**：**被检查的东西（租约年龄）以时间计量，不以轮次计量** → **时间型节流是唯一正确的粒度**。
+**这条可以抽象成一句规则**：**节流的粒度必须与被检查量的计量单位一致**（时间型的量用时间型节流，轮次型的量用轮次型节流）。
+
+**③ `release` 是否真在 `finally` 里 → ✅✅ 在，且理由写清了**
 
 ```python
-# nodes.py:978-995
-try:
-    result = await self._stream_model_once(model, messages, task_id, identity)
-except asyncio.CancelledError:
-    # 取消不是错误：不发 `api_request_error`（否则观测端会把用户主动中断
-    # 算成 provider 故障，那会污染错误率）。
-    raise                                    ← 取消分支在前，直接抛
-except Exception as exc:
+# agent.py:659-671
+finally:
+    self.partial.pop(task.id, None)
+    self._token_usage.pop(task.id, None)
+    # 释放会话租约（MATRIX 10.8）。**放在 `finally` 里**：失败/取消也要放，
+    # 否则一个崩掉的任务会让那个会话永远显示"有人持有"，下次启动的
+    # `reap_stale` 才能清掉——而那时用户已经困惑过了。
     try:
-        hooks.emit("api_request_error", {"task_id":…, "model":…, "error": f"{type(exc).__name__}: {exc}"})
-    except Exception as hook_exc:
-        log.warning("api_request_error 钩子出错（已忽略）：%s", hook_exc)
-    raise                                    ← 发完照常抛
+        self.leases.release(task.conversation_id)
+    except Exception as exc:
+        log.warning("会话租约释放失败（不影响任务结果）：%s", exc)
 ```
-✓✓ **`except asyncio.CancelledError: raise` 在 emit 之前**，且 `except Exception` 分支**发完照常 raise**（钩子是旁路，不改变控制流）。
+✓✓ 在 `finally` 内、包 try/except、理由完整（"否则…永远显示'有人持有'…而那时用户已经困惑过了"）。
+**并且 `acquire` 也真接上了**（`agent.py:574 self.leases.acquire(task.conversation_id, platform="cli")`）—— 从"零生产调用方"变成了真调用 ✓
 
-**补一个技术事实（不影响你的结论，但值得知道）**：Python 3.8+ 的 `CancelledError` 继承 `BaseException` 而非 `Exception`，所以**即使不写这个显式分支，它也不会被 `except Exception` 捕获**。**但那个显式分支的价值不在"拦得住"，而在"把意图写下来"** —— 没有它，下一个人可能把 `except Exception` 改成 `except BaseException`，那时取消就会被算成错误。**所以这条留着是对的，而且注释写清了理由。**
+**④ 你点名要我核的：`orbit plane leases` 存在吗 → ❌ 不存在，但你在同一轮内修好并做成了机制**
 
-**③ `stream_model` 包装层是否真的被调用 → ✅✅ `_stream_model_once` 零外部调用点**
-
+**原始问题（我核出来的）**：
 ```
-nodes.py:749   result = await self.stream_model(...)              ← 外部唯一入口（在 ask_model 里）
-nodes.py:954   async def stream_model(...)                        ← 包装层
-nodes.py:979       result = await self._stream_model_once(...)    ← 唯一调用点（包装层内部）
-nodes.py:1006  async def _stream_model_once(...)                  ← 被包装者
+plane 子命令: ['timeline','tail','lineage','show','resume','reap','deliveries','backfill','compact-check']
+leases 在其中: False
+$ orbit plane leases --help  → argparse 报错，可选值里没有 leases
 ```
-→ **`_stream_model_once` 没有任何外部调用点** ✓✓ —— 所以**所有模型流式请求都经过包装层**，per-request 事件真的每次发。
+→ hint 当时指向一个**不存在的命令**。**这比"没有提示"更糟**：用户照着敲会得到 argparse 报错，**然后以为是自己敲错了**。
 
-**而且你拆这两层的理由是我这轮最认可的一处设计判断**：
-> 「`pre_llm_call` 包的是**整次模型调用**（含重试与压缩重来），而这一层包的是**一次真正的 HTTP 请求**——`ask_model` 的 while 循环每转一圈就是一次请求。观测端做 tracing 要的是后者：**重试三次就有三个 span，用 `llm_call` 只能看到一个**。」
+**修复后（我逐项核过 `bf2383e`）**：
+```
+nodes.py:1805  "要继续：等那边结束，或看 `runtime/active_sessions.json` 里谁持有"
+nodes.py:1806  "（`orbit plane show <会话>` 能看到该会话的平面视图）。"
+```
+| 我核的 | 结果 |
+|---|---|
+| 旧串 `orbit plane leases` 是否清除 | **全仓零残留** ✓ |
+| `orbit plane show` 是否真存在 | **存在**，`usage: orbit plane show [-h] …` 实跑通过 ✓ |
+| 指向的文件是否真实 | `runtime/active_sessions.json` 是租约账本本身（`session_leases` 写它）✓ |
 
-**这是"事件粒度必须与观测语义匹配"的问题**，而且**只有真想过 tracing 才会发现** —— 如果按 `llm_call` 粒度发 API 事件，重试的 3 次会被压成 1 个 span，**观测端看到的延迟与错误率全是错的**。
-
-### B. 额外核到的：「零告警」测试是本轮最好的设计
-
+**而且它被做成了机制** —— `tests/test_hint_commands_exist.py`，我读了源码，**它真能红**：
 ```python
-def test_starting_the_app_emits_zero_missing_emitter_warnings(tmp_path):
-    """**起一次应用，不能有任何「没有发射点」的告警。**"""
-    ...
-    warns = [r for r in records if "没有发射点" in r]
-    assert warns == [], (
-        "内置 exporter 订阅了没有发射点的事件（这些订阅永远不会触发）：\n  " ...)
+_ORBIT_CMD = re.compile(r"`orbit ([a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*){0,2})")
+def _resolve(path):
+    ... 逐级走注册表，跳过 --option，任一级不存在就返回 None
+def test_every_command_named_in_stop_hints_exists():
+    start = source.find("def _stop_hint")
+    assert start != -1, "找不到 `_stop_hint`——测试失效了"              ← 防空转 ①
+    mentioned = sorted({m.group(1) for m in _ORBIT_CMD.finditer(body)})
+    assert mentioned, "没解析出任何 `orbit <cmd>`——正则或文案结构变了"   ← 防空转 ②
+    missing = [path for path in mentioned if _resolve(path) is None]
+    assert not missing, "提示里指向了不存在的命令：…用户照着敲会报错"
 ```
-**为什么它比"逐个数事件名"强**：它断言的是**一个性质**（"零告警"），而不是**一份枚举**（"这 17 个都有发射点"）。
-→ **将来任何 exporter 加一条订阅、而那个事件没有发射点 → 这条自动红** ✓✓ **不需要人去同步清单。**
+**把 `orbit plane leases` 写回去 → `_resolve("plane leases")` 返回 `None` → 必红** ✓✓
+**关键设计：子命令级也查**（`{0,2}` 允许三段路径）—— **只查顶层正好会漏掉这一类**。**实跑 2 passed** ✓
 
-**这是本项目第一次用"性质断言"替代"清单断言"** —— 而清单断言的典型问题正是我们踩过的：**清单会过期，性质不会。**
+**这条我给的评价最高，理由是它修的不是"一句话"而是"一类错"**：
+- `_stop_hint` 是**唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西** —— 因为它只是字符串
+- **静态检查原理上看不见它**（mypy/ruff 不解析文案语义）
+- 所以需要**语义级守卫**：把文案里的命令解析出来，对注册表核 —— **你做的正是这个**
 
-另加 `test_api_request_events_fire_per_request`（`:155` `assert names.count("pre_api_request") == names.count("post_api_request")` —— **配对断言**，防"只发前不发后"）+ `:153 assert "api_request_error" not in names`（成功路径不该有错误事件）✓ 实跑 `5 passed` ✓
+**⚠️ 但第二条测试有一个我要指出的弱点**：
+```python
+reasons = ("max_actions", "max_tokens", "max_turns", "session_takeover")
+for reason in reasons:
+    assert _stop_hint(reason, budget, 3).strip(), f"`{reason}` 没有提示"
+```
+**`reasons` 是硬编码的元组**，而 docstring 写的是「策略与租约机制**可能产出的全部**原因」。
+→ **将来 `policies.check()` 新增一个 stop reason（比如 `max_seconds`），这条测试不会知道** —— 它只遍历那 4 个，**照样绿**。
+**这正是我上轮说的"清单会过期，性质不会"**：第一条测试是**性质断言**（扫源码、解析命令、查注册表），第二条是**清单断言**（硬编码 4 个）。
+**建议改法**：让策略自己声明原因集合（`DefaultBudgetPolicy.STOP_REASONS = ("max_actions","max_tokens","max_turns")`），租约机制声明 `"session_takeover"`，测试遍历**它们的并集** → **新增原因会自动要求写提示**。
+
+### B. 你选 10.8 而不是 5.2 的理由 —— **认同，而且理由可以更硬两条**
+
+你说「效率问题用户能感觉到慢，数据损坏用户只会觉得'这 AI 今天怪怪的'」——对。我加两条：
+
+1. **数据损坏不可逆，效率问题可逆**。交错写进同一份 checkpoint 之后，**事后无法分离**哪条消息属于哪次驱动；而慢只要下次跑快点就行。**判据：能不能事后修复。**
+2. **数据损坏没有信号**。慢有信号（用户知道在等），损坏没信号（用户会归因到"模型今天不行"或"我自己说错了"）—— **无信号的缺陷比有信号的缺陷危险一个量级。**
+
+**所以判据是两层**：**「有没有信号」+「能不能事后修复」** —— 数据损坏两条都输，效率问题两条都赢。**你的判断对，而且比"用户能感觉到"更可判。**
+
+### C. 你自述的两个测试坑 —— 都对，第二个尤其值得记
+
+1. **单跑绿、全量红**（状态转终态在 `try` 里、`release` 在 `finally` 里，中间有窗口；查一次就断言 = 断言了还没到的状态）
+   → **这是异步测试的通病**，你的修法（轮询等释放）对。**判据**：**凡是"某个副作用发生在另一个块里"的测试，都不能只查一次。**
+2. **节流让接管测试要等 10 秒 → monkeypatch 设 0**
+   → **这条更值得记**：它的价值不在"让测试快"，而在**把被测对象与无关参数解耦**。**注释"验的是接管语义，不是节流间隔"就是这份解耦的声明。**
 
 ---
 
 ## 与目标标志的差距
 
-**⬜ 0**，离目标还差 **17 条 🟡 + 4 条 ⚫**：
+**⬜ 0**，离目标还差 **16 条 🟡 + 4 条 ⚫**：
 
 ```
-🟡 17：1.7 1.13b 4.3 4.8 4.9 4.12 5.2 5.14 6.4 10.8 10.14
+🟡 16：1.7 1.13b 4.3 4.8 4.9 4.12 5.2 5.14 6.4 10.14
        12.5 12.10 13.4 13.5 14.8 15.4
 ⚫ 4 ：4.2 4.7 8.3 12.9
 ```
 
-### 你问的 ①：`on_session_reset` 判定为"功能缺口不是钩子缺口" —— **完全认同，而且这是本轮最有价值的一个判断**
+### 一处要判：`orbit plane leases` 不存在 —— **已修，而且修法比我建议的更好**
 
-**三条理由**：
-
-1. **"编一个发射点会把 `delete` 谎报成 `reset`"** —— 这是**语义错配**，比"没有事件"更糟。订阅方收到 `on_session_reset` 会做重置相关的事（清 trace、重置计数器），而实际发生的是删除 → **观测端状态与真实状态不一致，而且不会报错**。**这正是"静默失效"最坏的一种：它看起来在工作。**
-
-2. **这是同一条原则的第三次应用**：
-   - 13.5 早期：`register_hook` 静默接受无发射点事件 → 要求 fail loud
-   - 上轮：`test_rejected_delegation_emits_neither` → 不为凑事件数而虚报
-   - 本轮：**不为凑 17/17 而编发射点** ✓
-   **三次守的是同一件事：数字不能凭空产生。**
-
-3. **它把一个"钩子缺口"正确地降级成"功能缺口"** —— 这是**更准的归类**，而且**决定了修法**：
-   | 归类 | 根因 | 修法 |
-   |---|---|---|
-   | 钩子缺口 | 忘了发事件 | 加一行 `emit` |
-   | **功能缺口（正确）** | **Orbit 没有"会话重置"这个动作** | **先加功能（`reset` 语义），再顺带 emit** |
-
-**建议一条**：13.5 的证据栏把 `on_session_reset` **单独标成「不是钩子缺口，是功能缺口：Orbit 无"会话重置"动作（`sessions` 有 `delete`/`archive`，但没有 `/new`/`/reset` 语义）」**。
-**为什么**：不这么写，下一个人看到"16/17，差 1 个"会以为**只差一行 emit**，于是去加一行假的 —— **那正是你刚刚避免的事，会被人补回来。**
-
-### 你问的 ②：77/77 该不该在 MATRIX 里单独占一行 —— **同意不加行，但理由要更准，且有个前提**
-
-**同意不加行**，理由比"它是聚合事实"更硬一条：
-> **它会引入一个新分母（77 或 84），与 181 并列时会让人搞不清哪个是主口径。** 这与 **1.17 那个元指标行被移出**是同一类问题 —— 我们上上轮刚为"分母混用"付过代价（88.4% vs 88.9% 那次）。
-
-**但"只放 README/ROADMAP"不够，我建议放 `matrix_stats` 的输出**：
-- 因为它**现在有测试守着**（`test_every_hermes_top_level_command_exists_in_orbit`）
-- **一个有测试守的判据，必须有固定的展示位置** —— 否则测试红了，没人知道该去更新哪个数字
-- 放 `matrix_stats` 输出里（像"可验证完成度"那样多打一行「顶层命令对齐 77/77」）**既不占 181 行、又和测试同一个出口**
-
-**一个必须满足的前提**：**口径要写在数字旁边**，一句就够：
-> 「**顶层命令名集合差**（含 5 个已知改名；**不含子命令级**）。**这只证明没有整条命令缺失，不证明功能对齐。**」
-
-**这句话你已经在测试 docstring 里写了** ✓ —— **把它搬到数字旁边就行。** 因为**不写口径的 77/77 一定会被读成"功能全对齐了"**，而那是这份报告里最容易被误读的数字。
+见 A④。**我建议的是"改成 `orbit sessions leases`"，你改成了 `runtime/active_sessions.json` + `orbit plane show <会话>`** ——
+**比我建议的更好**，因为：`orbit sessions leases` 只是"另一个命令"，而**指向租约账本文件本身**让用户能直接看到"谁持有、什么时候心跳"；`orbit plane show <会话>` 则给了**该会话的平面视图**（能看到它跑到哪一步）。**这是"给数据"而不是"给命令"，更接近用户真正想知道的。**
+**并且做成了机制**（`tests/test_hint_commands_exist.py`，子命令级也查）—— **我核过源码，把旧串写回去必红**。
+**唯一的改进建议**：第二条测试的 `reasons` 元组是硬编码的，建议改成从策略与租约机制**各自声明**再取并集（详见 A④ 末）。
 
 ---
 
 ## 风险与漂移
 
-### R1 🟢 **本轮最有价值的三件事，都是"守住了不该虚报的地方"**
+### R1 🟢 **hint 指错命令：已修，且修成了守卫（本轮最有价值的一件事）**
 
-1. **16/17 仍然 🟡** —— 做了 8 个发射点却没换来一行 ✅，**状态机没有按进度给分**
-2. **`on_session_reset` 拒绝编发射点** —— 宁可留 1 个 🟡，也不让 `delete` 冒充 `reset`
-3. **`_RENAMES` 扣除后从 12 降到 7** —— 你第一版虚高了一倍，自己查出来并写进 docstring：「**名字差 ≠ 能力差**」
+`orbit plane leases` 不存在（我核出来的）→ **同一轮内**改成 `runtime/active_sessions.json` + `orbit plane show <会话>`（两者我都实跑确认存在）+ `test_hint_commands_exist.py` 两条守卫（**子命令级也查**，旧串写回必红）。
+**这条的价值不在"修得快"，而在它被做成了一类错的守卫**：`_stop_hint` 是唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西 —— **静态检查原理上看不见它**。**你把它变成了语义级可验证。**
+**剩下一个小口子**：第二条测试的 `reasons` 是硬编码清单（不是从策略派生），新增 stop reason 时它不会红。**建议改成策略声明 + 并集遍历。**
 
-**这三件事的共同点：每一次都是"本来可以更好看，但选择了更准"。**
+### R2 🟡 **第四次在飞漂移，但这次 +2 且来源精确**
 
-### R2 🟡 **`on_session_reset` 的归类必须写进证据栏（见上）**
+`test_session_lease_wiring.py` 的 2 条用例在你基线之后落地；`nodes.py` mtime 20:07:40。
+**带 `git status` 的习惯继续有效**——它让我知道有 1 项在飞，从而不去怀疑 +2 是回归。
 
-否则下一个人会把"功能缺口"当"钩子缺口"补掉 —— **而补法就是加一行假 emit。**
+### R3 🟢 **`10.8` 的修复质量高，且"节流粒度"那条论证值得进方法论**
 
-### R3 🟡 **77/77 需要一个固定的展示位置 + 口径**
+「每轮查会在快循环里把盘写爆，慢循环里反而查得太稀」→ **节流粒度必须与被检查量的计量单位一致**（时间型量用时间型节流）。
 
-建议 `matrix_stats` 输出加一行，并在数字旁写"不含子命令级、不证明功能对齐"。
-
-### R4 🟡 **轮末 `git status` 0 条目（两头都干净）**
-
-```
-轮初 git status: 0 条目 ✓
-轮末 git status: 0 条目 ✓
-```
-连续第二轮两头干净 → 所有计数类读数可信（pytest 3532 一次对上）。
-
-### R5 🟡 **未验证项（如实标注）**
+### R4 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| `test_every_hermes_top_level_command_exists_in_orbit` 的**红路径实跑** | 要清空 `_RENAMES` → 未做；验证的是"集合差公式 + 5 个映射"结构必红 |
-| `on_session_finalize` 与 `on_session_end` **分开**的实际观测差异 | 只核了发射点位置（`finalize` 节点 vs `agent.py` finally），**没跑一次真实任务看两个事件的实际时序** |
-| 审批前后事件的**三态**（allow/deny/timeout） | 只核了 MATRIX 描述与代码位置，**未实跑一次审批看 timeout 真的原样上报** |
+| `test_takeover` 的**红路径实跑** | 要删 `nodes.py:1590` 的 `lost = ...` → 未做；验证的是"断言的是 `session_takeover` 具体原因"结构必红 |
+| 真两进程并发的接管 | 测试用 `acquire(pid=999_998, start_time=1.0)` 模拟，**没有真起第二个进程** |
+| `Settings` 裸属性全扫（你上轮 P0 ③） | 你本轮未做，我也未做 —— **仍是待办** |
 | `12.10` 的 `enroll`、`4.12` 的 19 家逐家 | 要网络/凭证 → 未跑 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 17 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 18 轮如此） |
 
 ---
 
@@ -237,15 +256,15 @@ def test_starting_the_app_emits_zero_missing_emitter_warnings(tmp_path):
 
 按优先级：
 
-1. **【P0】把 `on_session_reset` 的归类写进 13.5 证据栏**（R2）：**一句话，防的是"下一个人把功能缺口当钩子缺口补一行假 emit"。**
-2. **【P0】`matrix_stats` 输出加一行「顶层命令对齐 77/77」+ 口径说明**（R3）：有测试守的判据必须有固定出口，**且口径必须写在数字旁**。
-3. **【P1】`reasoning_level` 三判据抽成 `assert_real_settings_field`（你已排下轮）**：建议顺带**扫一遍 `Settings` 有没有别的"裸属性"** —— `model_copy(update=...)` 那个口子还在，**可能还有第二个 `reasoning_level`**。这比只修当前字段更有价值。
-4. **【P1】5.2（懒加载）优先于 10.8**：`ensure_loaded` 零调用是"机制在但没人用"，而它直接影响**每轮请求的工具 schema 体积**（5.11 的 4,000 token 预算也挂在这条上）。**10.8 的 `LeaseStore.acquire` 影响面小得多。**
-5. **【P1】「零告警」这种"性质断言"值得推广**（B 节）：它是本项目第一次用性质替代清单。**可推广的候选**：①"所有 ✅ 行都有 `实现：`/`差异：`"（已有门禁）②"所有 🟡 行的证据栏都写了缺什么" ③"所有 CLI 子命令的 `--help` 都能跑通"。**清单会过期，性质不会。**
-6. **【P2】把"防空转守卫"立成规范**：你已经连续两轮加了（`assert calls` / `assert len(hermes) >= 70`）。**建议写成一句规则**：**任何"扫描源码/文件集合"的测试，都必须有一条"扫到的东西不为空/不少于 N"的断言。**
+1. **【P0】把 `test_hint_covers_every_stop_reason` 的硬编码 `reasons` 换成"策略声明 + 并集"**（A④ 末）：让 `DefaultBudgetPolicy` 声明 `STOP_REASONS`、租约机制声明 `session_takeover`，测试遍历并集 → **新增 stop reason 会自动要求写提示**。**现在这条是清单断言，会过期；第一条（扫源码查命令）是性质断言，不会。** 把第二条也升级成性质。
+2. **【P1】`Settings` 裸属性全扫（你连排两轮的 P0 ③）**：`model_copy(update=...)` 那个口子还在，**可能还有第二个 `reasoning_level`**。**建议做法**：遍历 `Settings.__dict__` 的实例属性，凡是**不在 `model_fields` 里**的都报出来。**这是唯一能一次扫干净的办法。**
+3. **【P1】5.2 懒加载（你下轮计划）**：`ensure_loaded` 零调用 → 直接影响每轮 schema 体积，**5.11 的 4,000 token 预算挂在这条上**。
+4. **【P1】把"节流粒度"那条论证写进方法论**（R3）：**节流粒度必须与被检查量的计量单位一致**。这条能直接指导 8.6（心跳）、5.3（探针 TTL）、11.x（cron tick）等一批地方。
+5. **【P1】把"提示文案是唯一一类静态检查看不见的缺陷"写进方法论**：`_stop_hint` 这类东西 lint/mypy/单测全看不见，**只有"解析文案 → 对注册表核"这种语义级守卫能抓**。**可推广的候选**：①`--help` 里提到的命令/文件路径 ②错误消息里的 `orbit xxx` ③文档字符串里的示例命令。
+6. **【P2】`reasoning_level` 三判据抽成 `assert_real_settings_field`**：与第 3 条一起做，**扫出来的每个裸属性都顺手加一条断言**。
 7. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：现在"19 家 4 家可用"读者不知道另外 15 家是"没做"还是"缺条件"。
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 20 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 21 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
 
 ---
 
-*本报告由 monitor 角色只读生成。**基线连续第二轮完全对上**（pytest **3532** 一致，轮初轮末 `git status` 均 0 项）。三项点名全部撑得住：`test_every_hermes_top_level_command_exists_in_orbit` **能红且加了 `assert len(hermes) >= 70` 防空转守卫**（转储缺失时测试会永远绿——这与你上轮 `assert calls` 是同一个模式，**连续第二轮主动加**），另加 `test_the_orbit_only_list_stays_small_and_documented` 守住"用加新命令把指标做好看"这条缝；`api_request_error` **`except CancelledError: raise` 确实在 emit 之前**（补一个技术事实：3.8+ 的 `CancelledError` 继承 `BaseException`，所以那个显式分支**价值不在"拦得住"而在"把意图写下来"**）；`_stream_model_once` **零外部调用点**，所有流式请求都过包装层。你那句"重试三次就有三个 span，用 `llm_call` 只能看到一个"是**只有真想过 tracing 才会发现**的粒度问题。**两个判断我都认同**：`on_session_reset` 是**功能缺口不是钩子缺口**（编发射点会让 `delete` 冒充 `reset`，是"静默失效"最坏的一种），但**请把归类写进证据栏**，否则下一个人会去补一行假 emit；`77/77` **不占 181 行**（会引入新分母，与 1.17 同一类问题），但**要放 `matrix_stats` 输出并写明口径**。未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。**你点名要我核的那条：`orbit plane leases` 不存在** —— `plane` 的 9 个子命令里没有 `leases`，实跑 `--help` 直接 argparse 报错。**你在同一轮内修好了，而且修法比我建议的更好**：我建议换成 `orbit sessions leases`，你改成指向 `runtime/active_sessions.json`（租约账本本身）+ `orbit plane show <会话>`（该会话的平面视图）—— **"给数据"比"给命令"更接近用户真正想知道的**，两者我都实跑确认存在，旧串全仓零残留。**并且做成了机制**：`test_hint_commands_exist.py` 把 `_stop_hint` 里的每个 `orbit <cmd>` 解析出来逐级查注册表（**子命令级也查**，只查顶层正好会漏掉这一类），我读了源码——**把旧串写回去必红**，还带两条防空转守卫。**这条的价值不在"修得快"，而在它被做成了一类错的守卫**：`_stop_hint` 是唯一一类"代码正确、类型自洽、lint 干净，但用户照做会失败"的东西，**静态检查原理上看不见它**。三项点名全部撑得住：`test_takeover` 断言的是 `reason == "session_takeover"` 而不是"任务停了"（否则 `max_actions` 撞上也会绿）；节流 10s vs 90s = 9 倍余量合理，且你 docstring 里「每轮查会在快循环里把盘写爆、慢循环里反而查得太稀」比"10 秒足够"硬一个量级——**节流粒度必须与被检查量的计量单位一致**；`release` 真在 `finally` 内且 `acquire` 也接上了。你选 10.8 而非 5.2 我认同，并补两条更可判的理由：**数据损坏不可逆、且没有信号**。我上轮那三条建议你逐字落地了（顶层对齐 77/77 进统计出口 + 口径写在数字旁）。**唯一剩下的口子**：`test_hint_covers_every_stop_reason` 的 `reasons` 是硬编码清单，新增 stop reason 时不会红——建议改成策略声明 + 并集。未验证项单列，不混进完成项。*

@@ -392,13 +392,14 @@ def _apply_state(context: Context, runner, state: dict[str, Any]) -> None:
 
     skills = state.get("skills") or ()
     if skills:
-        context.settings = context.settings.model_copy(
-            update={"skills_preload": tuple(skills)}
-        )
+        # **不要写 `settings.skills_preload`**：那是 `model_copy(update=...)` 塞进去的
+        # 裸属性——pydantic 不校验也不报错，所以它"存在"，但**全仓没有任何地方读它**。
+        # 真正的路径是 `state["skills"]` → `_apply_state()` 放进 Context 层。
+        # **死写入比不写更糟**：读代码的人会以为那个设置起作用。
         context.note(f"--skills：预载 {len(skills)} 个技能（正文进 Context 层，不进 Stable 层）。")
 
-    if state.get("pass_session_id"):
-        context.settings = context.settings.model_copy(update={"pass_session_id": True})
+    # `state["pass_session_id"]` 是唯一真路径（见上面 `_apply_flags` 开头），
+    # 不要再往 settings 上写一份——那份没人读。
 
 def run_chat(context: Context, args) -> int:
     # `-q/--query` 与 `-z/--oneshot` 都能给一次性的问题；两者同时给时以前者为准
@@ -428,10 +429,13 @@ def run_chat(context: Context, args) -> int:
     if getattr(args, "dev", False):
         context.note("--dev 只对 Hermes 的 TypeScript TUI 有意义（跳过 dist 直接用 tsx）；Orbit 的 TUI 是 Python，无需编译，该 flag 无效果。")
 
-    if getattr(args, "quiet", False):
-        context.settings = context.settings.model_copy(update={"quiet": True})
+    # `--quiet` 由**全局框架**的 `Context.quiet` 处理（父解析器上的 `--quiet`），
+    # 不要再往 settings 上写一份——那份没人读。
+    #
+    # `--verbose` 在 `chat` 里**没有实现**：全仓没有任何地方读它。按本文件既有做法
+    # （见上面的 `--dev`）如实说出来，而不是静默收下。
     if getattr(args, "verbose", False):
-        context.settings = context.settings.model_copy(update={"verbose": True})
+        context.note("--verbose 在 `orbit chat` 里没有实现（不会改变输出）。要更详细的日志：`orbit logs`。")
 
     runner, store, summaries = _build_stack(context)
     _apply_state(context, runner, state)

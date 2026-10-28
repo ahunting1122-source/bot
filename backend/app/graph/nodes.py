@@ -46,6 +46,10 @@ log = logging.getLogger("orbit.nodes")
 #: 每轮查会在快循环里把盘写爆、在慢循环里反而查得太稀。
 LEASE_HEARTBEAT_SECONDS = 10.0
 
+#: 租约被接管时的停机原因。**声明成常量**，供 _stop_hint 的守卫遍历——
+#: 与 DefaultBudgetPolicy.STOP_REASONS 取并集，新增原因自动要求写提示。
+LEASE_STOP_REASON = "session_takeover"
+
 PREFETCH_TOP_K = 5
 OUTWARD_PREFIXES = ("browser_", "vault_", "notion_")
 #: 模型单步调用尝试次数：流式还没吐出正文时的失败可安全重试。
@@ -1511,7 +1515,7 @@ class Nodes:
             leases.heartbeat(session_id)
         except Exception as exc:  # noqa: BLE001 —— 任何失败都按「失去了」处理
             log.warning("会话租约已被接管（%s）：%s", session_id, exc)
-            return "session_takeover"
+            return LEASE_STOP_REASON
         return ""
 
     def _reasoning_effort(self) -> str | None:
@@ -1798,7 +1802,7 @@ def _stop_hint(reason: str, budget: dict, turns: int) -> str:
             f"已用约 {budget.get('token_estimate')} token（上限 {budget.get('max_tokens')}）。"
             "这个上限写死在 `DefaultBudgetPolicy.default_max_tokens`，改配置改不了。"
         )
-    if reason == "session_takeover":
+    if reason == LEASE_STOP_REASON:
         return (
             "这个会话已被另一个进程接管（同一个会话不能两个任务同时跑），"
             "本任务主动让出以免两边往同一份对话历史里交错写。"

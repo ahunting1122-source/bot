@@ -63,20 +63,58 @@ def test_every_command_named_in_stop_hints_exists():
     )
 
 
-def test_hint_covers_every_stop_reason_the_policy_can_produce():
-    """策略能产出的每个 `stop_reason`，`_stop_hint` 都要有话说。
+def test_hint_covers_every_stop_reason_the_producers_declare():
+    """**性质断言**：产出方声明的每个 `stop_reason`，`_stop_hint` 都要有话说。
 
-    **没有对应分支的理由会得到空提示**——用户看到「被预算停下」却不知道改什么。
+    **为什么不用硬编码元组**：`reasons = ("max_actions", ...)` 是**清单断言**——
+    将来 `policies.check()` 新增一种原因，那条测试照样绿（它只遍历写死的 4 个）。
+    **清单会过期，性质不会。**
+
+    所以原因由**产出方自己声明**：
+    - `DefaultBudgetPolicy.STOP_REASONS`（策略能产出的）
+    - `nodes.LEASE_STOP_REASON`（租约机制能产出的）
+
+    测试遍历两者的**并集**——新增原因自动要求写提示。
     """
     from app.config import Settings
-    from app.graph.nodes import _stop_hint
+    from app.graph import nodes as nodes_module
     from app.policies import DefaultBudgetPolicy
 
     policy = DefaultBudgetPolicy()
     budget = policy.start(Settings(data_dir=pathlib.Path("."), workspace=pathlib.Path(".")))
 
-    # 这些是策略与租约机制可能产出的全部原因
-    reasons = ("max_actions", "max_tokens", "max_turns", "session_takeover")
-    for reason in reasons:
-        hint = _stop_hint(reason, budget, 3)
+    declared = tuple(DefaultBudgetPolicy.STOP_REASONS) + (nodes_module.LEASE_STOP_REASON,)
+    assert len(declared) >= 4, f"产出方声明的原因太少（{declared}）——是不是漏声明了？"
+
+    for reason in declared:
+        hint = nodes_module._stop_hint(reason, budget, 3)
         assert hint.strip(), f"`{reason}` 没有提示——用户不知道该怎么调"
+
+
+def test_stop_reasons_are_actually_produced_by_the_policy():
+    """反证：声明的每个原因，`check()` 都要**真的能产出**它。
+
+    防的是「声明了一份，代码产出另一份」——两边各自都对、合起来永远对不上。
+    """
+    from app.config import Settings
+    from app.policies import DefaultBudgetPolicy
+
+    policy = DefaultBudgetPolicy()
+    budget = policy.start(Settings(data_dir=pathlib.Path("."), workspace=pathlib.Path(".")))
+    produced: set[str] = set()
+
+    # max_actions：动作数打满
+    produced.add(policy.check({"actions": 10**6, "turns": 0, "budget": budget}))
+    # max_turns：轮次打满
+    produced.add(policy.check({"actions": 0, "turns": 10**6, "budget": budget}))
+    # max_tokens：token 估算打满
+    full = dict(budget)
+    full["token_estimate"] = int(full["max_tokens"]) + 1
+    produced.add(policy.check({"actions": 0, "turns": 0, "budget": full}))
+
+    produced.discard("")
+    missing = set(DefaultBudgetPolicy.STOP_REASONS) - produced
+    assert not missing, (
+        f"这些原因声明了但 `check()` 产不出来：{missing}——"
+        "声明与实现漂移，提示会为一种不存在的情况写文案"
+    )

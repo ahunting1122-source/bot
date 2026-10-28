@@ -391,6 +391,10 @@ class DefaultToolResultPolicy:
 class DefaultBudgetPolicy:
     """三类预算：动作 / token 硬拦，时间软闸。
 
+    :data:`STOP_REASONS` 是**这个策略能产出的全部停机原因**，声明在这里而不是
+    散在测试里——`_stop_hint` 的守卫遍历它（加上租约机制的 `session_takeover`），
+    **将来新增一种原因会自动要求写提示**。把清单写在测试里会过期，写在产出方不会。
+
     时间到点不再硬停，而是由 `budget` 节点标记 `backgrounded` 转后台继续，
     并按 `report_interval` 定期发进度报告——硬停只剩动作数与 token 两类。
 
@@ -402,6 +406,11 @@ class DefaultBudgetPolicy:
     它由后台另一次模型调用产生，合进 `token_estimate` 会让"哪些 token 是工具读来的"
     失去归因；但**不记又会让预算与账单对不上**，所以两条都要做——分列 + 计入总量。
     """
+
+    #: 这个策略能产出的全部停机原因。**声明在产出方**，供 `_stop_hint` 的守卫遍历——
+    #: 把清单写在测试里会过期（新增原因时测试照样绿），写在产出方不会。
+    #: 注意「时间上限」**不在**这里：它是软闸（转后台继续），不是停机。
+    STOP_REASONS: tuple[str, ...] = ("max_actions", "max_tokens", "max_turns")
 
     default_max_tokens = 200_000
 
