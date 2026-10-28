@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pypdf import PdfReader
 from sqlalchemy import select
 
-from app import approvals, code_exec, egress, terminal, tirith, toolsets
+from app import approvals, code_exec, egress, memory_write, terminal, tirith, toolsets
 from app.config import GRANTABLE_TOOLS, Settings, load_grants
 from app.storage import Artifact, Memory, Operation, Store, Task, serialize
 
@@ -1735,6 +1735,23 @@ class ToolRegistry:
             allowed, refusal = memory_write_allowed(latest_user_text(messages))
             if not allowed:
                 raise MemoryWriteRefused(refusal)
+            # 写入门禁（MATRIX 9.12）：威胁扫描 → 审批门 → 快照期二次扫描 → 单条超限。
+            #
+            # 为什么在 M2 判据**之后**：M2 问的是"用户有没有要求记住"，门禁问的是
+            # "内容本身能不能进库"。两个问题都要过，但先答便宜的、语义更根本的那个。
+            #
+            # 为什么这里传 `backend=None`（跳过 round-trip 漂移检查）：那一步会**写回一次
+            # 全库**，而 `memory_save` 只是写一条。为了检查一条新记录去重写整库，风险和
+            # 收益不成比例——漂移防护留给 `memory batch`（那里本来就是整批写）。
+            check = await memory_write.check_write(
+                {args["key"]: args["value"]},
+                mode=approvals.resolve_mode(self.settings),
+                data_dir=self.settings.data_dir,
+            )
+            if not check.ok:
+                # 抛异常而不是返回 dict：`execute()` 会把本地工具的 dict 统一包成
+                # `{"status": "ok"}`，一次被拒的写入会被显示成成功（这个坑踩过）。
+                raise MemoryWriteRefused(f"记忆写入被拒（{check.stage}）：{check.reason}")
             memory, merged_from = await self.store.set_memory(
                 args["key"], args["value"], task_id
             )

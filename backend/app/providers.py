@@ -52,8 +52,23 @@ SUPPORTED_TRANSPORTS: tuple[str, ...] = (
     "gemini",
 )
 
+#: 线协议 → 真正实现它的客户端。**这是"已实现"的物证**：矩阵里写"3 种已实现"
+#: 不算证据，指得出类名才算。测试据此断言 `SUPPORTED_TRANSPORTS` 与实现一一对应，
+#: 防止有人往 `SUPPORTED_TRANSPORTS` 里加一个没有实现的字符串。
+TRANSPORT_CLIENTS: dict[str, str] = {
+    "chat_completions": "langchain_openai.ChatOpenAI",
+    "anthropic_messages": "app.providers.AnthropicMessagesClient",
+    "gemini": "app.providers.GeminiClient",
+}
+
 #: 未实现的线协议 → 原因。**必须写清"为什么不行"**，否则用户只会看到一句
 #: "不支持"，然后去猜是不是配置错了。
+#:
+#: `bedrock_converse` 这一轮**复核过能不能纯本地实现**（调研 06 §3.1 #12）：
+#: Bedrock Runtime 有 REST 面，但每个请求都要 SigV4 签名，签名又依赖完整的 AWS
+#: 凭据链（env / shared config / SSO / IMDS / AssumeRole）。手工用 stdlib 的
+#: `hmac` 签一个固定凭据的请求在技术上可行，但**凭据链拿不到就没法验证**——本机
+#: 无网络、无 AWS 账号，写出来的东西只能靠"看起来对"。所以保持明确抛错。
 UNSUPPORTED_TRANSPORTS: dict[str, str] = {
     "bedrock_converse": (
         "AWS Bedrock Converse 只能走 boto3 SDK（SigV4 签名），没有 REST /v1 面；"
@@ -165,6 +180,32 @@ def _ollama_extra(model: str, effort: str | None) -> dict[str, Any]:
     return {"think": effort is not None}
 
 
+# ── 另外两个 profile 钩子（MATRIX 4.1）─────────────────────────────────────
+
+#: `() -> list[str]`：**纯本地**枚举该家当前可用的模型名。
+#:
+#: 为什么是"纯本地"：Hermes 的 `fetch_models` 会打 `GET /v1/models`。本机无网络、
+#: 且本层禁止发真实请求，所以这里只允许"从已配置的端点推导"（例如自定义端点读
+#: `Settings` 里用户填的模型名）或"返回出厂表"。钩子为 None = 没有更准的清单，
+#: 调用方应退回 `profile.models` 的键。
+#:
+#: 签名不带参数（不接 `settings`）：接进去会让钩子变成"第二个配置读取入口"，
+#: 而配置只在 `resolve_provider()` 那一处读。需要端点信息的钩子请用闭包在注册处
+#: 捕获，这样钩子本身仍是纯函数、可被单测。
+FetchModelsHook = Callable[[], list[str]]
+
+#: `(model, payload) -> payload`：**整份请求体**的最后一道改写。
+#:
+#: 与 `extra_body`（只产出 `extra_body` 片段、由 SDK 塞进顶层）刻意分开：
+#: - `extra_body`：推理开关这类"加一个字段"的差异；
+#: - `build_extra_body`：`payload` 已经是完整请求体，钩子可以**增删改任意字段**
+#:   （例如把 `tools` 挪到厂商私有位置、给 `messages` 补前置 system）。
+#:
+#: 名字沿用 Hermes 的 `build_extra_body`（调研 06 §2.1 的 profile 钩子清单），
+#: 但语义按上面对齐——混用两者最容易出现"以为改了顶层其实被 extra_body 覆盖"。
+BuildExtraBodyHook = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
 # ── provider profile ────────────────────────────────────────────────────────
 
 
@@ -190,6 +231,12 @@ class ProviderProfile:
     models: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: 推理参数线格式钩子（见 `ExtraBodyHook`）。None = 该家不需要特殊处理。
     extra_body: ExtraBodyHook | None = None
+    #: 模型清单钩子（见 `FetchModelsHook`）。None = 用 `models` 的键当清单。
+    #: **纯新增、默认 None**：既有 16 家一个都不填，行为与之前逐字一致。
+    fetch_models: FetchModelsHook | None = None
+    #: 整份请求体改写钩子（见 `BuildExtraBodyHook`）。None = 不做额外改写。
+    #: 同样纯新增、默认 None。
+    build_extra_body: BuildExtraBodyHook | None = None
     #: False = 模型清单只能实时拉取（无目录条目 / 用户自填端点），`models` 允许为空。
     models_known: bool = True
     #: 与 Hermes 的差异说明。**有差异就写在这里**，不要让读者以为完全一致。
@@ -690,6 +737,34 @@ def extra_body_for(
     return profile.extra_body(model, reasoning_effort)
 
 
+def fetch_models_for(profile: ProviderProfile) -> list[str]:
+    """该家"现在有哪些模型"的本地答案。
+
+    优先级：`fetch_models` 钩子 → 出厂 `models` 表的键。**两者都没有就返回空表**，
+    不编造模型名：`bedrock` / `custom` 正是这种情况（`models_known=False`），
+    调用方看到空表就知道"得让用户自己填"，而不是拿到一串假模型去请求。
+
+    返回值排好序：同一份配置在不同进程里跑出不同顺序，diff 起来像有 bug。
+    """
+    if profile.fetch_models is not None:
+        names = [str(name).strip() for name in profile.fetch_models()]
+        return sorted({name for name in names if name})
+    return sorted(profile.models)
+
+
+def apply_build_extra_body(
+    profile: ProviderProfile, model: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """跑一遍 `build_extra_body` 钩子（没有钩子就原样返回）。
+
+    返回**新 dict**（浅拷贝），不原地改入参：调用方常常把同一个 `payload` 复用于
+    "记录日志"与"发请求"两处，原地改会让日志里出现一份没发出去的请求体。
+    """
+    if profile.build_extra_body is None:
+        return dict(payload)
+    return dict(profile.build_extra_body(model, dict(payload)))
+
+
 def _resolve_base_url(profile: ProviderProfile, settings: ModelSettings) -> str:
     """端点取值：`Settings` 里填了就用它，否则用 profile 默认值。
 
@@ -1139,8 +1214,11 @@ __all__ = [
     "FACTORY_CAPABILITY",
     "PROVIDERS",
     "SUPPORTED_TRANSPORTS",
+    "TRANSPORT_CLIENTS",
     "UNSUPPORTED_TRANSPORTS",
     "AnthropicMessagesClient",
+    "BuildExtraBodyHook",
+    "FetchModelsHook",
     "GeminiClient",
     "MissingCredential",
     "ModelSettings",
@@ -1148,12 +1226,14 @@ __all__ = [
     "ProviderProfile",
     "UnknownProvider",
     "UnsupportedTransport",
+    "apply_build_extra_body",
     "build_chat_model",
     "cache_path",
     "capabilities",
     "capability",
     "capability_with_source",
     "extra_body_for",
+    "fetch_models_for",
     "load_cache",
     "record_capability",
     "resolve_api_key",

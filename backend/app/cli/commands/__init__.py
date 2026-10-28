@@ -25,9 +25,12 @@ from app.cli.commands import (  # isort: split
     hooks,
     mcp,
     memory_extra,
+    memory_extra2,
     model,
     observability,
+    observability_extra,
     ops,
+    platform_extra,
     plugins,
     security,
     session_plane,
@@ -44,15 +47,17 @@ from app.cli.commands import (  # isort: split
 
 # ── 第二组：**必须在表组装之后**导入的模块 ─────────────────────────────────
 #
-# `session_extra` 自己 `import hermes_parity`（它要把子命令挂到表里已存在的
-# `sessions` 父节点上，需要表先组装好）。如果把它放在上面那组里，它会在
-# `setup.py` **之前**触发 `register_specs`，于是表里的顶层 `setup` 先登记、
-# 随后 `setup.py` 再登记一次 → `命令重复登记：setup`，整个 CLI 起不来。
+# 判据：这些模块自己 `import hermes_parity`（要把子命令挂到表里已存在的父节点上，
+# 需要表先组装好）。如果把它们放在上面那组里，它们会在 `setup.py` **之前**触发
+# `register_specs`，于是表里的顶层 `setup` 先登记、随后 `setup.py` 再登记一次 →
+# `命令重复登记：setup`，整个 CLI 起不来。
 #
-# 所以这条规则要精确表述：**替换顶层命令的模块必须排在 `hermes_parity` 之前；
-# 只往已有父节点挂子命令的模块可以排在之后**。这是唯一一个"之后"的例子。
+# 所以规则要精确表述：**替换顶层命令的模块必须排在 `hermes_parity` 之前；
+# 只往已有父节点挂子命令的模块可以（也必须）排在之后。**
 from app.cli.commands import (
+    cron_extra,  # noqa: E402,F401
     hermes_parity,  # noqa: F401
+    model_extra2,  # noqa: E402,F401
     session_extra,  # noqa: E402,F401
 )
 
@@ -64,6 +69,15 @@ from app.cli.commands import (
 from app.cli.commands.tools_extra2 import mark_proxy_paths_partial  # noqa: E402
 
 mark_proxy_paths_partial()
+
+# 同类的第二处：`memory_extra2` 把 `profile show/export/import` 从 Hermes 的
+# **profile distribution** 语义接管成**用户画像**语义，连选项形状一起换
+# （`show` 不再要 `PROFILE_NAME`）。但它在 `hermes_parity` 之前导入，那时表还没有，
+# 节点更新被跳过 → `orbit profile show` 会报 "the following arguments are required:
+# PROFILE_NAME"。所以表组装完之后重放一遍。
+from app.cli.commands.memory_extra2 import rebind_profile_options  # noqa: E402
+
+rebind_profile_options()
 
 __all__ = [
     "acp",
@@ -77,9 +91,13 @@ __all__ = [
     "hooks",
     "mcp",
     "memory_extra",
+    "memory_extra2",
     "model",
     "observability",
+    "observability_extra",
+    "observability_extra",
     "ops",
+    "platform_extra",
     "plugins",
     "security",
     "session_extra",
@@ -94,4 +112,6 @@ __all__ = [
     "ui",
     "ui_extra",
     "hermes_parity",
+    "cron_extra",
+    "model_extra2",
 ]

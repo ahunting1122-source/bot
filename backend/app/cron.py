@@ -14,6 +14,26 @@
 - **不常驻**。:meth:`CronRunner.tick` 是一次性的，由外部调度器（Windows 计划任务 /
   systemd timer）按分钟调用。常驻线程会引入"进程死了任务就停"的隐形依赖，而这个子系统
   的用户本来就希望它跟着系统调度器活。
+
+## 本轮新增的三条（MATRIX 10.1 / 11.3 / 11.5 / 11.6）
+
+- **写侧统一（10.1）**：每次运行往 ``app/session_plane.py`` 写
+  ``cron.run.started`` / ``cron.run.finished`` / ``cron.run.failed``，
+  会话键是 ``cron:<job_id>``。这样"这条任务昨天到底跑没跑"在统一时间线里就能看到，
+  而不必去翻 ``runs.jsonl`` 和别的存储各查一遍。**agent 侧仍是禁改区**，
+  交互会话的写入还没统一——那是 10.1 变 ✅ 的最后一块。
+- **平台投递（11.3）**：``--deliver`` 除 ``none`` / ``file:<路径>`` 之外，
+  现在支持 ``platform:<平台>[:<频道>]``，走 ``app/gateway.py`` 的 ``deliver()``。
+  为什么加 ``platform:`` 前缀而不是直接写 ``telegram:chat``：``file:`` 已经占了
+  "前缀 + 参数"的形状，两种写法混在一个命名空间里迟早互相吃掉（``file`` 既是
+  投递模式又是开发旁路平台名）。**未实现的平台在 ``create`` 时就拒绝**——等到跑的
+  时候才失败，用户已经以为它配好了。
+- **权限共享（11.5）**：任务运行时读**与交互同一份** ``<data_dir>/settings.json``
+  的 ``file_scope`` / ``approval_mode``，并把这两档写进运行记录与平面事件。
+  要能回答"这个定时任务当时有没有权限写工作目录外"，否则事后追责只能靠猜。
+- **紧急停止级联（11.6）**：:func:`pause_all` / :func:`resume_all` 同时管
+  cron 哨兵、gateway 哨兵与"正在跑的任务"（后者**只能标记**——执行体在别的进程里，
+  跨进程强杀是另一个量级的风险）。
 """
 
 from __future__ import annotations
@@ -31,6 +51,15 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.session_plane import (
+    KIND_CRON_RUN_FAILED,
+    KIND_CRON_RUN_FINISHED,
+    KIND_CRON_RUN_STARTED,
+    SOURCE_KEY_CRON,
+    SessionPlane,
+    plane_session_key,
+)
+
 #: 连续失败到这个次数就自动停用任务（照 Hermes "别让坏任务无限重试"的思路）。
 MAX_CONSECUTIVE_FAILURES = 3
 
@@ -38,9 +67,21 @@ MAX_CONSECUTIVE_FAILURES = 3
 #: 要完整输出请配 ``deliver=file:<路径>``，那是给人看的、不截断。
 OUTPUT_KEEP = 4000
 
-#: 投递目标只放行这两种。其它（telegram / discord / …）属 W9 平台层，尚未实现。
+#: 投递目标三种形状：``none`` / ``file:<路径>`` / ``platform:<平台>[:<频道>]``。
+#: ``platform:`` 前缀是刻意的（见模块 docstring）：不给前缀的话 ``telegram:1`` 这类
+#: 历史无效值会突然变得合法，而 ``file`` 既是模式名又是开发旁路平台名。
 DELIVER_NONE = "none"
 DELIVER_FILE_PREFIX = "file:"
+DELIVER_PLATFORM_PREFIX = "platform:"
+
+#: 不需要凭证的开发旁路平台（``app/platforms.py`` 的 ``ConsoleAdapter`` / ``FileAdapter``）。
+#: 它们不在 22 个平台里，但``implemented`` 判据对它们没有意义——stdout 与 outbox
+#: 永远可用，所以单独放行而不是塞进 ``PLATFORMS``。
+DELIVER_DEV_PLATFORMS: tuple[str, ...] = ("console", "file")
+
+#: 正在跑的任务登记簿。执行体可能在**另一个进程**里（外部调度器起的 tick），
+#: 所以紧急停止只能在这里打标记，不能杀。
+RUNNING_FILENAME = "running.json"
 
 #: 事故三态。``detected`` = 刚发现；``alerted`` = 人已看到；``closed`` = 已恢复/已处理。
 INCIDENT_STATES: tuple[str, ...] = ("detected", "alerted", "closed")
@@ -100,11 +141,47 @@ def _atomic_write(path: Path, text: str) -> None:
 # ── 投递目标 ────────────────────────────────────────────────────────────────
 
 
+def _platform_rejection(name: str) -> str:
+    """平台能不能投？能投返回空串，不能投返回**一句能行动的话**。
+
+    判据来自 ``app.platforms.PLATFORMS[...].implemented``（单一事实源）：
+    22 个平台里 11 个有出站适配器，其余 11 个只有声明。这里读声明而不是读
+    ``default_adapters()`` 的键，因为后者只反映"本进程装了哪些适配器"，
+    而"这个平台到底有没有实现"是产品事实，不该随进程配置变化。
+
+    ``app.platforms`` 是**惰性导入**：``app/cron.py`` 的核心（调度表达式 + 落盘）
+    在纯文件场景下也用得上，不该为了校验一个投递目标就把 httpx 适配器栈拉起来。
+    """
+    from app.platforms import PLATFORMS, Platform
+
+    if name in DELIVER_DEV_PLATFORMS:
+        return ""
+    try:
+        platform = Platform(name)
+    except ValueError:
+        known = "、".join(sorted({item.value for item in PLATFORMS} | set(DELIVER_DEV_PLATFORMS)))
+        return f"未知投递平台：{name!r}。可用：{known}"
+    spec = PLATFORMS[platform]
+    if not spec.implemented:
+        needs = f"；需要凭证：{'、'.join(spec.credentials)}" if spec.credentials else ""
+        return f"平台 {name} 尚未实现：{spec.reason or '缺少出站适配器'}{needs}"
+    return ""
+
+
 def validate_deliver(deliver: str | None) -> str:
     """校验并规范化投递目标；不认识的值**显式报错**。
 
-    为什么必须报错而不是静默降级：静默接受 ``telegram`` 会让用户以为"输出已经发到群里
-    了"，实际什么都没发——定时任务的失败模式里，"以为发了"比"明确没发"贵得多。
+    三种合法形状：
+
+    - ``none``（默认，不投递）；
+    - ``file:<路径>``：把输出写进文件（不截断，给人看）；
+    - ``platform:<平台>[:<频道>]``：走 ``app/gateway.py`` 的平台适配器投递。
+
+    为什么必须报错而不是静默降级：静默接受一个没实现的平台会让用户以为"输出已经发到
+    群里了"，实际什么都没发——定时任务的失败模式里，"以为发了"比"明确没发"贵得多。
+
+    **未实现的平台在 ``create`` / ``edit`` 就被拒**（调用方都是先校验再落盘），
+    而不是等到任务跑起来才失败：那时用户已经等了半小时。
     """
     value = (deliver or "").strip() or DELIVER_NONE
     if value == DELIVER_NONE:
@@ -114,10 +191,153 @@ def validate_deliver(deliver: str | None) -> str:
         if not target:
             raise ValueError("投递目标 file: 后面要跟文件路径（例：--deliver file:data/cron/out.md）")
         return f"{DELIVER_FILE_PREFIX}{target}"
+    if value.startswith(DELIVER_PLATFORM_PREFIX):
+        rest = value[len(DELIVER_PLATFORM_PREFIX) :].strip()
+        if not rest:
+            raise ValueError(
+                "投递目标 platform: 后面要跟平台名（例：--deliver platform:telegram:<chat_id>）"
+            )
+        name, _, channel = rest.partition(":")
+        platform_name = name.strip().lower()
+        if not platform_name:
+            raise ValueError(f"投递目标缺少平台名：{value!r}")
+        reason = _platform_rejection(platform_name)
+        if reason:
+            raise ValueError(reason)
+        clean_channel = channel.strip()
+        return (
+            f"{DELIVER_PLATFORM_PREFIX}{platform_name}"
+            + (f":{clean_channel}" if clean_channel else "")
+        )
     raise ValueError(
-        f"平台投递未实现：{value}。当前只支持 none（不投递）与 file:<路径>；"
-        "telegram / discord 等平台投递属 W9 的平台层，尚未实现。"
+        f"投递目标无法识别：{value!r}。平台投递未实现这种写法——平台投递要写成 "
+        "platform:<平台>[:<频道>]（走 app/gateway.py 的适配器，属 W9 平台层）。"
+        "当前支持 none、file:<路径>、platform:<平台>[:<频道>]。"
     )
+
+
+def parse_deliver(deliver: str | None) -> tuple[str, str, str]:
+    """把校验过的投递目标拆成 ``(模式, 目标, 频道)``。
+
+    模式是 ``none`` / ``file`` / ``platform``；``目标`` 是文件路径或平台名；
+    ``频道`` 只对平台投递有意义（空串 = 该平台的 home 频道）。
+    与 :func:`validate_deliver` 配对使用：**先校验再解析**，避免两条路径各自宽松。
+    """
+    value = validate_deliver(deliver)
+    if value == DELIVER_NONE:
+        return DELIVER_NONE, "", ""
+    if value.startswith(DELIVER_FILE_PREFIX):
+        return "file", value[len(DELIVER_FILE_PREFIX) :].strip(), ""
+    rest = value[len(DELIVER_PLATFORM_PREFIX) :]
+    name, _, channel = rest.partition(":")
+    return "platform", name.strip().lower(), channel.strip()
+
+
+def deliver_to(
+    platform: str,
+    channel: str,
+    text: str,
+    *,
+    data_dir: str | Path | None = None,
+    gateway: Any = None,
+    message_key: str = "",
+    now: float | None = None,
+) -> Any:
+    """把文本投递到平台，并**把结论记进投递账本**（``app/delivery_ledger.py``）。
+
+    走 ``app/gateway.py`` 的 ``deliver()``，不另写一套发送逻辑：账本格式、重试语义、
+    平台未实现的报错形状都在那一层，重写一遍只会得到第二个互相矛盾的答案。
+
+    幂等：``message_key`` 由调用方给（cron 用 ``cron:<job_id>:<run_id>``）。
+    认领（``claim``）**不阻止发送**——定时任务的语义是"这一轮跑出来的东西必须投一次"，
+    而账本的作用是"送没送到只有一个答案"。认领结果只用于留痕与去重查询。
+    """
+    from app import gateway as gw
+    from app.delivery_ledger import STATUS_DELIVERED, STATUS_FAILED, DeliveryLedger
+
+    name = str(platform or "").strip().lower()
+    if not name:
+        raise ValueError("平台投递需要平台名")
+    key = str(message_key or "").strip()
+    ledger: Any = None
+    if data_dir is not None:
+        ledger = DeliveryLedger(Path(data_dir))
+        if gateway is None:
+            # 必须用**同一个 data_dir** 建服务：不给的话 ``gw.deliver`` 会退回
+            # ``Settings().data_dir``，于是账本与平面都写进真实数据目录——
+            # 测试里看不见（事件"凭空消失"），真实环境里则是"数据目录 A 的任务
+            # 往目录 B 记账"，排查起来极难。
+            gateway = gw.service(Path(data_dir))
+    if ledger is not None and key:
+        ledger.claim(
+            key,
+            channel=str(channel or ""),
+            platform=name,
+            session_key=f"{name}:{str(channel or '').strip() or 'home'}",
+            now=now,
+        )
+    result = gw.deliver(
+        text,
+        platform=name,
+        channel=str(channel or ""),
+        gateway=gateway,
+        message_key=key,
+    )
+    if ledger is not None and key:
+        ledger.mark(
+            key,
+            STATUS_DELIVERED if result.ok else STATUS_FAILED,
+            result.error,
+            channel=str(channel or ""),
+            platform=name,
+            message_id=result.message_id,
+            now=now,
+        )
+    return result
+
+
+
+# ── 与交互共享的权限设置（MATRIX 11.5） ────────────────────────────────────
+
+#: 权限档的兜底值。与 ``app/config.py`` 的默认值一致：配置读不出来时**退回更窄的一档**
+#: （``workspace`` = 仅工作文件夹、``off`` = 只拦硬地板），而不是反向放开。
+DEFAULT_FILE_SCOPE = "workspace"
+DEFAULT_APPROVAL_MODE = "off"
+
+
+def read_permissions(data_dir: str | Path) -> dict[str, str]:
+    """读**与交互同一份** ``<data_dir>/settings.json`` 的权限两档。
+
+    为什么读文件而不是 ``Settings()``：交互侧（对话页）把权限改动写在
+    ``<data_dir>/settings.json``（见 ``app/cli/context.py`` 的 ``hydrate``），
+    而 cron 的执行体常常在**没有配置环境**的进程里跑（外部调度器起的 tick）。
+    读同一份文件才能保证"我在对话页把权限调成仅工作文件夹"对定时任务同样生效——
+    这正是 11.5 要的东西：不是再造一套 cron 专属权限，而是共用同一份。
+
+    返回 ``{file_scope, approval_mode, source}``；``source`` 说明这档是从哪来的
+    （``settings.json`` 还是默认值），事后追责时要能区分"用户设的"与"没设过"。
+
+    坏值一律降级到更窄的一档：``file_scope`` 只认 ``workspace`` / ``machine``，
+    ``approval_mode`` 只认 ``off`` / ``smart`` / ``manual``。两个合法取值表都从
+    各自的模块**惰性导入**，免得在这里复制一份会漂移的常量。
+    """
+    from app.approvals import APPROVAL_MODES
+    from app.config import normalize_file_scope
+
+    path = Path(data_dir) / "settings.json"
+    raw: Any = {}
+    if path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raw = {}
+    data = raw if isinstance(raw, dict) else {}
+    mode = str(data.get("approval_mode") or "").strip().lower()
+    return {
+        "file_scope": normalize_file_scope(data.get("file_scope", DEFAULT_FILE_SCOPE)),
+        "approval_mode": mode if mode in APPROVAL_MODES else DEFAULT_APPROVAL_MODE,
+        "source": str(path) if path.exists() else "默认值（settings.json 不存在）",
+    }
 
 
 # ── 调度表达式 ──────────────────────────────────────────────────────────────
@@ -463,10 +683,116 @@ def is_due(job: Job, now: datetime | None = None) -> bool:
 # ── 落盘 ────────────────────────────────────────────────────────────────────
 
 
+class RunningRegistry:
+    """``<data_dir>/cron/running.json``：正在跑的任务登记簿。
+
+    存在的唯一理由是**紧急停止**（MATRIX 11.6）。``pause`` 能挡住"下一轮不开始"，
+    但已经开始跑的那一轮还在别的进程里——跨进程强杀（``taskkill`` / 信号）风险等级
+    完全不同：杀错 PID、杀掉外部调度器、留下半写的状态文件。所以这里只做两件事：
+
+    1. 登记"谁在跑"（``run_id`` / ``job_id`` / ``pid`` / 开始时刻）；
+    2. 收到紧急停止时给每条登记**打标记**，执行方在下一个可中断点自己退。
+
+    崩溃留下的残条（进程已死）不在这里清理：判活需要 ``(pid, host_start_time)``
+    二元组，那套判据在 ``app/orphan_reaper.py`` 与 ``app/gateway.py`` 里已经有一份，
+    这里再写一遍只会多出一份会漂移的实现。残条只会让 ``--status`` 多报一条，
+    而多报一条比漏报安全。
+    """
+
+    def __init__(self, root: str | Path) -> None:
+        self.path = Path(root) / RUNNING_FILENAME
+
+    def load(self) -> list[dict[str, Any]]:
+        """读登记簿；坏文件当空表（与 ``jobs.json`` 同一个容错口径）。"""
+        if not self.path.exists():
+            return []
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        items = raw.get("running") if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            return []
+        return [item for item in items if isinstance(item, dict)]
+
+    def save(self, items: Iterable[dict[str, Any]]) -> None:
+        _atomic_write(
+            self.path,
+            json.dumps({"running": list(items)}, ensure_ascii=False, indent=2),
+        )
+
+    def register(
+        self,
+        run_id: str,
+        job_id: str,
+        *,
+        started_at: str = "",
+        pid: int | None = None,
+    ) -> dict[str, Any]:
+        """登记一条正在跑的任务（同 ``run_id`` 重复登记只保留一条）。"""
+        items = [item for item in self.load() if str(item.get("run_id") or "") != run_id]
+        record = {
+            "run_id": run_id,
+            "job_id": job_id,
+            "pid": os.getpid() if pid is None else int(pid),
+            "started_at": started_at or to_iso(now_utc()),
+            "cancel_requested": False,
+            "cancel_reason": "",
+        }
+        items.append(record)
+        self.save(items)
+        return record
+
+    def clear(self, run_id: str) -> bool:
+        """跑完就注销。返回是否真的删掉了一条（没登记过返回 False，不报错）。"""
+        items = self.load()
+        remaining = [item for item in items if str(item.get("run_id") or "") != run_id]
+        if len(remaining) == len(items):
+            return False
+        self.save(remaining)
+        return True
+
+    def mark_cancelled(self, *, reason: str = "") -> list[str]:
+        """给**所有**正在跑的任务打停止标记（不强杀）。返回被标记的 ``run_id``。"""
+        items = self.load()
+        marked: list[str] = []
+        for item in items:
+            if item.get("cancel_requested"):
+                marked.append(str(item.get("run_id") or ""))
+                continue
+            item["cancel_requested"] = True
+            item["cancel_reason"] = reason
+            marked.append(str(item.get("run_id") or ""))
+        if items:
+            self.save(items)
+        return [item for item in marked if item]
+
+    def clear_cancelled(self) -> int:
+        """解除停止标记（``resume`` 时调用）。返回清掉的条数。"""
+        items = self.load()
+        changed = 0
+        for item in items:
+            if item.get("cancel_requested"):
+                item["cancel_requested"] = False
+                item["cancel_reason"] = ""
+                changed += 1
+        if changed:
+            self.save(items)
+        return changed
+
+    def cancelled(self, run_id: str) -> bool:
+        """这条运行是否被标记过紧急停止（执行体自己查，自己决定在哪退）。"""
+        for item in self.load():
+            if str(item.get("run_id") or "") == run_id:
+                return bool(item.get("cancel_requested"))
+        return False
+
+
 class CronStore:
     """``<data_dir>/cron/`` 下的全部落盘：任务表、执行流水、事故状态、暂停哨兵。"""
 
     def __init__(self, data_dir: str | Path) -> None:
+        self.data_dir = Path(data_dir)
         self.root = Path(data_dir) / "cron"
 
     @property
@@ -484,6 +810,11 @@ class CronStore:
     @property
     def paused_path(self) -> Path:
         return self.root / "paused"
+
+    @property
+    def running(self) -> RunningRegistry:
+        """正在跑的任务登记簿（见 :class:`RunningRegistry`）。"""
+        return RunningRegistry(self.root)
 
     # ── 通用读 ──
     def _read_raw(self, path: Path) -> Any:
@@ -768,6 +1099,9 @@ class RunResult:
     started_at: str
     finished_at: str
     duration_ms: int
+    #: 本次运行的标识（``cron-xxxxxxxx-r1`` 形态）。平面事件的幂等键靠它，
+    #: 也是"同一条任务的第几次运行"在日志里的锚点。
+    run_id: str = ""
     output: str = ""
     error: str = ""
     delivered: str = ""
@@ -775,12 +1109,19 @@ class RunResult:
     disabled: bool = False
     #: 执行器不可用（未接线），不是任务本身失败。
     unavailable: bool = False
+    #: 运行期间收到的紧急停止标记（**只标记，不强杀**——见 :class:`RunningRegistry`）。
+    cancel_requested: bool = False
     note: str = ""
+    #: 运行时生效的权限档（读的是与交互同一份 ``settings.json``，MATRIX 11.5）。
+    #: 记在这里是为了回答"这个定时任务当时有没有权限写工作目录外"。
+    file_scope: str = ""
+    approval_mode: str = ""
 
     def as_record(self) -> dict[str, Any]:
         return {
             "ts": self.finished_at,
             "job_id": self.job_id,
+            "run_id": self.run_id,
             "name": self.name,
             "ok": self.ok,
             "started_at": self.started_at,
@@ -790,7 +1131,10 @@ class RunResult:
             "delivered": self.delivered,
             "disabled": self.disabled,
             "unavailable": self.unavailable,
+            "cancel_requested": self.cancel_requested,
             "note": self.note,
+            "file_scope": self.file_scope,
+            "approval_mode": self.approval_mode,
         }
 
 
@@ -804,9 +1148,12 @@ class CronRunner:
         *,
         max_failures: int = MAX_CONSECUTIVE_FAILURES,
     ) -> None:
+        self.data_dir = Path(data_dir)
         self.store = CronStore(data_dir)
         self.runner = runner
         self.max_failures = max(1, int(max_failures))
+        #: 正在跑的任务登记簿（紧急停止只能标记它，见 :class:`RunningRegistry`）。
+        self.running = RunningRegistry(self.store.root)
 
     # ── 查询 ──
     def jobs(self) -> list[Job]:
@@ -838,18 +1185,42 @@ class CronRunner:
         self.store.save_jobs(jobs)
         return results
 
-    async def run_job(self, job: Job, now: datetime | None = None) -> RunResult:
+    async def run_job(
+        self,
+        job: Job,
+        now: datetime | None = None,
+        *,
+        run_id: str = "",
+    ) -> RunResult:
         """执行一条任务并记账。
 
         **所有异常都在这里被吃掉**：一轮 tick 不能因为一条坏任务而整轮崩掉——外部调度器
         只看退出码，崩一次就可能再也不调了，其它健康任务跟着一起停。
+
+        ``run_id`` 可注入：测试要能"用同一个 run_id 跑两次"来验证平面事件幂等。
+        不给就现生成（``<job_id>-<8 位随机>``）。
         """
         started = _aware(now or now_utc())
         began = time.monotonic()
+        ident = run_id.strip() or f"{job.id}-{uuid.uuid4().hex[:8]}"
+        # 权限档在**开始那一刻**读一次并全程沿用：中途用户在对话页改了权限，
+        # 也不该让这一轮"前半段在 workspace、后半段在 machine"。
+        perms = read_permissions(self.data_dir)
+        plane_errors: list[str] = []
+        self._plane_write(
+            job,
+            ident,
+            KIND_CRON_RUN_STARTED,
+            started_at=to_iso(started),
+            permissions=perms,
+            errors=plane_errors,
+        )
+        self.running.register(ident, job.id, started_at=to_iso(started))
         ok, output, error, unavailable = False, "", "", False
         try:
             payload = await self.runner(job)
         except asyncio.CancelledError:
+            self.running.clear(ident)
             raise  # 取消是调用方的意图，不该被记成任务失败
         except Exception as exc:  # noqa: BLE001 —— 执行器的任何异常都只算这一条失败
             error = f"{type(exc).__name__}: {exc}"
@@ -860,11 +1231,15 @@ class CronRunner:
             error = str(data.get("error") or "")
             unavailable = bool(data.get("unavailable", False))
 
-        delivered, deliver_error = self._deliver(job, output)
+        delivered, deliver_error = self._deliver(job, output, run_id=ident)
         if deliver_error:
             # 投递失败算任务失败："跑了但没人收到"在运维上等于没跑。
             ok = False
             error = f"{error}；{deliver_error}" if error else deliver_error
+
+        # 运行期间有没有人喊停：只读标记，不改变结果——真正的"停"由执行体自己决定。
+        cancel_requested = self.running.cancelled(ident)
+        self.running.clear(ident)
 
         # 注入时钟优先：测试要能确定性地推进"下一次触发"，混进真实时间会让断言不可复现。
         # 真实跑（now=None）时才用当前时间，保证 finished 不早于 started。
@@ -891,6 +1266,9 @@ class CronRunner:
                     f"修好后用 `orbit cron resume {job.id}` 重新启用"
                 )
 
+        if cancel_requested:
+            note = (note + "；" if note else "") + "运行期间收到紧急停止标记（只标记，未强杀）"
+
         if job.exhausted:
             job.enabled = False
             disabled = True
@@ -906,6 +1284,9 @@ class CronRunner:
                 job.next_run_at = ""
                 note = note or f"调度表达式无法计算下一次触发：{exc}"
 
+        if plane_errors:
+            note = (note + "；" if note else "") + f"平面事件写入失败：{'、'.join(plane_errors)}"
+
         result = RunResult(
             job_id=job.id,
             name=job.display_name,
@@ -913,32 +1294,126 @@ class CronRunner:
             started_at=to_iso(started),
             finished_at=to_iso(finished),
             duration_ms=duration_ms,
+            run_id=ident,
             output=output,
             error=error,
             delivered=delivered,
             disabled=disabled,
             unavailable=unavailable,
+            cancel_requested=cancel_requested,
             note=note,
+            file_scope=perms["file_scope"],
+            approval_mode=perms["approval_mode"],
         )
+        # 结束事件在流水落盘**之前**写：即使 runs.jsonl 写失败（磁盘满等），
+        # 平面上也留下了"这一轮结束了"的痕迹，不会永远停在 started 上。
+        self._plane_write(
+            job,
+            ident,
+            KIND_CRON_RUN_FINISHED,
+            started_at=to_iso(started),
+            finished_at=result.finished_at,
+            duration_ms=duration_ms,
+            ok=ok,
+            unavailable=unavailable,
+            delivered=delivered,
+            permissions=perms,
+            errors=plane_errors,
+        )
+        if not ok and not unavailable:
+            # 失败**额外**再写一条：审计要能直接按 kind 捞失败，不必逐条解析 finished。
+            # ``unavailable`` 不算失败（执行器没接线不是任务的错），所以不写 failed——
+            # 否则"配置缺项"会在平面里堆成一串假的失败。
+            self._plane_write(
+                job,
+                ident,
+                KIND_CRON_RUN_FAILED,
+                started_at=to_iso(started),
+                finished_at=result.finished_at,
+                error=error or "（执行器未给原因）",
+                unavailable=unavailable,
+                permissions=perms,
+                errors=plane_errors,
+            )
         self.store.append_run(result.as_record())
         return result
 
+    # ── 平面（写侧统一：MATRIX 10.1） ──
+    def _plane_write(
+        self,
+        job: Job,
+        run_id: str,
+        kind: str,
+        *,
+        permissions: dict[str, str],
+        errors: list[str],
+        **fields: Any,
+    ) -> None:
+        """写一条 ``cron.run.*`` 平面事件，会话键 ``cron:<job_id>``。
+
+        幂等键 = ``cron:<job_id>:<run_id>:<阶段>``：同一个 ``run_id`` 重复调用
+        （重放、测试里连跑两次）不会在平面上多出一行。
+
+        写失败只收集到 ``errors`` 里、由调用方拼进 ``note``，**不抛**：平面是审计视图，
+        它坏了不该让一条真正跑成功的定时任务变成失败。
+        """
+        phase = kind.rsplit(".", 1)[-1]
+        event: dict[str, Any] = {
+            "kind": kind,
+            "session_id": plane_session_key(SOURCE_KEY_CRON, job.id),
+            "job_id": job.id,
+            "job_name": job.display_name,
+            "run_id": run_id,
+            "schedule": job.schedule,
+            "file_scope": permissions.get("file_scope", ""),
+            "approval_mode": permissions.get("approval_mode", ""),
+            "permissions_source": permissions.get("source", ""),
+        }
+        event.update(fields)
+        try:
+            SessionPlane(self.data_dir).append_once(
+                event, message_key=f"{SOURCE_KEY_CRON}:{job.id}:{run_id}:{phase}"
+            )
+        except Exception as exc:  # noqa: BLE001 —— 平面坏了不该影响任务结果
+            errors.append(f"{phase}: {type(exc).__name__}: {exc}")
+
     # ── 投递 ──
-    def _deliver(self, job: Job, output: str) -> tuple[str, str]:
-        """投递输出，返回 ``(落点, 错误)``。空输出不落盘（照 Hermes "empty stdout = silent"）。"""
-        target = (job.deliver or DELIVER_NONE).strip() or DELIVER_NONE
-        if target == DELIVER_NONE:
+    def _deliver(self, job: Job, output: str, *, run_id: str = "") -> tuple[str, str]:
+        """投递输出，返回 ``(落点, 错误)``。空输出不落盘（照 Hermes "empty stdout = silent"）。
+
+        非法投递目标（手改 ``jobs.json`` 写坏了）**记成这一条失败**，不往上抛：
+        抛出去会让整轮 tick 崩掉，而一轮里其它健康任务不该被一条手写坏的目标拖死。
+        """
+        try:
+            mode, target, channel = parse_deliver(job.deliver)
+        except ValueError as exc:
+            return "", str(exc)
+        if mode == DELIVER_NONE:
             return "", ""
-        if not target.startswith(DELIVER_FILE_PREFIX):
-            return "", f"平台投递未实现：{target}（只支持 none 与 file:<路径>）"
         if not output.strip():
             return "", ""
-        path = Path(target[len(DELIVER_FILE_PREFIX) :].strip()).expanduser()
+        if mode == "file":
+            path = Path(target).expanduser()
+            try:
+                _atomic_write(path, output if output.endswith("\n") else output + "\n")
+            except OSError as exc:
+                return "", f"投递到 {path} 失败：{exc}"
+            return str(path), ""
+        # 平台投递：走 gateway 的 deliver()，结论记进投递账本（app/delivery_ledger.py）。
+        landing = f"{target}:{channel or 'home'}"
         try:
-            _atomic_write(path, output if output.endswith("\n") else output + "\n")
-        except OSError as exc:
-            return "", f"投递到 {path} 失败：{exc}"
-        return str(path), ""
+            result = deliver_to(
+                target,
+                channel,
+                output,
+                data_dir=self.data_dir,
+                message_key=f"cron:{job.id}:{run_id}" if run_id else "",
+            )
+        except Exception as exc:  # noqa: BLE001 —— 投递层的异常也只算这一条失败
+            return "", f"投递到 {landing} 失败：{type(exc).__name__}: {exc}"
+        if result.ok:
+            return landing, ""
+        return "", f"投递到 {landing} 失败：{result.error or '未给原因'}"
 
     # ── 暂停 / 恢复 ──
     def pause(self, job_id: str) -> bool:
@@ -979,11 +1454,150 @@ class CronRunner:
         self.store.save_jobs(jobs)
         return job
 
-    def pause_all(self, *, reason: str = "") -> None:
-        self.store.set_paused(True, reason=reason)
+    def pause_all(self, *, reason: str = "") -> CascadeStatus:
+        """全局紧急停止：**级联**（cron + gateway + 正在跑的任务）。
 
-    def resume_all(self) -> None:
-        self.store.set_paused(False)
+        委托给模块级 :func:`pause_all`：命令行的 ``cron pause all`` 与
+        ``orbit pause`` 必须停掉同一批东西，两处各写一份级联迟早只停一半。
+        """
+        return pause_all(self.data_dir, reason=reason)
+
+    def resume_all(self) -> CascadeStatus:
+        """解除全局紧急停止（级联）。"""
+        return resume_all(self.data_dir)
+
+
+# ── 紧急停止级联（MATRIX 11.6） ──────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CascadeStatus:
+    """一次级联停止/恢复的现场：每个被管的子系统各一行。
+
+    ``paused`` 是**总判定**：任一子系统仍停着就算"停着"。为什么不用"全部停着"：
+    漏停一个子系统（比如 gateway 还在发消息）比多报一次"还停着"危险得多。
+    """
+
+    paused: bool
+    reason: str = ""
+    subsystems: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "paused": self.paused,
+            "reason": self.reason,
+            "subsystems": {name: dict(state) for name, state in self.subsystems.items()},
+        }
+
+    def paused_names(self) -> list[str]:
+        """当前停着的子系统名（``orbit pause --status`` 直接列它）。"""
+        return [name for name, state in self.subsystems.items() if state.get("paused")]
+
+
+def _gateway_pause_paths(data_dir: Path) -> tuple[Path, Any, Any]:
+    """拿到 gateway 哨兵路径与两个写盘函数（**不建 GatewayService**）。
+
+    为什么不实例化服务：构造 ``GatewayService`` 会建一整套平台适配器（含 httpx 客户端）
+    并探测本进程身份——对"写一个哨兵文件"来说完全是浪费，而且会把 httpx 拖进
+    ``orbit pause`` 这种本该零依赖的命令。``GatewayPaths`` 是个纯路径对象，够用了。
+    """
+    from app.gateway import GatewayPaths, write_json
+
+    paths = GatewayPaths(Path(data_dir))
+    return paths.paused, write_json, paths
+
+
+def pause_all(data_dir: str | Path, *, reason: str = "") -> CascadeStatus:
+    """紧急停止级联：cron 哨兵 + gateway 哨兵 + 正在跑的任务（只标记）。
+
+    三个子系统，为什么都得管：
+
+    - **cron**：挡"下一轮 tick 不开始"；
+    - **gateway**：挡"新网关轮次与出站投递"——只停 cron 等于停了半台机器；
+    - **正在跑的任务**：已经开始的那一轮在**别的进程**里，只能打标记让它自己退。
+      跨进程强杀（``taskkill`` / 信号）会引入"杀错 PID / 杀掉外部调度器"的风险，
+      那比"多跑完这一轮"贵得多。
+    """
+    root = Path(data_dir)
+    store = CronStore(root)
+    store.set_paused(True, reason=reason)
+    running = store.running
+    marked = running.mark_cancelled(reason=reason)
+
+    paused_path, write_json, _paths = _gateway_pause_paths(root)
+    write_json(
+        paused_path,
+        {
+            "paused_at": to_iso(now_utc()),
+            "reason": reason,
+            "source": "orbit pause（级联）",
+        },
+    )
+    return cascade_status(root, reason=reason, marked=marked)
+
+
+def resume_all(data_dir: str | Path) -> CascadeStatus:
+    """解除级联停止：清 cron 哨兵、清 gateway 哨兵、解除正在跑的任务的标记。"""
+    root = Path(data_dir)
+    store = CronStore(root)
+    store.set_paused(False)
+    cleared = store.running.clear_cancelled()
+    paused_path, _write_json, _paths = _gateway_pause_paths(root)
+    try:
+        paused_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    status = cascade_status(root)
+    # 把"本次解除了几条标记"留在现场里，便于人确认 resume 真的做了事。
+    status.subsystems["running_jobs"]["unmarked"] = cleared
+    return status
+
+
+def cascade_status(
+    data_dir: str | Path,
+    *,
+    reason: str = "",
+    marked: list[str] | None = None,
+) -> CascadeStatus:
+    """读三个子系统的当前状态（不改变任何东西）。
+
+    ``--status`` 的价值在于"我到底停了什么"：紧急停止最怕的不是没停，而是
+    **以为停了、其实只停了一半**。所以这里逐个报，而不是只给一个布尔。
+    """
+    root = Path(data_dir)
+    store = CronStore(root)
+    cron_paused = store.paused()
+    paused_path, _write_json, _paths = _gateway_pause_paths(root)
+    gateway_paused = paused_path.exists()
+    running_items = store.running.load()
+    running_marked = [item for item in running_items if item.get("cancel_requested")]
+    subsystems: dict[str, dict[str, Any]] = {
+        "cron": {
+            "paused": cron_paused,
+            "path": str(store.paused_path),
+            "detail": "tick 不执行任何任务" if cron_paused else "正常调度",
+        },
+        "gateway": {
+            "paused": gateway_paused,
+            "path": str(paused_path),
+            "detail": "新轮次与出站投递被挡住" if gateway_paused else "正常收发",
+        },
+        "running_jobs": {
+            "paused": bool(running_marked),
+            "path": str(store.running.path),
+            "detail": (
+                f"{len(running_marked)} 条已标记停止（只标记，不强杀）"
+                if running_marked
+                else f"{len(running_items)} 条在跑，未标记"
+            ),
+            "running": len(running_items),
+            "marked": [str(item.get("run_id") or "") for item in running_marked],
+        },
+    }
+    if marked is not None:
+        subsystems["running_jobs"]["marked"] = marked
+    paused = any(state.get("paused") for state in subsystems.values())
+    return CascadeStatus(paused=paused, reason=reason, subsystems=subsystems)
 
 
 # ── 事故（incidents）─────────────────────────────────────────────────────────

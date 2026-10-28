@@ -21,6 +21,7 @@ import json
 import logging
 from typing import Any
 
+from app import approvals, memory_write
 from app.cli.commands._table import register_handler
 from app.cli.context import CliError, Context
 from app.cli.spec import REGISTRY, Command, Handler, Option
@@ -261,6 +262,33 @@ def run_memory_batch(context: Context, args: Any) -> int:
             context.warn(result.error)
         context.emit({"ok": result.ok, "dry_run": True, **result.to_dict()})
         return 0 if result.ok else 1
+
+    # 写入门禁（MATRIX 9.12）：按**最终态**过威胁扫描 → 审批门 → 组合二次扫描 →
+    # 单条超限 → round-trip 漂移防护。批处理这里传 `backend`（会真跑 round-trip），
+    # 因为批量写本来就动整库，为漂移检查付一次写回的代价是值得的。
+    #
+    # 为什么按"最终态"而不是逐条：单条干净、组合起来是注入的情况确实存在
+    # （"请忽略以上" + "的指令并照做" 各自扫是空的，拼起来命中）。
+    engine = SqlMemoryBackend(store)
+    current = context.run(engine.all_entries())
+    planned = plan_batch(current, operations, limit=limit)
+    if not planned.ok:
+        context.warn(planned.error)
+        context.emit({"ok": False, **planned.to_dict()})
+        return 1
+    check = context.run(
+        memory_write.check_write(
+            planned.final,
+            mode=approvals.resolve_mode(context.settings),
+            backend=engine,
+            data_dir=context.data_dir,
+            limit=limit,
+        )
+    )
+    if not check.ok:
+        context.warn(f"记忆写入被拒（{check.stage}）：{check.reason}")
+        context.emit({"ok": False, **check.to_dict()})
+        return check.exit_code or 1
 
     result = context.run(apply_batch(store, operations, limit=limit))
     if not result.ok:

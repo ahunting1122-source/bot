@@ -98,14 +98,75 @@ def test_broken_config_falls_back_to_inheritance(tmp_path):
 
 
 def test_unknown_slot_is_rejected(tmp_path):
+    """拿一个**真不存在**的槽位名来测（`vision` 现在是 18 个真槽位之一了）。"""
     with pytest.raises(ValueError, match="未知槽位"):
-        aux.resolve_slot("vision", make_settings(tmp_path))
+        aux.resolve_slot("not_a_slot", make_settings(tmp_path))
 
 
-def test_all_four_slots_resolve(tmp_path):
+def test_all_eighteen_slots_resolve(tmp_path):
+    """18 个槽位全部可解析，且**前 4 个仍是既有的那四个、顺序不变**。"""
     slots = aux.resolve_all(make_settings(tmp_path))
     assert [item.slot for item in slots] == list(aux.SLOTS)
-    assert set(aux.SLOTS) == {"summary", "title", "compression", "classifier"}
+    assert len(aux.SLOTS) == 18
+    assert aux.SLOTS[:4] == ("summary", "title", "compression", "classifier")
+    assert set(aux.SLOTS) == set(aux.HERMES_NAMES)
+
+
+def test_eighteen_slots_cover_every_hermes_slot():
+    """调研 06 §4.3 的 18 个 `auxiliary.*` 槽位一个不漏。
+
+    两条合并关系必须写进表里，否则"18 个 Hermes 槽位 ↔ 18 个 Orbit 槽位"这句话
+    就只是注释：`title_generation` 占了 Orbit 的两个名字，`review` 并进
+    `background_review`。
+    """
+    assert len(set(aux.HERMES_ALIASES)) == 18
+    assert aux.HERMES_ALIASES["review"] == "background_review"
+    assert aux.HERMES_ALIASES["title_generation"] in {"summary", "title"}
+    assert set(aux.HERMES_ALIASES.values()) <= set(aux.SLOTS)
+
+
+def test_vision_slot_is_registered_with_its_hermes_timeout():
+    """含 vision 类槽位：这是本轮之前完全没登记的那一类。"""
+    assert "vision" in aux.SLOTS
+    assert aux.slot_kind("vision") == "vision"
+    assert aux.slot_kind("tts_audio_tags") == "audio"
+    assert aux.slot_kind("summary") == "text"
+    assert aux.DEFAULT_TIMEOUT["vision"] == 120
+
+
+def test_every_slot_has_a_timeout_purpose_and_kind():
+    for name in aux.SLOTS:
+        assert name in aux.DEFAULT_TIMEOUT, name
+        assert name in aux.SLOT_PURPOSE, name
+        assert name in aux.SLOT_KIND, name
+
+
+def test_legacy_four_keep_their_names_and_behaviour(tmp_path):
+    """既有 4 个槽位：名字、默认超时、继承语义都不许变（回归）。"""
+    assert aux.DEFAULT_TIMEOUT["summary"] == 120
+    assert aux.DEFAULT_TIMEOUT["title"] == 30
+    assert aux.DEFAULT_TIMEOUT["compression"] == 120
+    assert aux.DEFAULT_TIMEOUT["classifier"] == 30
+
+    settings = make_settings(
+        tmp_path, auxiliary={"vision": {"provider": "qwen", "model": "qwen-vl-max"}}
+    )
+    slot = aux.resolve_slot("vision", settings)
+    assert slot.inherited is False
+    assert slot.model == "qwen-vl-max"
+    assert slot.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # 配了 vision 不许影响其它槽位。
+    assert aux.resolve_slot("compression", settings).inherited is True
+
+
+def test_new_slots_show_up_in_the_cli_table(tmp_path, capsys):
+    from app.cli.commands import model_extra  # noqa: F401 —— 导入即接线
+    from app.cli.main import main
+
+    assert main(["--data-dir", str(tmp_path / "data"), "model", "--aux"]) == 0
+    out = capsys.readouterr().out
+    for name in ("vision", "curator", "moa_aggregator", "background_review"):
+        assert name in out, f"CLI 表格里缺槽位 {name}"
 
 
 # ── 成本估算 ────────────────────────────────────────────────────────────────

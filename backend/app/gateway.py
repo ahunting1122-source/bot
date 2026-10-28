@@ -31,6 +31,7 @@ import secrets
 import sys
 import tempfile
 import time
+import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -44,6 +45,13 @@ from app.platforms import (
     PlatformNotImplemented,
     default_adapters,
     resolve_adapter,
+)
+from app.session_plane import (
+    KIND_GATEWAY_DELIVERED,
+    KIND_GATEWAY_DELIVERY_FAILED,
+    SOURCE_KEY_GATEWAY,
+    SessionPlane,
+    plane_session_key,
 )
 
 #: gateway 的全部落盘都在这个子目录下（与 ``cron/`` 平级，便于整目录备份/搬走）。
@@ -67,6 +75,10 @@ WEBHOOKS_FILENAME = "webhooks.json"
 PEERS_FILENAME = "peers.json"
 #: 配对状态目录（照 Hermes 的 ``<home>/pairing/``）。
 PAIRING_DIRNAME = "pairing"
+#: 紧急停止哨兵（MATRIX 11.6 的 gateway 一侧）。与 ``cron/paused`` 同一个机制：
+#: 任何进程（运维脚本、另一个终端）写一个文件就生效，读侧只判 ``exists()``。
+#: 为什么不用配置字段：配置要先读出来才生效，而"配置读不出来"恰恰是最需要停的时候。
+PAUSED_FILENAME = "paused"
 
 #: 崩溃循环判据：窗口内启动次数 ≥ 阈值就报"反复重启"。
 #: 为什么是 10 分钟 / 3 次：Hermes 本机样本里 30 分钟约 10 次重启被判成崩溃循环，
@@ -307,6 +319,11 @@ class GatewayPaths:
     @property
     def pairing(self) -> Path:
         return self.data_dir / PAIRING_DIRNAME
+
+    @property
+    def paused(self) -> Path:
+        """紧急停止哨兵（``<data_dir>/gateway/paused``）。"""
+        return self.root / PAUSED_FILENAME
 
     def ensure(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -874,6 +891,44 @@ class GatewayService:
         released = self.lock.release()
         return {"ok": True, "released": released, "pid": self.pid}
 
+    # ── 紧急停止（MATRIX 11.6 的 gateway 一侧） ──
+    def paused(self) -> bool:
+        """哨兵文件是否存在。**只判存在**，不解析内容——解析失败就等于停不下来。"""
+        return self.paths.paused.exists()
+
+    def pause(self, *, reason: str = "", now: float | None = None) -> dict[str, Any]:
+        """写哨兵：此后 ``deliver`` 一律不发（并如实记一条 ``gateway.delivery_failed``）。
+
+        为什么把出站也一起挡住：``orbit pause`` 的语义是"新网关轮次别再动"
+        （见命令表里那条 help）。只挡入站不挡出站，等于停了半台机器。
+        """
+        stamp = time.time() if now is None else float(now)
+        record = {
+            "paused_at": _iso_now(stamp),
+            "reason": str(reason or ""),
+            "pid": self.pid,
+        }
+        write_json(self.paths.paused, record)
+        return {"ok": True, "paused": True, **record, "path": str(self.paths.paused)}
+
+    def resume(self) -> dict[str, Any]:
+        """删哨兵。返回 ``released`` 说明之前是否真的停着（重复 resume 不报错）。"""
+        existed = self.paths.paused.exists()
+        try:
+            self.paths.paused.unlink(missing_ok=True)
+        except OSError as exc:
+            return {"ok": False, "released": False, "error": f"删不掉哨兵文件：{exc}"}
+        return {"ok": True, "released": existed, "paused": False}
+
+    def pause_status(self) -> dict[str, Any]:
+        """哨兵状态（给 ``orbit pause --status`` 用）。"""
+        record = _read_json(self.paths.paused, {})
+        return {
+            "paused": self.paths.paused.exists(),
+            "path": str(self.paths.paused),
+            "detail": record if isinstance(record, dict) else {},
+        }
+
     # ── 状态 ──
     def status(self) -> dict[str, Any]:
         holder = self.lock.read_holder()
@@ -993,6 +1048,7 @@ class GatewayService:
         channel: str = "",
         attempts: int = DELIVER_ATTEMPTS,
         retry_delay: float = 0.0,
+        message_key: str = "",
     ) -> DeliveryResult:
         """走适配器发送，失败重试，每次尝试都记 ``deliveries.jsonl``。
 
@@ -1002,8 +1058,57 @@ class GatewayService:
         - **至少一次**：每次尝试单独一行账本，最后一行才是结论（``ok`` / ``failed``）。
         - ``PlatformNotImplemented`` 单独标出来：那不是网络问题，重试没有意义，
           调用方应该把它变成"平台未实现"的报错，而不是"稍后再试"。
+
+        本轮新增两件事（MATRIX 10.1 的写侧统一 + 11.6 的紧急停止）：
+
+        - **结论落一条平面事件**（``gateway.delivered`` / ``gateway.delivery_failed``），
+          这样 ``orbit plane timeline gateway:telegram`` 能看到这个出口发生过什么；
+        - 哨兵存在时**直接不发**并返回失败——紧急停止必须能真的挡住出站。
+
+        ``message_key`` 是幂等键：调用方（cron）给一个跨重试稳定的键，
+        同一次投递重复写不会在平面上留下两条；不给则每次生成唯一的键
+        （"同一段文本发两次"是两件真事，不能被内容去重掉）。
         """
+        result = self._deliver_inner(
+            message,
+            platform=platform,
+            channel=channel,
+            attempts=attempts,
+            retry_delay=retry_delay,
+        )
+        self._record_plane(result, message_key=message_key)
+        return result
+
+    def _deliver_inner(
+        self,
+        message: str,
+        *,
+        platform: str,
+        channel: str = "",
+        attempts: int = DELIVER_ATTEMPTS,
+        retry_delay: float = 0.0,
+    ) -> DeliveryResult:
+        """真正的发送与重试循环（不含平面事件，见 :meth:`deliver`）。"""
         name = str(platform or "").strip().lower()
+        if self.paused():
+            # 停着就一行都不发：**返回失败而不是空成功**，否则调用方会以为送达了。
+            reason = "网关已紧急停止（哨兵文件存在，`orbit resume` 解除），本次投递未发送"
+            self._log_delivery(
+                platform=name,
+                channel=channel,
+                attempt=1,
+                status="failed",
+                error=reason,
+                session_key=f"{name}:{str(channel or '').strip() or 'home'}",
+            )
+            return DeliveryResult(
+                ok=False,
+                platform=name,
+                channel=channel,
+                session_key=f"{name}:{str(channel or '').strip() or 'home'}",
+                attempts=1,
+                error=reason,
+            )
         try:
             adapter = self.adapter_for(name)
         except PlatformNotImplemented as exc:
@@ -1130,6 +1235,41 @@ class GatewayService:
             if isinstance(item, dict):
                 records.append(item)
         return records[-limit:] if limit > 0 else records
+
+    # ── 平面（写侧统一：MATRIX 10.1） ──
+    def _record_plane(self, result: DeliveryResult, *, message_key: str = "") -> None:
+        """把**一次投递的结论**写进统一 session 平面（``gateway:<platform>``）。
+
+        三处刻意的选择：
+
+        1. **一次投递一条**，不是一次尝试一条。尝试次数在 ``attempts`` 字段里；
+           平面回答"这个出口今天成了几次、败了几次"，逐次尝试归投递账本。
+        2. 幂等键把**结论**编进去（``<key>|delivered``）：先失败后成功是一次真实的重试，
+           若按 message_key 去重，账面上就只剩那条失败，看起来像永远没送到。
+        3. 平面写失败**不影响投递结果**：日志写不进去不该让已经发出去的消息变成失败，
+           但也绝不假装写过（异常照实抛出给调用方的是投递结果，不是"写成功"）。
+        """
+        key = str(message_key or "").strip()
+        if not key:
+            # 没有业务键：生成唯一键。内容相同的两次发送是两件真事，不能被去重。
+            key = f"gw-{uuid.uuid4().hex[:12]}"
+        outcome = "delivered" if result.ok else "failed"
+        kind = KIND_GATEWAY_DELIVERED if result.ok else KIND_GATEWAY_DELIVERY_FAILED
+        event = {
+            "kind": kind,
+            "session_id": plane_session_key(SOURCE_KEY_GATEWAY, result.platform),
+            "platform": result.platform,
+            "channel": result.channel,
+            "session_key": result.session_key,
+            "message_key": key,
+            "attempts": int(result.attempts),
+            "message_id": result.message_id,
+            "error": result.error,
+        }
+        try:
+            SessionPlane(self.data_dir).append_once(event, message_key=f"{key}|{outcome}")
+        except Exception:  # 平面写坏了不该把"已经发出去"变成"投递失败"
+            pass
 
 
 # ── webhook 订阅 ────────────────────────────────────────────────────────────
@@ -1433,10 +1573,15 @@ def deliver(
     channel: str = "",
     gateway: GatewayService | None = None,
     attempts: int = DELIVER_ATTEMPTS,
+    message_key: str = "",
 ) -> DeliveryResult:
     """模块级投递入口（等价于 :meth:`GatewayService.deliver`）。"""
     return (gateway or service()).deliver(
-        message, platform=platform, channel=channel, attempts=attempts
+        message,
+        platform=platform,
+        channel=channel,
+        attempts=attempts,
+        message_key=message_key,
     )
 
 
@@ -1456,6 +1601,7 @@ __all__ = [
     "HealthReport",
     "LOCK_FILENAME",
     "LockOutcome",
+    "PAUSED_FILENAME",
     "PEERS_FILENAME",
     "PROCESSES_FILENAME",
     "PairingStore",

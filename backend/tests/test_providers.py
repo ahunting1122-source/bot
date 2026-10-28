@@ -439,3 +439,59 @@ def test_client_repr_never_leaks_key():
         base_url="https://api.anthropic.com", api_key="sk-ant-very-secret", model="m"
     )
     assert "sk-ant-very-secret" not in repr(client)
+
+
+# ── 新增的 profile 钩子（MATRIX 4.1）：纯新增、默认 None、行为不变 ──────────
+
+
+def test_new_hook_fields_default_to_none():
+    """`fetch_models` / `build_extra_body` 是**纯新增**字段：默认 None，
+    既有 16 家一个都没填，所以"没钩子"这条路必须照旧工作。"""
+    for key, profile in pv.PROVIDERS.items():
+        assert profile.fetch_models is None, f"{key} 不该有 fetch_models 钩子"
+        assert profile.build_extra_body is None, f"{key} 不该有 build_extra_body 钩子"
+
+
+def test_hook_helpers_degrade_gracefully():
+    """没有钩子时的退化行为：清单退回出厂 `models` 表，请求体原样返回（且不原地改）。"""
+    deepseek = pv.PROVIDERS["deepseek"]
+    assert pv.fetch_models_for(deepseek) == sorted(deepseek.models)
+    # `models_known=False` 的两家没有出厂表 → 返回空表，**不编造模型名**。
+    assert pv.fetch_models_for(pv.PROVIDERS["bedrock"]) == []
+    assert pv.fetch_models_for(pv.PROVIDERS["custom"]) == []
+
+    payload = {"model": "x", "messages": []}
+    out = pv.apply_build_extra_body(deepseek, "deepseek-chat", payload)
+    assert out == payload
+    assert out is not payload, "必须返回新 dict：原地改会污染调用方的日志"
+
+
+def test_hook_fields_are_actually_used_when_present():
+    """钩子填了就要生效——否则"加了钩子"只是字段长得好看。"""
+    import dataclasses
+
+    profile = dataclasses.replace(
+        pv.PROVIDERS["deepseek"],
+        fetch_models=lambda: ["z-model", "a-model"],
+        build_extra_body=lambda model, payload: {**payload, "patched": model},
+    )
+    assert pv.fetch_models_for(profile) == ["a-model", "z-model"]
+    assert pv.apply_build_extra_body(profile, "deepseek-chat", {"model": "m"}) == {
+        "model": "m",
+        "patched": "deepseek-chat",
+    }
+
+
+def test_every_supported_transport_names_a_real_client():
+    """`SUPPORTED_TRANSPORTS` 里的每一种都要指得出实现它的客户端类名。
+
+    矩阵里写"3 种已实现"不算证据；指得出类名才算。这条用例防止有人往
+    `SUPPORTED_TRANSPORTS` 里加一个没有实现的字符串。
+    """
+    assert set(pv.TRANSPORT_CLIENTS) == set(pv.SUPPORTED_TRANSPORTS)
+    for transport, target in pv.TRANSPORT_CLIENTS.items():
+        module_name, _, attr = target.rpartition(".")
+        module = __import__(module_name, fromlist=[attr])
+        assert hasattr(module, attr), f"{transport} 指向的 {target} 不存在"
+    # 未实现的那一种必须给出原因（而不是静默缺失）。
+    assert pv.PROVIDERS["bedrock"].supported is False

@@ -602,7 +602,7 @@ def test_cron_command_is_registered_with_all_subcommands() -> None:
     command = REGISTRY.get("cron")
     assert command is not None
     names = {sub.name for sub in command.subcommands}
-    assert names == {
+    base = {
         "create",
         "edit",
         "list",
@@ -616,6 +616,12 @@ def test_cron_command_is_registered_with_all_subcommands() -> None:
         "doctor",
         "incidents",
     }
+    # 本轮新增（`app/cli/commands/cron_extra.py`）：平台补投、级联停止、平面事件查询。
+    # 判据写成"原有的一条都不能少 + 只允许这四条新增"，而不是"恰好等于"：
+    # 新增子命令是功能增长，不该让这份清单假失败；而漏掉原有子命令仍然会失败。
+    added_this_round = {"deliver", "pause-all", "resume-all", "events"}
+    assert base <= names
+    assert names <= base | added_this_round
     for sub in command.subcommands:
         assert sub.help.strip(), f"cron {sub.name} 缺 help"
         assert sub.handler is not None, f"cron {sub.name} 没有真实现"

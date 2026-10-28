@@ -28,6 +28,32 @@ Hermes 的做法是 26 张业务表同库：``sessions``(56 列) + ``messages``(
 的全部价值：交互（messages）、cron / 任务（task_events）、平面事件（本模块）三个来源
 在同一屏里按时间排好，谁也不用去猜另一处存了什么。
 
+## 写侧统一（10.1 的最后一块）：谁在写平面，以及为什么还没写完
+
+平面原本只有 ``delivery_ledger`` 与 ``plane`` CLI 在写，``cron`` / ``gateway`` /
+``agent`` / ``graph/nodes`` / ``main`` 对它的引用数是 0——于是"统一平面"只有读侧成立，
+时间线上永远只有交互那一侧的内容。本轮把**能改的两处**接上：
+
+- ``app/cron.py``：每次运行写 ``cron.run.started`` / ``cron.run.finished`` /
+  ``cron.run.failed``（带 ``job_id`` + ``run_id`` + 当时的权限档）；
+- ``app/gateway.py``：每次投递写 ``gateway.delivered`` / ``gateway.delivery_failed``
+  （带 ``platform`` / ``channel`` / ``message_key``）。
+
+**agent 侧仍然是禁改区**（``app/agent.py`` 与 ``app/graph/*`` 不在本轮可改范围内），
+所以"交互会话的写入也过平面"这一条**还没做**——10.1 因此只能从 🟡 前进到"两源已统一、
+交互侧未统一"。这一点必须写在任何声称 10.1 完成的报告里，不能含糊。
+
+### 挂到统一 session 名下的约定：:func:`plane_session_key`
+
+各来源的键**由本模块给规则**，而不是让每个写入方自己拼字符串：
+
+- ``cron:<job_id>``：一条定时任务就是一个会话，历次运行都在同一条时间线上；
+- ``gateway:<platform>``：一个平台通道是一个会话（``channel`` 记在事件字段里）。
+
+为什么不把 ``channel`` 也编进键：同一平台的不同频道属于同一个"对外出口"，
+按平台聚合才能回答"这个平台今天发出去多少条、失败几条"；按频道切碎之后就答不了，
+而按频道过滤只是事件字段上的一次筛选。
+
 ## id 续号的实现方式（10.2 的 Orbit 版）
 
 ``AppendLog`` 不靠内存计数器：进程重启后内存从 0 开始，新事件会与旧事件撞 id，
@@ -42,6 +68,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -71,6 +98,26 @@ KIND_UNARCHIVED = "session.unarchived"
 #: 系统提示词冻结（10.5）：一条事件记 ``task_id → sha256``，正文落
 #: ``<data_dir>/system-prompts/<hash>.txt``（见 ``app/session_archive.py``）。
 KIND_PROMPT_FROZEN = "prompt.frozen"
+#: cron 写侧（10.1）：一次运行的三条事实。``started`` 与 ``finished`` 成对出现，
+#: ``failed`` 是失败时**额外**加的一条——只按 ``finished`` 里的 ``ok`` 过滤也能查，
+#: 但审计时"直接按 kind 捞失败"比"解析每条 finished 的布尔字段"可靠得多。
+KIND_CRON_RUN_STARTED = "cron.run.started"
+KIND_CRON_RUN_FINISHED = "cron.run.finished"
+KIND_CRON_RUN_FAILED = "cron.run.failed"
+#: gateway 写侧（10.1）：一次投递的结论。**每次尝试不单独写一条**——尝试次数记在
+#: ``attempts`` 字段里，平面记的是"这件事最后成没成"，逐次尝试在投递账本里。
+KIND_GATEWAY_DELIVERED = "gateway.delivered"
+KIND_GATEWAY_DELIVERY_FAILED = "gateway.delivery_failed"
+
+#: :func:`plane_session_key` 的来源前缀。写成常量而不是散落的字面量：
+#: 时间线要按前缀把"cron 的会话"与"gateway 的会话"分开，拼错一个前缀就静默分裂成两条线。
+SOURCE_KEY_CRON = "cron"
+SOURCE_KEY_GATEWAY = "gateway"
+
+#: 幂等索引的落点：``<data_dir>/sessions/plane-keys.json``。
+#: 与 ``plane.jsonl`` 同目录：整目录备份/搬走时不会漏（漏了就等于幂等判据丢失，
+#: 重复事件会在下一次运行全部重放一遍）。
+PLANE_KEYS_FILENAME = "plane-keys.json"
 
 #: 统一时间线的三个来源（也是排序并列时的次序）。
 SOURCE_PLANE = "plane"
@@ -137,6 +184,56 @@ def to_epoch(value: Any) -> float:
         # 无时区的历史数据按 UTC 解释：本机所有写入都是 UTC，猜本地时区会整体偏移。
         stamp = stamp.replace(tzinfo=UTC)
     return stamp.timestamp()
+
+
+# ── 统一 session 键 ─────────────────────────────────────────────────────────
+
+
+def plane_session_key(source: str, ident: str = "") -> str:
+    """把"某个来源的某个对象"折成统一平面上的会话名：``<source>[:<ident>]``。
+
+    约定（写入方一律调本函数，**不要自己拼字符串**）：
+
+    - ``plane_session_key(SOURCE_KEY_CRON, job.id)`` → ``cron:cron-1a2b3c4d``
+    - ``plane_session_key(SOURCE_KEY_GATEWAY, "telegram")`` → ``gateway:telegram``
+    - ``plane_session_key(SOURCE_KEY_GATEWAY)`` → ``gateway``（该来源的整体）
+
+    为什么集中在一个函数里：时间线按 ``session_id`` 精确匹配，而"谁把前缀写成
+    ``cron/``、谁写成 ``cron:``"这种差异不会报错，只会让同一条任务的事件
+    静默分裂到两条时间线上——那正是统一平面要消除的现象。
+
+    ``ident`` 里的空白被折成 ``-``、``:`` 被折成 ``_``：这两个字符是分隔符，
+    出现在标识里会让"``cron:a:b`` 到底是任务 ``a:b`` 还是任务 ``a`` 的 ``b`` 阶段"
+    变得不可判（``run_id`` 之类的标识由调用方保证不含分隔符）。
+    """
+    head = str(source or "").strip().lower()
+    if not head:
+        raise SessionPlaneError("plane_session_key 需要来源（例如 cron / gateway）")
+    tail = str(ident or "").strip()
+    if not tail:
+        return head
+    cleaned = "_".join(part for part in tail.replace(":", "_").split())
+    return f"{head}:{cleaned}"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """临时文件 + ``os.replace`` 原子写。
+
+    幂等索引是"哪些事件已经写过"的唯一判据，写到一半崩溃就留下半个 JSON，
+    下一次读不出来等于幂等判据全丢——所以它必须原子落盘（与 ``app/cron.py``
+    的 ``_atomic_write`` 同一套做法）。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
 
 
 # ── 追加日志 ────────────────────────────────────────────────────────────────
@@ -331,6 +428,27 @@ def _clip(text: str, limit: int = TIMELINE_TEXT_CHARS) -> str:
 # ── 平面本体 ────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class AppendOutcome:
+    """一次幂等追加的结果。
+
+    ``written=False`` 表示**同一条事件已经写过**（命中了幂等索引），此时 ``event``
+    是当初真正落盘的那一条（带原始 ``id``），不是本次构造的新对象——调用方拿到的
+    ``id`` 因此始终指向文件里真实存在的行。
+    """
+
+    event: dict[str, Any]
+    written: bool
+    message_key: str = ""
+
+    @property
+    def ident(self) -> int:
+        return _as_int(self.event.get("id"))
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.ident, "written": self.written, "message_key": self.message_key}
+
+
 class SessionPlane:
     """统一 session 平面：追加日志 + 压缩谱系 + 三来源合并时间线。
 
@@ -342,11 +460,18 @@ class SessionPlane:
     def __init__(self, data_dir: Path, *, log: AppendLog | None = None) -> None:
         self.data_dir = Path(data_dir)
         self.log = log or AppendLog(self.data_dir / PLANE_DIRNAME / PLANE_FILENAME)
+        #: 幂等索引的读改写必须串行：两个线程同时"查不到 → 各写一行"就会写出两条。
+        self._keys_lock = threading.Lock()
 
     # ── 路径 ──
     @property
     def path(self) -> Path:
         return self.log.path
+
+    @property
+    def keys_path(self) -> Path:
+        """幂等索引文件（``message_key → 事件 id``）。"""
+        return self.data_dir / PLANE_DIRNAME / PLANE_KEYS_FILENAME
 
     # ── 写 ──
     def append(self, event: Mapping[str, Any]) -> dict[str, Any]:
@@ -358,6 +483,80 @@ class SessionPlane:
         payload["kind"] = kind
         payload.setdefault("session_id", "")
         return self.log.append(payload)
+
+    def append_once(self, event: Mapping[str, Any], *, message_key: str) -> AppendOutcome:
+        """**幂等追加**：同一 ``message_key`` 只落一行，重复调用返回当初那一行。
+
+        为什么 plane 的 id 游标做不到幂等：``id`` 是"这一行在文件里的位置"，每次
+        append 都会分配一个新 id。要判重只能靠事件自己带一个**由业务决定的键**
+        （Hermes 的 ``tasks.idempotency_key`` / ``delivery_obligations.obligation_id``
+        就是这个角色）。所以这里要求调用方给 ``message_key``，并把
+        ``message_key → 事件 id`` 落在 :attr:`keys_path` 这个小索引文件里。
+
+        ``message_key`` 的粒度由调用方定，约定是"**一次可重放的事实**"：
+
+        - cron 一次运行的一个阶段：``cron:<job_id>:<run_id>:started``；
+        - gateway 一次投递的一个结论：``<message_key>|<delivered|failed>``
+          ——**结论要编进键**，否则"先失败后成功"的重试会被前一次失败去重掉，
+          账面上永远只有失败那一条。
+
+        跨进程并发如实标注：索引是"读文件 → 查 → 写文件"，没有文件锁，
+        两个进程同时写同一个新键**有可能**各写一行（与 :class:`AppendLog` 的 id
+        续号同一个局限）。进程内由 ``self._keys_lock`` 串行化。
+        """
+        key = str(message_key or "").strip()
+        if not key:
+            raise SessionPlaneError("append_once 需要 message_key（没有它就无法判重）")
+        with self._keys_lock:
+            index = self._load_keys()
+            hit = index.get(key)
+            if isinstance(hit, Mapping):
+                previous = self._event_by_id(_as_int(hit.get("id")))
+                if previous is not None:
+                    return AppendOutcome(event=previous, written=False, message_key=key)
+                # 索引指向的行已经不在了（被 compact / 手工截断）：当作没写过，
+                # 重新写一条并覆盖索引——**不能**因为索引里有键就永远跳过写入，
+                # 那会让事件彻底消失且没有任何痕迹。
+            payload = dict(event)
+            payload["message_key"] = key
+            written = self.append(payload)
+            index[key] = {
+                "id": _as_int(written.get("id")),
+                "kind": str(written.get("kind") or ""),
+                "session_id": str(written.get("session_id") or ""),
+                "ts": written.get("ts"),
+            }
+            self._save_keys(index)
+            return AppendOutcome(event=written, written=True, message_key=key)
+
+    # ── 幂等索引 ──
+    def _load_keys(self) -> dict[str, Any]:
+        """读索引。坏文件当空表（下一轮会重建；索引丢了最坏结果是重复一条事件）。"""
+        if not self.keys_path.exists():
+            return {}
+        try:
+            raw = json.loads(self.keys_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        items = raw.get("keys")
+        return items if isinstance(items, dict) else {}
+
+    def _save_keys(self, index: Mapping[str, Any]) -> None:
+        _atomic_write_text(
+            self.keys_path,
+            json.dumps({"version": 1, "keys": dict(index)}, ensure_ascii=False, indent=2),
+        )
+
+    def _event_by_id(self, ident: int) -> dict[str, Any] | None:
+        """按 id 取回已落盘的事件（只在幂等命中时走一次，扫全文件可接受）。"""
+        if ident <= 0:
+            return None
+        for item in self.log.read_all():
+            if _as_int(item.get("id")) == ident:
+                return item
+        return None
 
     def compress(
         self,
@@ -615,6 +814,11 @@ __all__ = [
     "KIND_ARCHIVED",
     "KIND_COMPRESSED",
     "KIND_CREATED",
+    "KIND_CRON_RUN_FAILED",
+    "KIND_CRON_RUN_FINISHED",
+    "KIND_CRON_RUN_STARTED",
+    "KIND_GATEWAY_DELIVERED",
+    "KIND_GATEWAY_DELIVERY_FAILED",
     "KIND_IMPORTED",
     "KIND_PRUNED",
     "KIND_PROMPT_FROZEN",
@@ -623,14 +827,19 @@ __all__ = [
     "MAX_LINEAGE_DEPTH",
     "PLANE_DIRNAME",
     "PLANE_FILENAME",
+    "PLANE_KEYS_FILENAME",
+    "SOURCE_KEY_CRON",
+    "SOURCE_KEY_GATEWAY",
     "SOURCE_MESSAGE",
     "SOURCE_PLANE",
     "SOURCE_TASK_EVENT",
     "TIMELINE_TEXT_CHARS",
     "AppendLog",
+    "AppendOutcome",
     "SessionPlane",
     "SessionPlaneError",
     "TimelineEntry",
     "now_iso",
+    "plane_session_key",
     "to_epoch",
 ]

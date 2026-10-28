@@ -1,4 +1,4 @@
-"""多平台适配层：22 个平台枚举、适配器基类契约、三个可离线验证的适配器。
+"""多平台适配层：22 个平台枚举、适配器基类契约、17 个可离线验证的适配器。
 
 为什么单独一层（而不是把"发消息"塞进 tools 或 cron）：
 
@@ -12,10 +12,18 @@
 
 本轮的诚实边界（不要被下面的类名骗了）：
 
-- **只有 3 个平台真的能发消息**：``ntfy`` / ``raft`` / ``a2a``——它们的真实出站形状
-  就是"一次 HTTP POST 到配置的 URL"，所以由 :class:`WebhookAdapter` 覆盖，可离线用
-  ``httpx.MockTransport`` 全链路验证。另外 19 个只有声明（``implemented=False``），
-  一发送就抛 :class:`PlatformNotImplemented` 并说清缺什么凭证。**不假装支持**。
+- **17 个平台真的能发消息**（22 里的 17），分三组，全部由 :class:`WebhookAdapter`
+  覆盖，可离线用 ``httpx.MockTransport`` 全链路验证 URL 与 body：
+  1. 简单 HTTP POST：``ntfy`` / ``raft`` / ``a2a``（各自的 body 形状写在工厂里）；
+  2. 8 个 webhook 平台：``slack`` / ``discord`` / ``google_chat`` / ``teams`` /
+     ``dingtalk`` / ``wecom`` / ``feishu`` / ``telegram``（形状在 `WEBHOOK_PLATFORMS`）；
+  3. 6 个 REST 平台：``mattermost`` / ``line`` / ``whatsapp``（Cloud API）/ ``sms``
+     （Twilio）/ ``homeassistant`` / ``matrix``——它们比纯 webhook 多三样东西：
+     **Bearer/Basic 认证**、**URL 路径里带资源 id**（Matrix 的 room + txn）、
+     **form-encoded body**（Twilio）。见 `REST_PLATFORMS`。
+  剩下 5 个（``buzz`` / ``email`` / ``irc`` / ``photon`` / ``simplex``）只有声明
+  （``implemented=False``），一发送就抛 :class:`PlatformNotImplemented` 并说清缺什么
+  凭证。**不假装支持**。
 - ``ConsoleAdapter`` / ``FileAdapter`` 是**开发旁路**（stdout / ``outbox.jsonl``），
   不对应任何真实平台：它们存在的理由是"本机无网络时也要能端到端验证投递路径"。
 - 交互 UX（按钮/菜单/模态/线程/引用回复）默认**返回** :class:`NotSupported`，
@@ -35,6 +43,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -163,9 +172,12 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     Platform.HOMEASSISTANT: PlatformSpec(
         platform=Platform.HOMEASSISTANT,
         label="Home Assistant",
-        description="WebSocket 长连接：订阅 HA 事件总线，按实体冷却与 domain/entity 过滤",
-        credentials=("HASS_TOKEN",),
-        reason="需要长期访问令牌（Long-Lived Access Token）与一个可达的 HA 实例",
+        description="WebSocket 长连接订阅事件总线；出站走 REST 服务调用 /api/services/notify/<service>",
+        credentials=("HASS_URL", "HASS_TOKEN"),
+        implemented=True,
+        adapter="homeassistant",
+        scope="仅出站文本（POST /api/services/notify/<service>，Bearer 长期令牌）；"
+        "无入站（WebSocket 事件订阅 / 回调 / 轮询）、无实体状态读取、无 domain/entity 过滤与冷却",
     ),
     Platform.IRC: PlatformSpec(
         platform=Platform.IRC,
@@ -177,23 +189,33 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     Platform.LINE: PlatformSpec(
         platform=Platform.LINE,
         label="LINE",
-        description="Webhook：aiohttp 服务端 + HMAC-SHA256 签名校验，出站走 Template Buttons",
-        credentials=("LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"),
-        reason="需要 LINE Channel Access Token/Secret，且入站必须有公网可达的 webhook URL",
+        description="入站 Webhook（aiohttp + HMAC-SHA256 签名校验）；出站走 push 文本消息",
+        credentials=("LINE_CHANNEL_ACCESS_TOKEN",),
+        implemented=True,
+        adapter="line",
+        scope="仅出站文本（POST /v2/bot/message/push，Bearer channel access token）；"
+        "无入站 webhook 与 HMAC 签名校验、无 Template Buttons / 图片 / 贴图、无线程",
     ),
     Platform.MATRIX: PlatformSpec(
         platform=Platform.MATRIX,
         label="Matrix",
-        description="长连接：mautrix，支持端到端加密、threads，交互用 reaction 实现",
+        description="长连接同步（mautrix，支持 E2EE 与 threads）；出站走 client-server REST send",
         credentials=("MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN"),
-        reason="需要 mautrix（E2EE 依赖链很重，本机装不了）+ homeserver 与 access token",
+        implemented=True,
+        adapter="matrix",
+        scope="仅出站文本（PUT /_matrix/client/v3/rooms/<room>/send/m.room.message/<txn>，"
+        "Bearer access token；room id 按 RFC 3986 编码）；无入站 /sync 长连接、无端到端加密、"
+        "无 threads 与 reaction 交互",
     ),
     Platform.MATTERMOST: PlatformSpec(
         platform=Platform.MATTERMOST,
         label="Mattermost",
-        description="WebSocket 长连接 + v4 REST API",
+        description="WebSocket 长连接 + v4 REST API（出站走 REST）",
         credentials=("MATTERMOST_URL", "MATTERMOST_TOKEN"),
-        reason="需要可达的 Mattermost 实例与 Bot Token；REST/WS 都要真实服务端",
+        implemented=True,
+        adapter="mattermost",
+        scope="仅出站文本（POST /api/v4/posts，Bearer bot/personal token；channel 传 channel_id）；"
+        "无入站（WebSocket 长连接 / 回调 / 轮询）、无文件上传、无按钮与 thread 回复",
     ),
     Platform.NTFY: PlatformSpec(
         platform=Platform.NTFY,
@@ -239,9 +261,13 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     Platform.SMS: PlatformSpec(
         platform=Platform.SMS,
         label="短信",
-        description="Twilio：Webhook 收 + REST 发，正文把 markdown 剥成纯文本",
+        description="Twilio：Webhook 收 + REST 发（form-encoded To/From/Body）",
         credentials=("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"),
-        reason="需要 Twilio 账号 SID/Auth Token 与已购号码；发信是计费的真实网络调用",
+        implemented=True,
+        adapter="sms",
+        scope="仅出站文本（POST /2010-04-01/Accounts/<sid>/Messages.json，form-encoded + "
+        "HTTP Basic 认证）；无入站 webhook 回调、无分段与计费对账、**不剥 markdown**"
+        "（长度按原文算，调用方自己保证是纯文本）",
     ),
     Platform.TEAMS: PlatformSpec(
         platform=Platform.TEAMS,
@@ -273,13 +299,18 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
     Platform.WHATSAPP: PlatformSpec(
         platform=Platform.WHATSAPP,
         label="WhatsApp",
-        description="轮询：本地 Node.js bridge 跑 WhatsApp Web 客户端，扫码配对",
-        credentials=("WHATSAPP_ENABLED",),
-        reason="需要 Node bridge 进程 + 手机扫码配对；无网络无法完成任何一次握手",
+        description="双模：本地 Node.js bridge 跑 WhatsApp Web（扫码配对，未实现）/ "
+        "Meta Cloud API 出站（已实现）",
+        credentials=("WHATSAPP_CLOUD_TOKEN", "WHATSAPP_CLOUD_PHONE_NUMBER_ID"),
+        implemented=True,
+        adapter="whatsapp_cloud",
+        scope="仅出站文本（Meta Graph POST /v20.0/<phone_number_id>/messages，Bearer token；"
+        "channel 传对方 E.164 号码）；无入站 webhook 与 X-Hub-Signature 校验、无媒体与模板消息、"
+        "本地 Node bridge 的扫码配对未实现",
     ),
 }
 
-#: 真的能发消息的平台（其余 19 个一发送就抛 :class:`PlatformNotImplemented`）。
+#: 真的能发消息的平台（其余 5 个一发送就抛 :class:`PlatformNotImplemented`）。
 IMPLEMENTED_PLATFORMS: tuple[Platform, ...] = tuple(
     platform for platform, spec in PLATFORMS.items() if spec.implemented
 )
@@ -795,7 +826,7 @@ class FileAdapter(PlatformAdapter):
 
 
 class WebhookAdapter(PlatformAdapter):
-    """出站 HTTP POST。``ntfy`` / ``raft`` / ``a2a`` 三个平台的真实出站就是它。
+    """出站 HTTP 请求。**17 个已实现平台的出站全部是它**。
 
     **httpx transport 必须可注入**（``transport=``）：本机无网络，测试用
     ``httpx.MockTransport`` 造成功 / 5xx / 超时三种响应。可注入不是为了"方便测试"，
@@ -805,6 +836,14 @@ class WebhookAdapter(PlatformAdapter):
     - 5xx / 连接错误 / 超时 → 重试；
     - 4xx → 立刻失败（客户端错，重试一万次也一样）；
     - 每次尝试都记在 ``SendResult.detail["attempts"]`` 里，便于对账。
+
+    比"纯 webhook"多出来的三件东西（6 个 REST 平台要用，见 `REST_PLATFORMS`）：
+
+    - ``method``：Matrix 的 send 是 **PUT**（不是 POST）；
+    - ``url_template``：资源 id 在**路径**里（Matrix 的 room + txn），且必须按
+      RFC 3986 编码（``!abc:example.org`` → ``%21abc%3Aexample.org``）；
+    - ``auth`` / ``env_names``：Bearer 与 HTTP Basic 两种认证，以及"缺哪个环境变量"
+      的精确报错。
     """
 
     name = "webhook"
@@ -812,8 +851,9 @@ class WebhookAdapter(PlatformAdapter):
 
     #: 请求体形状。``text`` = 纯文本正文（ntfy publish）；``json`` = ``{"text":...}``；
     #: ``jsonrpc`` = A2A 的 ``message/send``；``template`` = 用 ``body_template``
-    #: 渲染平台各自的 JSON 形状（slack / discord / feishu 等）。
-    BODY_SHAPES: tuple[str, ...] = ("text", "json", "jsonrpc", "template")
+    #: 渲染平台各自的 JSON 形状（slack / discord / feishu / line / matrix 等）；
+    #: ``form`` = 用 ``body_template`` 渲染 **form-encoded** 字段（Twilio 的 To/From/Body）。
+    BODY_SHAPES: tuple[str, ...] = ("text", "json", "jsonrpc", "template", "form")
 
     def __init__(
         self,
@@ -829,12 +869,18 @@ class WebhookAdapter(PlatformAdapter):
         headers: Mapping[str, str] | None = None,
         body_template: Mapping[str, Any] | None = None,
         url_hint: str = "NTFY_URL",
+        method: str = "POST",
+        url_template: str = "",
+        quote_channel: bool = False,
+        auth: tuple[str, str] | None = None,
+        env_names: tuple[str, ...] = (),
+        missing_env: tuple[str, ...] = (),
     ) -> None:
         super().__init__(name=name)
         if body_shape not in self.BODY_SHAPES:
             raise ValueError(f"未知请求体形状：{body_shape!r}（可选：{'/'.join(self.BODY_SHAPES)}）")
-        if body_shape == "template" and body_template is None:
-            raise ValueError("body_shape='template' 时必须给 body_template")
+        if body_shape in {"template", "form"} and body_template is None:
+            raise ValueError(f"body_shape={body_shape!r} 时必须给 body_template")
         self.url = url
         self.platform = platform
         self.body_shape = body_shape
@@ -848,6 +894,18 @@ class WebhookAdapter(PlatformAdapter):
         #: 各有自己的变量名（`SLACK_WEBHOOK_URL` / `TELEGRAM_BOT_TOKEN` …），
         #: 提示错名字等于让人去改一个不存在的配置。
         self.url_hint = url_hint
+        #: HTTP 方法。Matrix 的 send 是 PUT，其余都是 POST。
+        self.method = str(method or "POST").upper()
+        #: URL 模板（可选）。支持 ``{base}`` / ``{channel}`` / ``{txn}``；留空 = 用 ``self.url``。
+        self.url_template = url_template
+        #: True = 把 channel 当**路径段**按 RFC 3986 编码（Matrix 的 room id 必须编）。
+        self.quote_channel = quote_channel
+        #: HTTP Basic 认证（Twilio 用 SID:AuthToken）。Bearer 走 headers，不走这里。
+        self.auth = auth
+        #: 这个适配器读哪些环境变量（用于"缺哪个变量"的报错，以及 health 的展示）。
+        self.env_names = tuple(env_names)
+        #: 构造时已经确认**缺失**的环境变量（工厂函数算好传进来）。
+        self.missing_env = tuple(missing_env)
 
     def start(self) -> None:
         return None
@@ -856,15 +914,16 @@ class WebhookAdapter(PlatformAdapter):
         return None
 
     def send_text(self, channel: str, text: str) -> SendResult:
-        if not self.url:
+        # txn 在**重试循环之外**生成一次：Matrix 的 `/<txn>` 是幂等键，每次重试换一个
+        # 就等于"同一条消息发 N 遍"（用户看到重复，服务端也多算）。
+        txn = uuid.uuid4().hex
+        target = self._target(channel, txn)
+        if not target or self.missing_env:
             return SendResult(
                 ok=False,
                 platform=self.name,
                 channel=channel,
-                error=(
-                    f"未配置出站地址：设置环境变量 {self.url_hint} 或显式传 url"
-                    f"（{self.name} 的出站形状见 app/platforms.py 的 WEBHOOK_PLATFORMS）"
-                ),
+                error=self._unconfigured_message(),
             )
         payload = self._payload(channel, text)
         headers = {"User-Agent": "orbit-gateway/1", **self.headers}
@@ -877,7 +936,9 @@ class WebhookAdapter(PlatformAdapter):
             for attempt in range(1, self.attempts + 1):
                 used = attempt
                 try:
-                    response = client.post(self.url, headers=headers, **payload)
+                    response = client.request(
+                        self.method, target, headers=headers, auth=self.auth, **payload
+                    )
                 except httpx.TimeoutException as exc:
                     last_error = f"超时（第 {attempt} 次）：{exc!r}"
                 except httpx.HTTPError as exc:
@@ -905,32 +966,82 @@ class WebhookAdapter(PlatformAdapter):
             detail={"attempts": used},
         )
 
+    def _target(self, channel: str, txn: str) -> str:
+        """算出这次请求的完整 URL（``url_template`` 里填 ``{base}/{channel}/{txn}``）。
+
+        ``quote_channel`` 的用途：Matrix 的 room id 形如 ``!abc:example.org``，感叹号与
+        冒号直接塞进路径会被服务端当成别的资源（或直接 404），必须先按 RFC 3986 编码。
+        """
+        if not self.url:
+            return ""
+        if not self.url_template:
+            return self.url
+        room = quote(str(channel), safe="") if self.quote_channel else str(channel)
+        return (
+            self.url_template.replace("{base}", self.url.rstrip("/"))
+            .replace("{channel}", room)
+            .replace("{txn}", txn)
+        )
+
+    def _unconfigured_message(self) -> str:
+        """未配置时的报错：**点名这个平台自己的环境变量**，绝不写别人的名字。"""
+        names = self.env_names or (self.url_hint,)
+        if self.missing_env:
+            return (
+                f"未配置 {self.name} 的凭证：设置环境变量 {'、'.join(self.missing_env)}"
+                f"（该适配器读：{'、'.join(names)}）后重试"
+            )
+        return (
+            f"未配置出站地址：设置环境变量 {'、'.join(names)} 或显式传 url"
+            f"（{self.name} 的出站形状见 app/platforms.py 的 "
+            f"WEBHOOK_PLATFORMS / REST_PLATFORMS）"
+        )
+
     def send_media(self, channel: str, path: str, *, caption: str = "") -> SendOutcome:
         # 附件上传是 multipart + 平台各异的上传端点，本轮不做——如实说不支持，
         # 而不是把路径当文本发出去（那会让用户以为图发出去了）。
         return self._not_supported("send_media", "本适配器只发文本，附件上传未实现")
 
     def health(self) -> AdapterHealth:
-        if not self.url:
+        if not self.url or self.missing_env:
             # "没配 URL" 是**未启用**，不是故障：把未配置算成不健康会让 `gateway doctor`
             # 在干净环境里永远失败，于是用户学会忽略它——那比不检查更坏。
+            detail = (
+                self._unconfigured_message()
+                if self.missing_env
+                else "未配置出站 URL（未启用；设置对应环境变量后生效）"
+            )
             return AdapterHealth(
                 ok=True,
                 platform=self.name,
-                detail="未配置出站 URL（未启用；设置对应环境变量后生效）",
-                extra={"configured": False},
+                detail=detail,
+                extra={
+                    "configured": False,
+                    "env": list(self.env_names),
+                    "missing_env": list(self.missing_env),
+                },
             )
         return AdapterHealth(
             ok=True,
             platform=self.name,
-            detail=f"{self.body_shape} → {self.url}",
-            extra={"attempts": self.attempts, "timeout": self.timeout, "configured": True},
+            detail=f"{self.method} {self.body_shape} → {self.url}",
+            extra={
+                "attempts": self.attempts,
+                "timeout": self.timeout,
+                "configured": True,
+                "env": list(self.env_names),
+            },
         )
 
     def standalone_sender_fn(self) -> StandaloneSender:
         return self.send_text
 
     def _payload(self, channel: str, text: str) -> dict[str, Any]:
+        if self.body_shape == "form" and self.body_template is not None:
+            # Twilio 要 form-encoded（application/x-www-form-urlencoded），不是 JSON；
+            # 字段值必须都是字符串，否则 httpx 会按 `str()` 拼出 "None" / "True"。
+            rendered = _render(self.body_template, channel, text)
+            return {"data": {str(key): str(value) for key, value in rendered.items()}}
         if self.body_shape == "template" and self.body_template is not None:
             # 平台各自的 JSON 形状差别很大（slack 要 `text`、discord 要 `content`、
             # feishu 要 `msg_type` + 嵌套 `content.text`）。用一个模板表达，比在
@@ -957,7 +1068,7 @@ class WebhookAdapter(PlatformAdapter):
 
 
 class UnimplementedAdapter(PlatformAdapter):
-    """19 个未实现平台的占位适配器：**每个发送方法都抛** :class:`PlatformNotImplemented`。
+    """5 个未实现平台的占位适配器：**每个发送方法都抛** :class:`PlatformNotImplemented`。
 
     为什么不给"空成功"：假装支持比不支持更坏——cron 会以为投递成功，用户永远等不到
     那条消息，而且没有任何日志线索。
@@ -998,7 +1109,7 @@ class UnimplementedAdapter(PlatformAdapter):
     def standalone_sender_fn(self) -> StandaloneSender:
         raise self._refuse()
 
-    # 可选发送/交互 UX 也一并拒绝：19 个平台连"降级"都没有承载方。
+    # 可选发送/交互 UX 也一并拒绝：未实现的平台连"降级"都没有承载方。
     def send_typing(self, channel: str) -> SendOutcome:
         raise self._refuse()
 
@@ -1135,18 +1246,278 @@ def webhook_platform_adapter(
     )
 
 
+#: 6 个 REST 平台的出站契约（URL 形状 + 认证 + body）。**逐条照官方文档**，
+#: 和 `WEBHOOK_PLATFORMS` 一样是"可核对的事实表"，不是散文：
+#: - URL 里的 ``{base}`` / ``{sid}`` / ``{phone_id}`` 是构造期填好的，``{channel}``
+#:   是**每次发送**才填的（Matrix 的 room 还要按 RFC 3986 编码）。
+#: - ``Bearer`` 走 ``Authorization`` 头；``Basic`` 走 httpx 的 ``auth=`` 参数。
+REST_PLATFORMS: dict[Platform, str] = {
+    Platform.MATTERMOST: "POST {base}/api/v4/posts · Bearer MATTERMOST_TOKEN · "
+    '{channel_id, message}',
+    Platform.LINE: "POST https://api.line.me/v2/bot/message/push · "
+    "Bearer LINE_CHANNEL_ACCESS_TOKEN · "
+    '{"to": …, "messages": [{"type": "text", "text": …}]}',
+    Platform.WHATSAPP: "POST https://graph.facebook.com/v20.0/{phone_number_id}/messages · "
+    "Bearer WHATSAPP_CLOUD_TOKEN · "
+    '{"messaging_product": "whatsapp", "to": …, "type": "text", "text": {"body": …}}',
+    Platform.SMS: "POST https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json · "
+    "Basic SID:AuthToken · form-encoded To/From/Body",
+    Platform.HOMEASSISTANT: "POST {base}/api/services/notify/{service} · "
+    "Bearer HASS_TOKEN · {message}",
+    Platform.MATRIX: "PUT {base}/_matrix/client/v3/rooms/{room}/send/m.room.message/{txn} · "
+    "Bearer MATRIX_ACCESS_TOKEN · "
+    '{"msgtype": "m.text", "body": …}',
+}
+
+
+def _missing_env(names: tuple[str, ...]) -> tuple[str, ...]:
+    """哪些环境变量没配（只看有没有值，不判断值对不对）。"""
+    return tuple(name for name in names if not os.environ.get(name))
+
+
+def mattermost_adapter(
+    *,
+    url: str | None = None,
+    token: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """Mattermost：``POST <server>/api/v4/posts``，Bearer token，channel 传 channel_id。"""
+    env_names = ("MATTERMOST_URL", "MATTERMOST_TOKEN")
+    base = url if url is not None else os.environ.get("MATTERMOST_URL", "")
+    bearer = token if token is not None else os.environ.get("MATTERMOST_TOKEN", "")
+    missing = tuple(
+        name
+        for name, value in (("MATTERMOST_URL", base), ("MATTERMOST_TOKEN", bearer))
+        if not value
+    )
+    return WebhookAdapter(
+        f"{base.rstrip('/')}/api/v4/posts" if base else "",
+        name="mattermost",
+        platform=Platform.MATTERMOST,
+        body_shape="template",
+        body_template={"channel_id": "{channel}", "message": "{text}"},
+        headers={"Authorization": f"Bearer {bearer}"} if bearer else {},
+        transport=transport,
+        url_hint="MATTERMOST_URL",
+        env_names=env_names,
+        missing_env=missing,
+    )
+
+
+def line_adapter(
+    *,
+    token: str | None = None,
+    url: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """LINE：``POST /v2/bot/message/push``，Bearer channel access token。
+
+    URL 是**固定**的（LINE 只有一个 push 端点），所以"配没配"只看 token——
+    这也是 ``missing_env`` 存在的理由：URL 齐了但 token 空，仍然算未配置。
+    """
+    env_names = ("LINE_CHANNEL_ACCESS_TOKEN",)
+    bearer = token if token is not None else os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    return WebhookAdapter(
+        url if url is not None else "https://api.line.me/v2/bot/message/push",
+        name="line",
+        platform=Platform.LINE,
+        body_shape="template",
+        body_template={"to": "{channel}", "messages": [{"type": "text", "text": "{text}"}]},
+        headers={"Authorization": f"Bearer {bearer}"} if bearer else {},
+        transport=transport,
+        url_hint="LINE_CHANNEL_ACCESS_TOKEN",
+        env_names=env_names,
+        missing_env=() if bearer else env_names,
+    )
+
+
+def whatsapp_cloud_adapter(
+    *,
+    token: str | None = None,
+    phone_number_id: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """WhatsApp Cloud API：``POST /v20.0/<phone_number_id>/messages``，Bearer token。
+
+    ``to`` 是对方号码（E.164，不带 ``+``）——Cloud API 的 ``to`` 不接受 ``+``，
+    这一点与"短信"平台不同，所以 channel 的写法由调用方按平台约定给。
+    """
+    env_names = ("WHATSAPP_CLOUD_TOKEN", "WHATSAPP_CLOUD_PHONE_NUMBER_ID")
+    bearer = token if token is not None else os.environ.get("WHATSAPP_CLOUD_TOKEN", "")
+    phone = (
+        phone_number_id
+        if phone_number_id is not None
+        else os.environ.get("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "")
+    )
+    missing = tuple(
+        name
+        for name, value in (("WHATSAPP_CLOUD_TOKEN", bearer),
+                            ("WHATSAPP_CLOUD_PHONE_NUMBER_ID", phone))
+        if not value
+    )
+    return WebhookAdapter(
+        f"https://graph.facebook.com/v20.0/{phone}/messages" if phone else "",
+        name="whatsapp_cloud",
+        platform=Platform.WHATSAPP,
+        body_shape="template",
+        body_template={
+            "messaging_product": "whatsapp",
+            "to": "{channel}",
+            "type": "text",
+            "text": {"body": "{text}"},
+        },
+        headers={"Authorization": f"Bearer {bearer}"} if bearer else {},
+        transport=transport,
+        url_hint="WHATSAPP_CLOUD_TOKEN",
+        env_names=env_names,
+        missing_env=missing,
+    )
+
+
+def sms_adapter(
+    *,
+    account_sid: str | None = None,
+    auth_token: str | None = None,
+    from_number: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """短信（Twilio）：``POST /2010-04-01/Accounts/<sid>/Messages.json``。
+
+    两个细节容易踩：① body 是 **form-encoded**（``To``/``From``/``Body`` 首字母大写），
+    不是 JSON；② 认证是 **HTTP Basic**（SID 当用户名、Auth Token 当密码），
+    不是 Bearer。
+    """
+    env_names = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER")
+    sid = account_sid if account_sid is not None else os.environ.get("TWILIO_ACCOUNT_SID", "")
+    secret = auth_token if auth_token is not None else os.environ.get("TWILIO_AUTH_TOKEN", "")
+    sender = from_number if from_number is not None else os.environ.get("TWILIO_PHONE_NUMBER", "")
+    missing = tuple(
+        name
+        for name, value in (
+            ("TWILIO_ACCOUNT_SID", sid),
+            ("TWILIO_AUTH_TOKEN", secret),
+            ("TWILIO_PHONE_NUMBER", sender),
+        )
+        if not value
+    )
+    return WebhookAdapter(
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json" if sid else "",
+        name="sms",
+        platform=Platform.SMS,
+        body_shape="form",
+        body_template={"To": "{channel}", "From": sender, "Body": "{text}"},
+        auth=(sid, secret) if (sid and secret) else None,
+        transport=transport,
+        url_hint="TWILIO_ACCOUNT_SID",
+        env_names=env_names,
+        missing_env=missing,
+    )
+
+
+def homeassistant_adapter(
+    *,
+    url: str | None = None,
+    token: str | None = None,
+    service: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """Home Assistant：``POST <hass>/api/services/notify/<service>``，Bearer 长期令牌。
+
+    ``service`` 是 HA 里的通知服务名（``persistent_notification`` / ``mobile_app_xxx``），
+    默认 ``notify``——猜一个具体的服务名等于替用户做决定，而发到错误的 service 是
+    "消息凭空消失"这类最难查的故障。
+    """
+    env_names = ("HASS_URL", "HASS_TOKEN")
+    base = url if url is not None else os.environ.get("HASS_URL", "")
+    bearer = token if token is not None else os.environ.get("HASS_TOKEN", "")
+    name = (
+        service
+        if service is not None
+        else os.environ.get("HASS_NOTIFY_SERVICE", "notify")
+    ) or "notify"
+    missing = tuple(
+        name_
+        for name_, value in (("HASS_URL", base), ("HASS_TOKEN", bearer))
+        if not value
+    )
+    return WebhookAdapter(
+        f"{base.rstrip('/')}/api/services/notify/{name}" if base else "",
+        name="homeassistant",
+        platform=Platform.HOMEASSISTANT,
+        body_shape="template",
+        body_template={"message": "{text}"},
+        headers={"Authorization": f"Bearer {bearer}"} if bearer else {},
+        transport=transport,
+        url_hint="HASS_URL",
+        env_names=env_names,
+        missing_env=missing,
+    )
+
+
+def matrix_adapter(
+    *,
+    homeserver: str | None = None,
+    token: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> WebhookAdapter:
+    """Matrix：``PUT /_matrix/client/v3/rooms/<room>/send/m.room.message/<txn>``。
+
+    三处必须照规范：① 是 **PUT**（不是 POST）；② room id 在**路径**里且必须编码
+    （``!abc:example.org`` → ``%21abc%3Aexample.org``）；③ txn 是幂等键，重试要复用
+    同一个值（所以它在 `send_text` 的循环外生成）。
+    """
+    env_names = ("MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN")
+    base = homeserver if homeserver is not None else os.environ.get("MATRIX_HOMESERVER", "")
+    bearer = token if token is not None else os.environ.get("MATRIX_ACCESS_TOKEN", "")
+    missing = tuple(
+        name
+        for name, value in (("MATRIX_HOMESERVER", base), ("MATRIX_ACCESS_TOKEN", bearer))
+        if not value
+    )
+    return WebhookAdapter(
+        base,
+        name="matrix",
+        platform=Platform.MATRIX,
+        body_shape="template",
+        body_template={"msgtype": "m.text", "body": "{text}"},
+        headers={"Authorization": f"Bearer {bearer}"} if bearer else {},
+        transport=transport,
+        url_hint="MATRIX_HOMESERVER",
+        method="PUT",
+        url_template="{base}/_matrix/client/v3/rooms/{channel}/send/m.room.message/{txn}",
+        quote_channel=True,
+        env_names=env_names,
+        missing_env=missing,
+    )
+
+
+#: 6 个 REST 平台的工厂表（`default_adapters` 遍历它，顺序即展示顺序）。
+REST_ADAPTER_FACTORIES: dict[Platform, Any] = {
+    Platform.MATTERMOST: mattermost_adapter,
+    Platform.LINE: line_adapter,
+    Platform.WHATSAPP: whatsapp_cloud_adapter,
+    Platform.SMS: sms_adapter,
+    Platform.HOMEASSISTANT: homeassistant_adapter,
+    Platform.MATRIX: matrix_adapter,
+}
+
+
 def default_adapters(
     data_dir: str | Path | None = None, *, transport: httpx.BaseTransport | None = None
 ) -> dict[str, PlatformAdapter]:
-    """默认适配器集合：**11 个已实现平台** + 2 个开发旁路（console / file）。
+    """默认适配器集合：**17 个已实现平台** + 2 个开发旁路（console / file）。
 
-    11 个真实平台分两组：
+    17 个真实平台分三组：
     - 简单 HTTP POST：`ntfy` / `raft` / `a2a`（各自的 body 形状写在工厂里）
     - webhook 平台：`slack` / `discord` / `google_chat` / `teams` / `dingtalk` /
       `wecom` / `feishu` / `telegram`（形状在 `WEBHOOK_PLATFORMS`，逐条可对照官方文档）
+    - REST 平台：`mattermost` / `line` / `whatsapp_cloud` / `sms` / `homeassistant` /
+      `matrix`（形状在 `REST_PLATFORMS`；比 webhook 多 Bearer/Basic 认证、
+      路径里的资源 id 与 form-encoded body）
 
-    其余 11 个平台仍然没有适配器，`resolve_adapter` 会返回 `UnimplementedAdapter`，
-    发送时抛 `PlatformNotImplemented` 并给出所需凭证与 SDK。**没有假装支持。**
+    其余 5 个平台（`buzz` / `email` / `irc` / `photon` / `simplex`）仍然没有适配器，
+    `resolve_adapter` 会返回 `UnimplementedAdapter`，发送时抛
+    `PlatformNotImplemented` 并给出所需凭证与 SDK。**没有假装支持。**
     """
     pool: dict[str, PlatformAdapter] = {
         "console": ConsoleAdapter(),
@@ -1157,6 +1528,14 @@ def default_adapters(
     }
     for platform in WEBHOOK_PLATFORMS:
         pool[platform.value] = webhook_platform_adapter(platform, transport=transport)
+    for platform, factory in REST_ADAPTER_FACTORIES.items():
+        adapter = factory(transport=transport)
+        # 注册名用适配器自己的 name（`whatsapp_cloud`），不是平台枚举值（`whatsapp`）：
+        # `--to whatsapp_cloud:...` 与 `--to whatsapp:...` 都要能找到同一个适配器，
+        # 所以两个键都登记（见下）。
+        pool[adapter.name] = adapter
+        if adapter.name != platform.value:
+            pool[platform.value] = adapter
     return pool
 
 
@@ -1215,7 +1594,7 @@ def parse_target(raw: str) -> SendTarget:
     return SendTarget(platform=platform, channel=channel, thread=thread)
 
 
-#: 22 个平台里已实现的三个（给 ``gateway status`` 直接引用，避免各处再算一遍）。
+#: 22 个平台里已实现的 17 个（给 ``gateway status`` 直接引用，避免各处再算一遍）。
 __all__ = [
     "ALL_PLATFORMS",
     "APPROVAL_CHOICES",
@@ -1234,6 +1613,8 @@ __all__ = [
     "PlatformAdapter",
     "PlatformNotImplemented",
     "PlatformSpec",
+    "REST_ADAPTER_FACTORIES",
+    "REST_PLATFORMS",
     "SLASH_CHOICES",
     "SendOutcome",
     "SendResult",
@@ -1242,14 +1623,21 @@ __all__ = [
     "UxCapability",
     "UX_LABELS",
     "UnimplementedAdapter",
+    "WEBHOOK_PLATFORMS",
     "WebhookAdapter",
     "a2a_adapter",
     "build_callback_id",
     "default_adapters",
+    "homeassistant_adapter",
+    "line_adapter",
+    "mattermost_adapter",
+    "matrix_adapter",
     "ntfy_adapter",
     "parse_callback_id",
     "parse_target",
     "raft_adapter",
     "resolve_adapter",
+    "sms_adapter",
     "spec_for",
+    "whatsapp_cloud_adapter",
 ]

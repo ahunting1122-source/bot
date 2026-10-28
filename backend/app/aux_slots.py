@@ -8,14 +8,45 @@
 
 Hermes 的做法是 `auxiliary.*` 下 18 个槽位（调研 06 §4.3），每个槽位可以单独配
 `provider / model / base_url / api_key / timeout / extra_body / reasoning_effort`。
-本模块只落地**最常用的 4 个**（`SLOTS`），但把"继承语义"这件事做对了——这是
+本模块把 18 个槽位**全部登记**（`SLOTS`），并且把"继承语义"这件事做对了——这是
 18 个槽位里真正容易错的部分。
+
+## 18 个槽位怎么来的（照 research 的清单，一个不多一个不少）
+
+调研 06 §4.3 列出 18 个 `auxiliary.*` slot。Orbit 的映射关系：
+
+| Orbit 槽位 | Hermes slot | 备注 |
+|---|---|---|
+| `summary` / `title` | `title_generation` | Hermes 是**一个**槽位，Orbit 早先拆成两个（既有行为，不改） |
+| `compression` | `compression` | |
+| `classifier` | `triage_specifier` | |
+| `vision` | `vision` | 图片分析（`vision_analyze`），Orbit 之前完全没登记 |
+| `skills_hub` / `approval` / `mcp` / `background_review` | 同名 | |
+| `memory_query_rewrite` / `tts_audio_tags` / `kanban_decomposer` | 同名 | |
+| `profile_describer` / `goal_judge` / `curator` / `monitor` | 同名 | |
+| `moa_reference` / `moa_aggregator` | 同名 | MoA 的 reference / aggregator 槽（执行见 `app/moa.py`） |
+
+于是"18 个 Hermes 槽位" ↔ "18 个 Orbit 槽位"靠两条**合并**对齐：
+
+1. Hermes 的 `title_generation` 在 Orbit 占两个名字（`summary` + `title`）；
+2. Hermes 的 `review` 与 `background_review` 在 Orbit 合成一个 `background_review`
+   （前者没有默认 timeout、唯一独有字段是 `api_mode: ''`，后者是同一件事的后台形态）。
+
+两条合并都写进 `HERMES_ALIASES`（Hermes 名 → Orbit 名），测试会断言"18 个 Hermes
+槽位全部被覆盖"，避免以后有人以为漏抄了。
+
+## 槽位清单（顺序固定，前 4 个不许动）
+
+`summary` / `title` / `compression` / `classifier` / `vision` / `skills_hub` /
+`approval` / `mcp` / `memory_query_rewrite` / `tts_audio_tags` /
+`kanban_decomposer` / `profile_describer` / `goal_judge` / `curator` / `monitor` /
+`background_review` / `moa_reference` / `moa_aggregator`。
 
 ## 继承语义：`inherited=True` 才是重点
 
 `resolve_slot()` 一定返回一个**能用**的 `SlotModel`：槽位没配就退回主模型。
 但"退回主模型"和"专门配了一个同款模型"在**成本上完全不是一回事**，而调用方
-（预算护栏、`orbit model aux` 的表格）必须能区分。所以返回值带 `inherited`：
+（预算护栏、`orbit model --aux` 的表格）必须能区分。所以返回值带 `inherited`：
 
 - `inherited=False` → 用户显式配了这个槽位，可以放心按它算钱；
 - `inherited=True` → **其实没配**，现在跑的是主模型。CLI 会把它显示成
@@ -34,10 +65,31 @@ from typing import Any
 
 from app import providers as pv
 
-#: 本模块落地的槽位。刻意只放 4 个：其余 14 个（`vision` / `curator` / `monitor`…）
-#: 要么依赖尚未实现的工具，要么属于别的波次；先把"继承语义 + 成本估算"这套
-#: 机制做对，加槽位只是往 `SLOT_SPECS` 里加一行。
-SLOTS: tuple[str, ...] = ("summary", "title", "compression", "classifier")
+#: 本模块落地的槽位：**18 个**，与 Hermes 的 `auxiliary.*` 一一对齐（映射见模块
+#: docstring 的表）。前 4 个是 Orbit 既有的名字，**顺序与名字都不许动**——CLI 的
+#: `--aux` 表格与回归用例都按它们的前缀断言。
+SLOTS: tuple[str, ...] = (
+    # ── 既有 4 个（行为不变）──
+    "summary",
+    "title",
+    "compression",
+    "classifier",
+    # ── 本轮补齐的 14 个 ──
+    "vision",
+    "skills_hub",
+    "approval",
+    "mcp",
+    "memory_query_rewrite",
+    "tts_audio_tags",
+    "kanban_decomposer",
+    "profile_describer",
+    "goal_judge",
+    "curator",
+    "monitor",
+    "background_review",
+    "moa_reference",
+    "moa_aggregator",
+)
 
 #: Hermes 侧对应的槽位名（`auxiliary.<name>`）。**照抄 Hermes 的名字**，
 #: 这样用户从 Hermes 迁过来的 `config.yaml` 片段能直接对上，不用猜别名。
@@ -46,15 +98,57 @@ HERMES_NAMES: dict[str, str] = {
     "title": "title_generation",
     "compression": "compression",
     "classifier": "triage_specifier",
+    "vision": "vision",
+    "skills_hub": "skills_hub",
+    "approval": "approval",
+    "mcp": "mcp",
+    "memory_query_rewrite": "memory_query_rewrite",
+    "tts_audio_tags": "tts_audio_tags",
+    "kanban_decomposer": "kanban_decomposer",
+    "profile_describer": "profile_describer",
+    "goal_judge": "goal_judge",
+    "curator": "curator",
+    "monitor": "monitor",
+    "background_review": "background_review",
+    "moa_reference": "moa_reference",
+    "moa_aggregator": "moa_aggregator",
 }
 
-#: 每个槽位的默认超时（秒）。数值照 Hermes `auxiliary.*` 的默认值：
-#: 压缩类给 120（要读完整段历史），标题/分类给 30（只读一小段）。
+#: Hermes 槽位名 → Orbit 槽位名（反向索引，含**合并**关系）。
+#:
+#: `review` 指向 `background_review`：两者是同一件事的同步/异步两面，Orbit 只留一个
+#: 槽位名（否则 18 个 Hermes 槽位会撑成 19 个 Orbit 槽位）。写进表里而不是只在
+#: 注释里说，是为了让"迁移 Hermes 配置"这件事可以按表查、也可以被测试断言。
+HERMES_ALIASES: dict[str, str] = {
+    **{hermes: orbit for orbit, hermes in HERMES_NAMES.items()},
+    "review": "background_review",
+}
+
+#: 每个槽位的默认超时（秒）。数值照 Hermes `auxiliary.*` 的默认值（调研 06 §4.3）：
+#: 压缩/审查类给 120（要读完整段历史），标题/分类给 30（只读一小段），
+#: MoA 两槽给 900（多模型汇总，Hermes 原文就是 900）。
+#:
+#: **既有 4 个的值一个都不改**（`classifier` 保持 30，尽管 Hermes 的
+#: `triage_specifier` 是 120——改它会静默改变已上线行为）。
 DEFAULT_TIMEOUT: dict[str, int] = {
     "summary": 120,
     "title": 30,
     "compression": 120,
     "classifier": 30,
+    "vision": 120,
+    "skills_hub": 30,
+    "approval": 30,
+    "mcp": 30,
+    "memory_query_rewrite": 8,
+    "tts_audio_tags": 30,
+    "kanban_decomposer": 180,
+    "profile_describer": 60,
+    "goal_judge": 60,
+    "curator": 600,
+    "monitor": 60,
+    "background_review": 120,
+    "moa_reference": 900,
+    "moa_aggregator": 900,
 }
 
 #: 每个槽位"该用多小的模型"的意图说明。CLI 会展示，避免用户配了个旗舰模型
@@ -64,6 +158,31 @@ SLOT_PURPOSE: dict[str, str] = {
     "title": "会话标题生成",
     "compression": "上下文压缩（超窗时把历史压成摘要）",
     "classifier": "小任务分类 / 分诊判定",
+    "vision": "图片分析（vision_analyze 工具）",
+    "skills_hub": "技能 hub 检索",
+    "approval": "审批判定（这条命令要不要拦）",
+    "mcp": "MCP 工具描述处理",
+    "memory_query_rewrite": "记忆检索 query 改写",
+    "tts_audio_tags": "TTS 音频标签生成",
+    "kanban_decomposer": "看板任务拆解",
+    "profile_describer": "profile 描述生成",
+    "goal_judge": "目标达成判定",
+    "curator": "技能策展",
+    "monitor": "监控判定",
+    "background_review": "后台审查（含 Hermes 的 review 语义）",
+    "moa_reference": "MoA reference 槽（多模型并行作答）",
+    "moa_aggregator": "MoA aggregator 槽（汇总成最终答案）",
+}
+
+#: 槽位类型：`text` / `vision` / `audio`。**不是装饰**：
+#: - `vision` 槽位必须挑一个 `supports_vision=True` 的模型（`capabilities.resolve`
+#:   可以查），配错会静默"看不见图"；
+#: - `audio` 槽位跑的是 TTS 标签生成，输入带时长/语速信息，超时与配额算法不同。
+#: CLI 按这个字段分组展示，调用方按它决定要不要做多模态编码。
+SLOT_KIND: dict[str, str] = {
+    **{name: "text" for name in SLOTS},
+    "vision": "vision",
+    "tts_audio_tags": "audio",
 }
 
 #: 单价表：`provider/model → (输入, 输出)`，单位 **USD / 1M tokens**。
@@ -315,6 +434,14 @@ def price_of(provider: str, model: str) -> tuple[tuple[float, float], bool]:
     return FALLBACK_PRICE, False
 
 
+def slot_kind(name: str) -> str:
+    """槽位类型（`text` / `vision` / `audio`）。未知槽位直接抛错，与 `resolve_slot` 一致。"""
+    slot = (name or "").strip().lower()
+    if slot not in SLOTS:
+        raise ValueError(f"未知槽位 `{name}`（可用：{' / '.join(SLOTS)}）")
+    return SLOT_KIND[slot]
+
+
 def estimate_cost(
     slot: str,
     tokens: int | dict[str, int],
@@ -357,9 +484,11 @@ def estimate_cost(
 __all__ = [
     "DEFAULT_TIMEOUT",
     "FALLBACK_PRICE",
+    "HERMES_ALIASES",
     "HERMES_NAMES",
     "PRICES",
     "SLOTS",
+    "SLOT_KIND",
     "SLOT_PURPOSE",
     "CostEstimate",
     "SlotModel",
@@ -367,4 +496,5 @@ __all__ = [
     "price_of",
     "resolve_all",
     "resolve_slot",
+    "slot_kind",
 ]

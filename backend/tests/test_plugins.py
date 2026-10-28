@@ -255,14 +255,23 @@ def test_missing_env_only_looks_at_required(tmp_path):
     assert manifest.missing_env({"DEMO_API_KEY": "x", "DEMO_REGION": "y"}) == ()
 
 
-def test_provides_tools_forces_eager_import(tmp_path):
-    """声明 provides_tools 的插件在发现期就要 import（照 Hermes 的 a2a 注释）。"""
-    eager = write_plugin(
-        tmp_path, "p-eager", "name: p-eager\nkind: platform\nprovides_tools:\n  - t\n"
+def test_import_phase_is_lazy_for_tool_providers(tmp_path):
+    """声明 ``provides_tools`` 的插件是 **lazy**（MATRIX 13.3 的时机规则）。
+
+    反直觉但有意：贡献工具的插件最重，而工具清单只在真要拼提示词时才需要；
+    不贡献工具的插件必须 eager，否则错过启动窗口就再没人调用它。
+    """
+    lazy = write_plugin(
+        tmp_path, "p-lazy-tools", "name: p-lazy-tools\nkind: platform\nprovides_tools:\n  - t\n"
     )
-    lazy = write_plugin(tmp_path, "p-lazy", "name: p-lazy\nkind: platform\n")
-    assert plugins.load_manifest(eager / "plugin.yaml").eager is True
-    assert plugins.load_manifest(lazy / "plugin.yaml").eager is False
+    eager = write_plugin(tmp_path, "p-eager", "name: p-eager\nkind: platform\n")
+    lazy_manifest = plugins.load_manifest(lazy / "plugin.yaml")
+    eager_manifest = plugins.load_manifest(eager / "plugin.yaml")
+    assert lazy_manifest.import_phase == "lazy"
+    assert eager_manifest.import_phase == "eager"
+    # `eager` 只是 import_phase 的派生值，两者不许互相矛盾
+    assert lazy_manifest.eager is False
+    assert eager_manifest.eager is True
 
 
 # ── 发现 ────────────────────────────────────────────────────────────────────
@@ -374,13 +383,13 @@ def test_context_exposes_all_nineteen_register_methods():
 
 
 def test_capability_split_is_exact_and_disjoint():
-    """19 = 6 有落点 + 13 显式不支持；两边不许重叠、不许漏。"""
+    """19 = 9 有落点 + 10 显式不支持；两边不许重叠、不许漏。"""
     landed = set(plugins.LANDED_CAPABILITIES)
     unsupported = set(plugins.UNSUPPORTED_CAPABILITIES)
     assert landed | unsupported == set(plugins.PLUGIN_CAPABILITIES)
     assert not landed & unsupported
-    assert len(landed) == 6
-    assert len(unsupported) == 13
+    assert len(landed) == 9
+    assert len(unsupported) == 10
 
 
 def test_register_tool_records_and_pushes_to_sink(tmp_path):

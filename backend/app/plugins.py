@@ -25,6 +25,18 @@ agent 的生命周期里插 hook、注册工具、注册模型 provider，因此
 - **不做**：远程安装（`git clone` / 社区索引）。本机无网络，`orbit plugins install`
   只接受本地目录，远程源明确报"未实现 + 原因"。
 
+## 两段式加载与门禁（MATRIX 13.3 / 13.10）
+
+- **import 时机**（:attr:`PluginManifest.import_phase` + :class:`PluginRuntime`）：
+  声明了 `provides_tools` 的插件是 `lazy`——**首次需要工具清单时才 import**；其余是
+  `eager`——启动即 import。理由是工具清单只在拼提示词/列工具时才需要，而贡献工具的
+  插件往往最重；不贡献工具的插件则必须赶上启动窗口（hook / 命令 / 平台注册）。
+- **门禁**（:class:`PluginState` 的 `gate()` / `gates()` / `override_sources()`）：
+  `plugins.json` 的 `enabled` / `disabled` / `entries.<name>.allow_tool_override`
+  真正参与决策——禁用的插件**不会被 import**，未授权的 `override=True` 会被降级。
+  `app/tools.py` 是禁改区，所以工具侧那一道闸仍由它自己读 `data/tools.json`；
+  本层只负责把插件侧的授权位如实暴露给调用方。
+
 ## manifest 的 16 个顶层字段
 
 字段表 :data:`MANIFEST_FIELDS` **照调研 05 §1.2 的 16 个字段并集**（对 103 个真实
@@ -120,8 +132,17 @@ KIND_TIMING: dict[str, str] = {
     "dashboard": "仅 Web UI：没有 dashboard 时整层跳过",
 }
 
+#: 发现之后的两种 import 时机（MATRIX 13.3）。与 :attr:`PluginManifest.import_phase`
+#: 一一对应：有 ``provides_tools`` 的插件是 ``lazy``（等首次需要工具清单），其余 ``eager``。
+#: 为什么要记这个：插件"注册了却没生效"的头号原因是**加载时机不对**——eager 的插件
+#: 被延迟了，启动窗口过去后没人再调用它；lazy 的插件被提前 import，冷启动被拖慢。
+#: 把时机显式记在 manifest 上，`plugins show` 与日志都能直接回答"它到底什么时候进来的"。
+IMPORT_PHASES: dict[str, str] = {
+    "eager": "发现后立刻 import（不贡献工具的插件：hook / 命令 / 平台 / provider 注册）",
+    "lazy": "首次需要工具清单时才 import（声明了 provides_tools 的插件）",
+}
+
 #: Hermes 的真实 kind 取值 → Orbit 的 4 个 kind。
-#:
 #: 为什么要兼容：Hermes 的 103 个真实 `plugin.yaml` 用的是
 #: `backend`(27) / `model-provider`(39) / `platform`(22) / `standalone`(2) / 缺省(13)，
 #: 如果 Orbit 只认自己的 4 个名字，**所有真实插件都会被判"kind 非法"**，等于这套
@@ -311,15 +332,32 @@ class PluginManifest:
         return self.path.parent
 
     @property
-    def eager(self) -> bool:
-        """发现期是否就必须 import 这个插件。
+    def import_phase(self) -> str:
+        """发现之后的 import 时机：``eager``（立刻）或 ``lazy``（等首次需要工具清单）。
 
-        照 Hermes 的规则（`platforms/a2a/plugin.yaml` 注释）：插件默认是**延迟**的，
-        只有 ``kind: backend`` 类、或显式声明 ``provides_tools``（要求发现期就 import
-        tools.py）的插件才会在 CLI/TUI 进程里立刻注册。Orbit 里 ``tool``/``provider``
-        两类都按"启动即加载/按需加载"处理，``platform``/``dashboard`` 一律延迟。
+        规则只有一条，但它是**反直觉**的，所以要写清为什么：**声明了 ``provides_tools``
+        的插件反而是 ``lazy``**。理由是工具清单只在 agent 真正要拼提示词/列工具时才需要，
+        而"贡献工具"的插件往往是最重的那一类（它们 import 了 provider SDK、注册了一堆
+        工具）。把它们的 import 压到那一刻，CLI/TUI 的冷启动就不会被十几个插件拖慢；
+        而"不贡献工具"的插件必须在启动时 import——它们的作用是注册 hook / 命令 / 平台，
+        错过了启动窗口就再也没人调用它们（这正是 Hermes 说的"否则工具永远不注册"）。
+
+        两个词的含义（与 :data:`IMPORT_PHASES` 一一对应）：
+
+        - ``eager``：``discover()`` 之后马上 ``load()``；
+        - ``lazy``：先只登记 manifest，等 :meth:`PluginRuntime.tools` /
+          :meth:`PluginRuntime.ensure_lazy_loaded` 被调用时才 ``load()``。
         """
-        return self.kind in {"tool", "provider"} or bool(self.provides_tools)
+        return "lazy" if self.provides_tools else "eager"
+
+    @property
+    def eager(self) -> bool:
+        """``import_phase == "eager"`` 的布尔形态（保留旧名字，避免调用方到处改）。
+
+        它**只是 import_phase 的派生值**，不是另一条规则——两个属性给出互相矛盾的
+        答案时，排查"为什么这个插件没注册"会变成猜谜。
+        """
+        return self.import_phase == "eager"
 
     def missing_env(self, environ: dict[str, str] | None = None) -> tuple[str, ...]:
         """缺哪些**必填**环境变量（只看名字，不读值）。"""
@@ -568,7 +606,7 @@ PLUGIN_CAPABILITIES: tuple[str, ...] = (
     "register_slash_command",
 )
 
-#: **有真实落点**的 6 种：值 = 落到哪个真实结构上。
+#: **有真实落点**的 9 种：值 = 落到哪个真实结构上。
 LANDED_CAPABILITIES: dict[str, str] = {
     "register_tool": "记录进 PluginContext.tools，并在注入 tool_sink 时直接调 "
     "app/tools.py::ToolRegistry.register(tools, executor, source=...)",
@@ -580,18 +618,25 @@ LANDED_CAPABILITIES: dict[str, str] = {
     "load_skill/catalog 直接读得到",
     "register_command": "构造 app/cli/spec.py::Command 并登记进 REGISTRY，"
     "`orbit <name>` 立刻可用",
+    "register_platform": "写进 PluginContext.platforms，并在注入 platform_sink 时直接进宿主的"
+    "适配器池（app/platforms.py::default_adapters() 返回的那个 dict，gateway 的 "
+    "resolve_adapter 按名字取）",
+    "register_platform_handler": "记进 PluginContext.platform_handlers；若适配器池里已有该平台的"
+    "适配器，就包在它的 on_message 边缘 hook 上（app/platforms.py 的 EDGE_HOOKS），"
+    "入站消息到达时先走插件处理器",
+    "register_dashboard_page": "记进 PluginContext.dashboard_pages，并用 "
+    "app/plugin_dashboard.py 的 8 字段契约校验 + 生成 /api/plugins/<name>/ 路由描述；"
+    "**真正挂载未实现**（dashboard 没有插件挂载点）",
 }
 
-#: **没有落点**的 13 种：值 = 具体原因（必须写清"缺哪一层"，不许含糊）。
+#: **没有落点**的 10 种：值 = 具体原因（必须写清"缺哪一层"，不许含糊）。
 UNSUPPORTED_CAPABILITIES: dict[str, str] = {
-    "register_platform": "Orbit 没有消息平台/网关层：没有 Platform 枚举、没有适配器"
-    "生命周期、没有 channel_directory 路由表，注册进来的适配器没有任何调用方",
-    "register_platform_handler": "平台级原生事件处理器依赖适配器内部的派发点；"
-    "Orbit 没有适配器（见 register_platform），所以没有派发点",
-    "register_slack_action_handler": "Orbit 没有 Slack 适配器，也没有接收 Block Kit "
-    "动作回调的 webhook 入口",
-    "register_telegram_handler": "Orbit 没有 Telegram 适配器；它是 "
-    "register_platform_handler 的别名，宿主侧同样缺派发点",
+    "register_slack_action_handler": "平台适配器层有了（app/platforms.py），但出站适配器"
+    "**没有入站派发点**：Block Kit 动作回调要先有公网 webhook 入口 + 签名校验 + "
+    "action_id 路由表，这三样都没有",
+    "register_telegram_handler": "同上：它是 register_platform_handler 的 Telegram 别名，"
+    "而 Orbit 的 telegram 适配器只做 sendMessage（无 getUpdates 长轮询、无 webhook 入口），"
+    "没有回调可派发",
     "register_memory_provider": "Orbit 的记忆是本地 SQLite + FTS/向量"
     "（app/retrieval.py），没有可替换的 memory provider 注册表",
     "register_web_provider": "app/web_providers.py 的工厂表在 build_providers() 函数体"
@@ -599,10 +644,8 @@ UNSUPPORTED_CAPABILITIES: dict[str, str] = {
     "直接 KeyError；宿主没有可注入的 provider 注册表",
     "register_cron_provider": "app/cron.py 是内置 interval/cron 解析 + CronStore，"
     "没有『调度后端 provider』抽象",
-    "register_dashboard_page": "Orbit 没有 dashboard 插件系统：没有 manifest.json + "
-    "dist/ 契约，也没有 /api/plugins/<name>/ 挂载点",
-    "register_observability_exporter": "app/cli/commands/observability.py 只读本地"
-    "日志/事件做统计，没有 exporter 注册表与推送端",
+    "register_observability_exporter": "app/metrics.py 的 CATALOG 是静态元组、"
+    "collect() 是写死的采集函数，没有 exporter 注册表；也没有任何推送端会去调用插件",
     "register_dashboard_auth": "Orbit 的 Web 服务没有认证中间件与 session token 机制"
     "（本机单用户 loopback），dashboard auth provider 没有落点",
     "register_auxiliary_task": "Orbit 没有后台辅助任务队列（cron 是面向用户的调度器，"
@@ -681,6 +724,8 @@ class PluginContext:
         hooks: HookRegistry | None = None,
         tool_sink: Any = None,
         environ: dict[str, str] | None = None,
+        platform_sink: dict[str, Any] | None = None,
+        allow_tool_override: bool = False,
     ) -> None:
         self.manifest = manifest
         self.settings = settings
@@ -690,16 +735,29 @@ class PluginContext:
         #: 工具落点：任何带 `register(tools, executor, source=..., override=...)` 的对象
         #: （`app/tools.py::ToolRegistry` 就是）。留空 = 只记录，不注入。
         self.tool_sink = tool_sink
+        #: 平台落点：宿主的适配器池（`app/platforms.py::default_adapters()` 返回的
+        #: ``dict[str, PlatformAdapter]``，gateway 的 ``resolve_adapter`` 按名字取）。
+        #: 留空 = 只记录，不注入。
+        self.platform_sink = platform_sink
+        #: 操作员是否授权本插件覆盖内置工具（`plugins.json` 的
+        #: ``entries.<name>.allow_tool_override``，默认 False）。见
+        #: :meth:`register_tool` 与 `app/tools.py::ToolRegistry.register` 的两道闸说明。
+        self.allow_tool_override = bool(allow_tool_override)
         self.environ = environ if environ is not None else _environ()
         #: 各类登记表（宿主启动时读它们做注入，测试直接断言它们）。
         self.tools: dict[str, PluginTool] = {}
         self.commands: list[str] = []
         self.skills: list[str] = []
         self.model_providers: list[str] = []
+        self.platforms: dict[str, Any] = {}
+        self.platform_handlers: dict[str, list[Callable[..., Any]]] = {}
+        self.dashboard_pages: list[dict[str, Any]] = []
         #: 实际调用过的能力（审计用）。
         self.used: list[str] = []
         #: 注册过程中被隔离掉的异常（不中断插件加载）。
         self.errors: list[str] = []
+        #: 被门禁降级的意图（例如未授权就把 override=True 降成 False）——**要让人看见**。
+        self.warnings: list[str] = []
 
     # ── 元信息 ──
     @property
@@ -726,8 +784,12 @@ class PluginContext:
             "commands": list(self.commands),
             "skills": list(self.skills),
             "model_providers": list(self.model_providers),
+            "platforms": sorted(self.platforms),
+            "platform_handlers": sorted(self.platform_handlers),
+            "dashboard_pages": [str(item.get("name", "")) for item in self.dashboard_pages],
             "hooks": self.hooks.events(),
             "errors": list(self.errors),
+            "warnings": list(self.warnings),
         }
 
     def _note(self, capability: str) -> None:
@@ -750,20 +812,43 @@ class PluginContext:
     ) -> PluginTool:
         """注册一个 agent 工具。
 
-        ``override=True`` 只是**意图声明**；是否真的允许覆盖内置工具由宿主的授权位
-        决定（照 Hermes：`plugins.entries.<key>.allow_tool_override`，默认 false）。
+        ``override=True`` 是**意图声明**，不是权限：本方法会先过插件门禁——
+        `plugins.json` 的 ``entries.<name>.allow_tool_override``（经
+        :class:`PluginState` 读出来、由宿主通过 ``allow_tool_override=`` 传进上下文）。
+        未授权时**降级成 False** 并记一条 warning，而不是抛异常：抛异常会让整个插件
+        加载失败（连它其它合法的 hook 一起没了），而降级只是"这个覆盖没生效"。
+
+        **接线点（两道闸，缺一不可）**：
+        1. 本方法把有效值传给 ``tool_sink.register(..., override=有效值)``，
+           即 `app/tools.py::ToolRegistry.register`；
+        2. `app/tools.py::ToolRegistry._override_allowed(source)` 还会**独立**检查
+           ``data/tools.json`` 的 ``allow_tool_override`` 列表（source 形如
+           ``plugin:<name>``）。tools.py 是禁改区，所以本层不改它，只把插件侧的授权位
+           如实提供给调用方——见 :meth:`PluginState.override_sources`。
         """
         self._note("register_tool")
         tool_name = str(name or "").strip()
         if not tool_name:
             raise PluginError("register_tool 需要工具名")
+        effective_override = bool(override)
+        if effective_override and not self.allow_tool_override:
+            effective_override = False
+            message = (
+                f"插件 {self.manifest.name} 请求覆盖工具 {tool_name}，但 "
+                "plugins.json 未授予 allow_tool_override（已降级为不覆盖）。"
+                "授权：orbit plugins enable --allow-tool-override "
+                f"{self.manifest.name}"
+            )
+            if message not in self.warnings:
+                self.warnings.append(message)
+            log.warning("%s", message)
         source = f"plugin:{self.manifest.name}"
         tool = PluginTool(
             name=tool_name,
             description=description,
             parameters=parameters,
             handler=handler,
-            override=override,
+            override=effective_override,
             source=source,
         )
         self.tools[tool_name] = tool
@@ -772,7 +857,7 @@ class PluginContext:
                 [tool.as_tool()],
                 tool.as_executor(),
                 source=source,
-                override=override,
+                override=effective_override,
             )
         return tool
 
@@ -783,13 +868,22 @@ class PluginContext:
         for item in tools:
             if isinstance(item, PluginTool):
                 self._note("register_tool")
+                effective_override = bool(item.override)
+                if effective_override and not self.allow_tool_override:
+                    effective_override = False
+                    message = (
+                        f"插件 {self.manifest.name} 请求覆盖工具 {item.name}，但 "
+                        "plugins.json 未授予 allow_tool_override（已降级为不覆盖）"
+                    )
+                    if message not in self.warnings:
+                        self.warnings.append(message)
                 self.tools[item.name] = item
                 if self.tool_sink is not None:
                     self.tool_sink.register(
                         [item.as_tool()],
                         item.as_executor(),
                         source=item.source or f"plugin:{self.manifest.name}",
-                        override=item.override,
+                        override=effective_override,
                     )
                 out.append(item)
                 continue
@@ -904,13 +998,122 @@ class PluginContext:
         self.commands.append(clean)
         return clean
 
+    # ── 有落点：消息平台适配器（平台层建好之后才成立）──
+    def register_platform(self, adapter: Any = None, *, name: str = "") -> str:
+        """注册一个消息平台适配器（写进宿主的适配器池）。
+
+        落点就是 `app/platforms.py::default_adapters()` 返回的那个
+        ``dict[str, PlatformAdapter]``——gateway 的 ``resolve_adapter`` 按名字从它取，
+        ``orbit send --to <name>`` 与 cron 的 ``--deliver`` 也都走它。宿主把同一个 dict
+        通过 ``platform_sink=`` 传进来，插件注册的名字就**当场可用**；不传则只记录
+        （测试/无宿主场景），宿主启动时再读 :attr:`platforms` 自己注入。
+
+        适配器必须满足 `PlatformAdapter` 契约（7 必选 + 5 可选发送 + 5 交互 UX + 5 边缘
+        hook）。这里**不做 duck-typing 检查**——只要求它至少有 ``send_text`` 与 ``name``，
+        因为真契约由 gateway 的 ``deliver`` 在使用时暴露（少一个方法就当场 AttributeError，
+        比"注册成功但永远不被调用"好查）。
+        """
+        self._note("register_platform")
+        key = str(name or getattr(adapter, "name", "") or "").strip()
+        if not key:
+            raise PluginError("register_platform 需要适配器名（adapter.name 或 name=）")
+        if not hasattr(adapter, "send_text"):
+            raise PluginError(
+                f"适配器 {key} 没有 send_text：它不满足 app/platforms.py::PlatformAdapter "
+                f"契约，注册进来也没有调用方能投递"
+            )
+        self.platforms[key] = adapter
+        if self.platform_sink is not None:
+            self.platform_sink[key] = adapter
+        return key
+
+    def register_platform_handler(
+        self, platform: Any = None, handler: Any = None
+    ) -> str:
+        """给某个平台挂一个**入站**处理器。
+
+        落点是适配器的边缘 hook `PlatformAdapter.on_message(channel, text, user_id=...)`
+        （`app/platforms.py` 的 ``EDGE_HOOKS``）：适配器池里已有该平台的适配器时，这里
+        把它的 ``on_message`` 包一层，让插件处理器**先**跑；没有适配器就只记进
+        :attr:`platform_handlers`，等宿主/适配器就位后再绑。
+
+        **诚实边界**：Orbit 的 17 个适配器都只做"出站文本"，没有入站长连接或 webhook
+        入口，所以这个 hook 目前**不会被真实入站消息触发**——它是"派发点已就位、收信端
+        还没有"的状态。这也是 `register_slack_action_handler` / `register_telegram_handler`
+        仍然没有落点的原因（它们要的是平台原生的动作回调，不是这条通用消息 hook）。
+        """
+        self._note("register_platform_handler")
+        key = str(platform or "").strip().lower()
+        if not key:
+            raise PluginError("register_platform_handler 需要平台名")
+        if not callable(handler):
+            raise PluginError(f"register_platform_handler({key}) 需要可调用对象")
+        self.platform_handlers.setdefault(key, []).append(handler)
+        adapter = None
+        if self.platform_sink is not None:
+            adapter = self.platform_sink.get(key)
+        adapter = adapter or self.platforms.get(key)
+        if adapter is not None and hasattr(adapter, "on_message"):
+            previous = adapter.on_message
+            plugin_name = self.manifest.name
+
+            def wrapped(
+                channel: str, text: str, *, user_id: str = "", _previous: Any = previous
+            ) -> None:
+                # 插件处理器抛异常**不能**打断消息投递（边缘 hook 的约定：
+                # 旁路失败不改变主路径语义），所以就地收口成一条 error。
+                try:
+                    handler(channel, text, user_id=user_id)
+                except Exception as exc:  # noqa: BLE001 - 边缘 hook 必须隔离
+                    message = f"{plugin_name} 的 {key} 入站处理器抛异常：{type(exc).__name__}: {exc}"
+                    if message not in self.errors:
+                        self.errors.append(message)
+                    log.warning("%s", message)
+                _previous(channel, text, user_id=user_id)
+
+            adapter.on_message = wrapped  # type: ignore[method-assign]
+        return key
+
+    # ── 有落点：dashboard 页面（描述层，不是挂载层）──
+    def register_dashboard_page(self, page: Any = None, **fields: Any) -> dict[str, Any]:
+        """登记一个 dashboard 页面，接到 `app/plugin_dashboard.py` 的**描述层**。
+
+        入参可以是 ``manifest.json`` 的字典，也可以是 ``path`` / ``label`` 等关键字。
+        这里用 8 字段契约校验（``name`` / ``label`` / ``description`` / ``icon`` /
+        ``version`` / ``tab`` / ``entry`` / ``api``），并生成
+        ``/api/plugins/<name>/…`` 形态的路由描述。
+
+        **真正挂载未实现**：Orbit 的 dashboard 是 React 前端 + FastAPI
+        （``app/main.py`` 是禁改区），没有"扫插件目录 → include_router"的挂载点。
+        所以返回的 dict 里 ``mounted`` 恒为 ``False``、``state`` 恒为 ``partial``，
+        并把"要挂上去还缺什么"逐条列出。不假装能挂。
+        """
+        self._note("register_dashboard_page")
+        from app import plugin_dashboard
+
+        raw: dict[str, Any] = {}
+        if isinstance(page, dict):
+            raw = dict(page)
+        elif page is not None:
+            raise PluginError(
+                f"register_dashboard_page 只接受 manifest 字典或关键字参数，实际是 "
+                f"{type(page).__name__}"
+            )
+        raw.update({key: value for key, value in fields.items() if value is not None})
+        raw.setdefault("name", self.manifest.name)
+        validation = plugin_dashboard.validate(raw)
+        if not validation.ok or validation.manifest is None:
+            reasons = "；".join(
+                f"{item.field}: {item.detail}"
+                for item in validation.issues
+                if item.level == "error"
+            )
+            raise PluginError(f"dashboard 页面声明不合法：{reasons}")
+        described = plugin_dashboard.describe(validation.manifest)
+        self.dashboard_pages.append(described)
+        return described
+
     # ── 没有落点：一律显式抛，绝不静默吞 ──
-    def register_platform(self, adapter: Any = None) -> None:
-        raise self._unsupported("register_platform")
-
-    def register_platform_handler(self, platform: Any = None, handler: Any = None) -> None:
-        raise self._unsupported("register_platform_handler")
-
     def register_slack_action_handler(self, action_id: str = "", callback: Any = None) -> None:
         raise self._unsupported("register_slack_action_handler")
 
@@ -925,9 +1128,6 @@ class PluginContext:
 
     def register_cron_provider(self, provider: Any = None) -> None:
         raise self._unsupported("register_cron_provider")
-
-    def register_dashboard_page(self, page: Any = None) -> None:
-        raise self._unsupported("register_dashboard_page")
 
     def register_observability_exporter(self, exporter: Any = None) -> None:
         raise self._unsupported("register_observability_exporter")
@@ -956,6 +1156,9 @@ class LoadedPlugin:
     context: PluginContext | None = None
     module: Any = None
     error: str = ""
+    #: 这次加载属于哪个时机（``eager`` / ``lazy``）。lazy 插件在
+    #: :class:`PluginRuntime` 里被首次需要时才填上，便于日志回答"它什么时候进来的"。
+    import_phase: str = ""
 
     @property
     def ok(self) -> bool:
@@ -990,15 +1193,36 @@ def load(
     tool_sink: Any = None,
     settings: Any = None,
     environ: dict[str, str] | None = None,
+    platform_sink: dict[str, Any] | None = None,
+    state: PluginState | None = None,
 ) -> LoadedPlugin:
     """import 插件模块并调用它的 ``register(ctx)``。
 
     **失败只记错误，绝不抛给调用方**：一个坏插件不该让整个 agent 起不来
     （Hermes 的注册路径同样只 ``log.error`` 并跳过）。这是本模块最重要的一条纪律，
     所以异常在这里被就地收口成 :attr:`LoadedPlugin.error`。
+
+    ``state`` 传进来时先过**启用门禁**（MATRIX 13.10）：被 ``plugins.json`` 禁用的插件
+    **不会被 import**（不是 import 完再丢掉——那等于让禁用插件照样执行代码），并把
+    ``entries.<name>.allow_tool_override`` 作为授权位交给 :class:`PluginContext`。
     """
+    if state is not None and not state.is_enabled(manifest.name, manifest.enabled_by_default):
+        reason = (
+            f"插件 {manifest.name} 被禁用（plugins.json 的 disabled 优先于 enabled），"
+            "未 import 任何代码。启用：orbit plugins enable "
+            f"{manifest.name}"
+        )
+        return LoadedPlugin(
+            manifest=manifest, error=reason, import_phase=manifest.import_phase
+        )
     context = PluginContext(
-        manifest, settings=settings, hooks=hooks, tool_sink=tool_sink, environ=environ
+        manifest,
+        settings=settings,
+        hooks=hooks,
+        tool_sink=tool_sink,
+        environ=environ,
+        platform_sink=platform_sink,
+        allow_tool_override=state.allow_tool_override(manifest.name) if state else False,
     )
     try:
         entry = resolve_entry(manifest)
@@ -1017,9 +1241,20 @@ def load(
         message = f"{type(exc).__name__}: {exc}"
         log.warning("插件 %s 加载失败（已隔离）：%s", manifest.name, message)
         context.errors.append(message)
-        return LoadedPlugin(manifest=manifest, context=context, error=message)
-    log.info("插件 %s 已加载（kind=%s）", manifest.name, manifest.kind)
-    return LoadedPlugin(manifest=manifest, context=context, module=module)
+        return LoadedPlugin(
+            manifest=manifest,
+            context=context,
+            error=message,
+            import_phase=manifest.import_phase,
+        )
+    log.info("插件 %s 已加载（kind=%s，phase=%s）", manifest.name, manifest.kind,
+             manifest.import_phase)
+    return LoadedPlugin(
+        manifest=manifest,
+        context=context,
+        module=module,
+        import_phase=manifest.import_phase,
+    )
 
 
 def load_all(
@@ -1029,6 +1264,8 @@ def load_all(
     tool_sink: Any = None,
     settings: Any = None,
     environ: dict[str, str] | None = None,
+    platform_sink: dict[str, Any] | None = None,
+    state: PluginState | None = None,
 ) -> list[LoadedPlugin]:
     """批量加载。**逐个隔离**：前一个失败不影响后一个。"""
     return [
@@ -1038,9 +1275,117 @@ def load_all(
             tool_sink=tool_sink,
             settings=settings,
             environ=environ,
+            platform_sink=platform_sink,
+            state=state,
         )
         for manifest in manifests
     ]
+
+
+class PluginRuntime:
+    """按 :attr:`PluginManifest.import_phase` 分批加载插件（MATRIX 13.3）。
+
+    为什么需要它而不是直接 ``load_all``：``provides_tools`` 的插件往往是**最重**的那批
+    （带 provider SDK、注册一堆工具），而工具清单只在 agent 真正要拼提示词时才需要。
+    eager/lazy 两段式把冷启动与工具可用性解耦：
+
+    - :meth:`start`：只 import ``eager`` 的插件（hook / 命令 / 平台 / provider 注册）；
+    - :meth:`ensure_lazy_loaded`：首次需要工具清单时 import ``lazy`` 的插件，**只跑一次**
+      （幂等；并发调用不会重复 import）；
+    - :meth:`tools`：工具清单出口，内部先调 :meth:`ensure_lazy_loaded`。
+
+    **诚实边界**：宿主（``app/main.py`` / ``app/agent.py``）是禁改区，所以"启动时调
+    ``start()``、取工具时调 ``tools()``"这两步接线还没有落进生产路径——本类提供的是
+    **可被宿主直接调用、且离线可验证**的机制，接一个 ``PluginRuntime(...).start()``
+    就生效。这一点在 :meth:`describe` 里如实报 ``wired=False``。
+    """
+
+    def __init__(
+        self,
+        manifests: Iterable[PluginManifest],
+        *,
+        hooks: HookRegistry | None = None,
+        tool_sink: Any = None,
+        settings: Any = None,
+        environ: dict[str, str] | None = None,
+        platform_sink: dict[str, Any] | None = None,
+        state: PluginState | None = None,
+    ) -> None:
+        self.manifests = list(manifests)
+        self.hooks = hooks if hooks is not None else HookRegistry()
+        self.tool_sink = tool_sink
+        self.settings = settings
+        self.environ = environ
+        self.platform_sink = platform_sink
+        self.state = state
+        #: 已加载的插件（eager 先、lazy 后），保持发现顺序。
+        self.loaded: list[LoadedPlugin] = []
+        self._lazy_done = False
+
+    # ── 计划 ──
+    def plan(self) -> dict[str, str]:
+        """名字 → import 时机（给 `plugins list` / doctor / 日志用）。"""
+        return {manifest.name: manifest.import_phase for manifest in self.manifests}
+
+    def _of_phase(self, phase: str) -> list[PluginManifest]:
+        return [item for item in self.manifests if item.import_phase == phase]
+
+    # ── 加载 ──
+    def _load_batch(self, manifests: Sequence[PluginManifest]) -> list[LoadedPlugin]:
+        batch = load_all(
+            manifests,
+            hooks=self.hooks,
+            tool_sink=self.tool_sink,
+            settings=self.settings,
+            environ=self.environ,
+            platform_sink=self.platform_sink,
+            state=self.state,
+        )
+        self.loaded.extend(batch)
+        return batch
+
+    def start(self) -> list[LoadedPlugin]:
+        """加载 eager 插件。可重复调用（第二次返回空列表，不重复 import）。"""
+        if any(item.import_phase == "eager" for item in self.loaded):
+            return []
+        return self._load_batch(self._of_phase("eager"))
+
+    def ensure_lazy_loaded(self) -> list[LoadedPlugin]:
+        """首次需要工具清单时加载 lazy 插件（**只跑一次**）。"""
+        if self._lazy_done:
+            return []
+        self._lazy_done = True
+        return self._load_batch(self._of_phase("lazy"))
+
+    def tools(self) -> dict[str, PluginTool]:
+        """工具清单出口：先补齐 lazy 插件，再汇总全部工具。"""
+        self.ensure_lazy_loaded()
+        merged: dict[str, PluginTool] = {}
+        for item in self.loaded:
+            if item.context is not None:
+                merged.update(item.context.tools)
+        return merged
+
+    # ── 视图 ──
+    def errors(self) -> list[tuple[str, str]]:
+        return [(item.manifest.name, item.error) for item in self.loaded if item.error]
+
+    def describe(self) -> dict[str, Any]:
+        """运行期快照（``wired`` 如实写：宿主还没接这两步）。"""
+        return {
+            "plan": self.plan(),
+            "loaded": [
+                {"name": item.manifest.name, "phase": item.import_phase, "ok": item.ok}
+                for item in self.loaded
+            ],
+            "lazy_loaded": self._lazy_done,
+            "errors": [{"name": name, "error": error} for name, error in self.errors()],
+            "wired": False,
+            "wired_reason": (
+                "宿主接线（app/main.py / app/agent.py）是禁改区：接入方式是在启动处调用 "
+                "PluginRuntime(manifests).start()，在取工具清单处调用 .tools()"
+            ),
+        }
 
 
 # ── plugin_guard：安装期静态扫描闸 ───────────────────────────────────────────
@@ -1526,6 +1871,31 @@ def plugins_root(settings: Any = None) -> Path:
     return base / "plugins"
 
 
+@dataclass(frozen=True)
+class PluginGate:
+    """一个插件的门禁快照（MATRIX 13.10）：能不能加载、能不能覆盖内置工具。
+
+    ``source`` 是它在工具层里的身份（``plugin:<name>``），与
+    `app/tools.py::ToolRegistry` 的 ``source`` 维度同名——两边对得上，日志里才查得到
+    "到底是谁覆盖了谁"。
+    """
+
+    name: str
+    enabled: bool
+    allow_tool_override: bool
+    source: str
+    reason: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "enabled": self.enabled,
+            "allow_tool_override": self.allow_tool_override,
+            "source": self.source,
+            "reason": self.reason,
+        }
+
+
 @dataclass
 class PluginState:
     """启用/禁用/授权位（落 `<data_dir>/plugins.json`）。
@@ -1611,6 +1981,58 @@ class PluginState:
             "disabled": list(self.disabled),
             "entries": {key: dict(value) for key, value in self.entries.items()},
         }
+
+    # ── 门禁（MATRIX 13.10）─────────────────────────────────────────────────
+    #
+    # `plugins.json` 的 `enabled` / `disabled` / `entries` 在这里**真正变成门禁**：
+    # 加载前问 is_enabled()，工具覆盖前问 allow_tool_override()。为什么门禁放在这一层
+    # 而不是 `app/tools.py`：tools.py 是禁改区，而且它读的是**另一个**授权来源
+    # （`data/tools.json` 的 allow_tool_override 列表）。两边各管一段、互不猜：
+    # 插件侧决定"这个插件的 override 意图算不算数"，工具侧决定"这个 source 能不能覆盖"。
+    def gate(self, name: str, *, default: bool = True) -> PluginGate:
+        """某个插件的门禁快照（启用状态 + 工具覆盖授权 + 可行动的原因）。"""
+        enabled = self.is_enabled(name, default)
+        allow = self.allow_tool_override(name)
+        if not enabled:
+            reason = (
+                f"{name} 在 plugins.json 的 disabled 里（disabled 优先于 enabled），"
+                f"不会被 import。启用：orbit plugins enable {name}"
+            )
+        elif allow:
+            reason = f"{name} 已启用，且被授权覆盖内置工具（allow_tool_override=true）"
+        else:
+            reason = f"{name} 已启用；未授权覆盖内置工具（override=True 会被降级）"
+        return PluginGate(
+            name=name, enabled=enabled, allow_tool_override=allow, source=f"plugin:{name}",
+            reason=reason,
+        )
+
+    def gates(self, manifests: Iterable[PluginManifest] | None = None) -> dict[str, PluginGate]:
+        """批量门禁快照。``manifests`` 留空 = 只看 plugins.json 里出现过的名字。"""
+        if manifests is not None:
+            return {
+                item.name: self.gate(item.name, default=item.enabled_by_default)
+                for item in manifests
+            }
+        names = sorted({*self.enabled, *self.disabled, *self.entries})
+        return {name: self.gate(name) for name in names}
+
+    def override_sources(self) -> tuple[str, ...]:
+        """被授权覆盖内置工具的插件 **source 字符串**（``plugin:<name>``）。
+
+        这是给调用方的接线出口：`app/tools.py::ToolRegistry._override_allowed(source)`
+        读的是 ``data/tools.json`` 的 ``allow_tool_override`` 列表（支持 ``"*"``）。
+        tools.py 是禁改区，所以本层不改它——宿主只要把这里返回的值并进那个列表，
+        插件侧的授权位就与工具侧的闸门对齐了：
+
+            state = plugins.load_state(settings)
+            toolsets.merge_allow_tool_override(state.override_sources())  # 由调用方实现
+        """
+        return tuple(
+            f"plugin:{name}"
+            for name in sorted(self.entries)
+            if bool(self.entries[name].get("allow_tool_override", False))
+        )
 
 
 def state_path(settings: Any = None) -> Path:
@@ -1942,6 +2364,7 @@ __all__ = [
     "DANGEROUS_PATTERNS",
     "ENV_FIELDS",
     "EXCLUDED_DIRS",
+    "IMPORT_PHASES",
     "KIND_ALIASES",
     "KIND_TIMING",
     "LANDED_CAPABILITIES",
@@ -1964,8 +2387,10 @@ __all__ = [
     "ManifestError",
     "PluginContext",
     "PluginError",
+    "PluginGate",
     "PluginGuardError",
     "PluginManifest",
+    "PluginRuntime",
     "PluginState",
     "PluginTool",
     "ScanResult",

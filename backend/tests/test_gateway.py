@@ -588,19 +588,11 @@ def test_cli_gateway_setup_lists_platforms(tmp_path, capsys):
     assert "22 个" in out
     assert "ntfy" in out and "telegram" in out
     payload = json.loads((tmp_path / "data" / "gateway" / "platforms.json").read_text("utf-8"))
-    assert payload["enabled"] == [
-        "a2a",
-        "dingtalk",
-        "discord",
-        "feishu",
-        "google_chat",
-        "ntfy",
-        "raft",
-        "slack",
-        "teams",
-        "telegram",
-        "wecom",
-    ]
+    # 名单跟着 `IMPLEMENTED_PLATFORMS` 走，不写死：测试该守的是"报告与实际一致"，
+    # 不是某个具体数字（每加一个适配器就改一次测试，等于把数字当契约）。
+    from app.platforms import IMPLEMENTED_PLATFORMS
+
+    assert payload["enabled"] == sorted(platform.value for platform in IMPLEMENTED_PLATFORMS)
     assert len(payload["platforms"]) == 22
 
 
