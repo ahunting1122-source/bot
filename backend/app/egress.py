@@ -393,6 +393,53 @@ def _resolve_secret(key: str, resolver: Any = None) -> str:
     return str(value or "")
 
 
+def refuse_cloud_metadata(url: str, *, where: str = "出站请求") -> None:
+    """拒绝把请求发往云元数据端点。**全仓唯一实现，其余地方一律 import 它。**
+
+    ## 为什么是硬拦、不给开关
+
+    云元数据端点（`169.254.169.254` / `metadata.google.internal` 等）的唯一用途
+    是**把实例凭证交出去**。任何出站路径都没有正当理由指向它——
+    如果指向了，只有两种可能：配置被恶意改过，或有人被诱导改了配置。
+    **两种都该在发出第一个请求之前停下。**
+
+    ## 名单来源
+
+    复用 `app/path_security.py` 的 `BLOCKED_IPS` / `BLOCKED_HOSTNAMES`——
+    **不新建一份**（两份必然漂移）。那份名单本来就服务于浏览器与 URL 安全，
+    这里只是把它接到所有出站路径上。
+
+    ## 边界（如实写）
+
+    只判**字面量**。通过 DNS 解析到元数据 IP 的域名挡不住——那要真查 DNS，
+    而多数调用点在同步路径上。**已知残余风险**；触发条件写在
+    `providers._refuse_cloud_metadata` 的 docstring 里
+    （一旦 `base_url` 可来自不可信来源，就必须补「发请求那一步」的 DNS 检查）。
+
+    ## 为什么抛 `ValueError`
+
+    调用方五花八门（连接器、peer 客户端、平台适配器、代理），各有自己的异常类型。
+    **抛 `ValueError` 让它们统一捕获并转成自己的错误**，
+    而不是让每个调用方去 import 一个 `EgressError`。
+    """
+    from urllib.parse import urlparse
+
+    from app.path_security import BLOCKED_HOSTNAMES, BLOCKED_IPS
+
+    host = (urlparse(str(url or "")).hostname or "").strip().lower()
+    if not host:
+        return
+    blocked = {name.lower() for name in BLOCKED_HOSTNAMES} | {
+        str(ip).lower() for ip in BLOCKED_IPS
+    }
+    if host in blocked:
+        raise ValueError(
+            f"{where}指向云元数据端点（{host}）："
+            "**它的唯一用途是交出实例凭证，没有任何正当理由访问它**——"
+            "请检查配置是否被改动过。"
+        )
+
+
 @dataclass
 class EgressPolicy:
     """出站策略：allow / deny 规则 + 默认动作 + 注入规则。

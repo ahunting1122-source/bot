@@ -66,6 +66,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.egress import refuse_cloud_metadata
+
 # ── 平台枚举 ────────────────────────────────────────────────────────────────
 
 
@@ -964,6 +966,10 @@ class WebhookAdapter(PlatformAdapter):
                 channel=channel,
                 error=self._unconfigured_message(),
             )
+        # **云元数据硬拦**（MATRIX 14.11）：	arget 来自 self._target(...)，
+        # 而平台的 webhook / ase_url 类配置是**用户可配**的。
+        # 放在 if not target 之后——那时 	arget 已确认非空。
+        refuse_cloud_metadata(target, where=f"平台 {self.name} 发送")
         payload = self._payload(channel, text)
         headers = {"User-Agent": "orbit-gateway/1", **self.headers}
         if self.body_shape == "text":

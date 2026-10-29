@@ -17,6 +17,7 @@ from app.config import (
     load_grants,
     normalize_file_scope,
 )
+from app.egress import refuse_cloud_metadata
 from app.tools import Args, SearchArgs, Tool
 
 
@@ -211,6 +212,9 @@ class ConnectorConfig:
         error = None
         try:
             http_url(base_url, "模型接口地址")
+            # **云元数据硬拦**（MATRIX 14.11）：`base_url` 来自 `settings.model_base_url`，
+            # 是用户可配的。这里是把凭证（`token`）真正发出去的那一步。
+            refuse_cloud_metadata(base_url, where="模型连通性检查")
             async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
                 response = await client.post(
                     base_url.rstrip("/") + "/chat/completions",

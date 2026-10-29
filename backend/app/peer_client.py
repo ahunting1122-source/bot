@@ -40,6 +40,8 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.egress import refuse_cloud_metadata
+
 # ── 端点路径 ────────────────────────────────────────────────────────────────
 
 #: 对等节点的健康探测。返回 200 + 任意 JSON（``capabilities`` 可选）。
@@ -293,6 +295,9 @@ class PeerClient:
         if not self.base_url:
             raise PeerError("peer 客户端没有 base_url（先 `orbit peer add <name> --url …`）")
         url = self._url(path, query)
+        # **云元数据硬拦**（MATRIX 14.11）：ase_url 来自
+        # orbit peer add <name> --url …，是用户可配的。
+        refuse_cloud_metadata(url, where="peer 请求")
         last_error = ""
         with httpx.Client(transport=self.transport, timeout=self.timeout) as client:
             for attempt in range(1, self.attempts + 1):

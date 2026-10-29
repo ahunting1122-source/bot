@@ -24,7 +24,12 @@ cd E:\bbbooottt
 **那个 1 failed 是基线既有的**：`tests/test_connectors.py::test_browser_append_and_reload`
 ——它不是回归，**从第 1 轮起就在**。
 
-**182 行 MATRIX：✅166 · 🟢5 · ⚫4 · 🟡7 · ⬜0（严格 94.0% / 可验证 96.1%）**
+**182 行 MATRIX：✅167 · 🟢5 · ⚫4 · 🟡6 · ⬜0（严格 94.5% / 可验证 96.6%）**
+
+**出站云元数据硬拦已全覆盖**（第 61 轮完成）：`egress.refuse_cloud_metadata()` 是全仓唯一实现，
+接在**全部 5 个用户可配 URL 的出站点**上——模型客户端构造 / 代理转发 / 模型连通性检查 /
+peer 请求 / 平台发送。**判据是「URL 是否来自用户可配配置」，不是「有几个 `httpx.Client(`」。**
+
 
 ---
 
@@ -33,7 +38,6 @@ cd E:\bbbooottt
 | 条目 | 欠什么 | 解锁条件 | 量级 |
 |---|---|---|---|
 | **4.8** iron-proxy | `install` / `setup` / `start`（**不需二进制的部分已全部做完**） | 下载 iron-proxy 二进制 + 网络 | 约 1 周 |
-| **14.11** 出站闸全覆盖 | 4 处 `httpx.Client(` 未接（`connectors`×2 / `platforms` / `peer_client`） | **需先重构那几处的取值方式**（`url` 在 `try` 块与条件表达式内部） | 约 1 天 |
 | **12.5** `buzz` | 平台适配器 | `pip install coincurve`（**不要手写 secp256k1**） | 半天 |
 | **12.5** `photon` | 平台适配器 | `pip install grpcio` | 半天 |
 | **12.10** enroll | 注册流程 | 公网可达 HTTPS 回调 | 1 天 |
