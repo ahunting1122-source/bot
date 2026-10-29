@@ -174,24 +174,25 @@ def test_a_done_card_cannot_be_blocked(board):
     assert "已完成又阻塞" in str(excinfo.value)
 
 
-def test_unblock_needs_the_parent_done(board):
-    """**父卡没完成就解阻塞 = 死循环**：会被重新认领，然后又卡在同一个依赖上。"""
+def test_unblock_downgrades_instead_of_refusing(board):
+    """**父卡没完成时降级、不拒绝**（Hermes：父任务未完成则回 todo）。
+
+    第一版**报错拒绝**是个死胡同：用户除了先做父卡没有别的路，而**父卡可能被别人卡着**
+    ——于是这条卡谁也推不动，也没人能表达「我知道它还等着，但我先把它放回池子」。
+
+    **降级既不拒绝（无死胡同），也不 ready（无死循环）**——所以**不加 --force**：
+    强制放回可认领状态会制造我原本担心的那个死循环（重新认领→又卡住→再 block→再 force）。
+    """
     kanban, data_dir = board
     parent = kanban.create(data_dir, "父卡")
     child = kanban.create(data_dir, "子卡", parent=parent.id)
     kanban.block(data_dir, child.id, reason="等父")
 
-    with pytest.raises(kanban.KanbanError) as excinfo:
-        kanban.unblock(data_dir, child.id)
-    assert parent.id in str(excinfo.value)
-    # 仍然 blocked，且留下了一条说明是哪张父卡挡着
-    still = kanban.show(data_dir, child.id)
-    assert still.status == kanban.STATUS_BLOCKED
-    assert any("[still-blocked]" in item["text"] for item in still.comments)
-
-    # 父卡做完之后就能解了
-    kanban.complete(data_dir, parent.id, handoff="父做完")
-    assert kanban.unblock(data_dir, child.id).status == kanban.STATUS_OPEN
+    released = kanban.unblock(data_dir, child.id)
+    assert released.status == kanban.STATUS_OPEN, "降级后应放回池子"
+    # 但依赖必须留在卡上，否则下一个认领的人看不到它还在等
+    assert any("[dependency]" in item["text"] for item in released.comments)
+    assert parent.id in " ".join(item["text"] for item in released.comments)
 
 
 def test_unblock_refuses_a_card_that_is_not_blocked(board):

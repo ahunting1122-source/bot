@@ -268,11 +268,29 @@ def block(data_dir: str | Path, card_id: str, *, reason: str = "") -> Card:
 
 
 def unblock(data_dir: str | Path, card_id: str) -> Card:
-    """解除阻塞。
+    """解除阻塞：**一律放回 `open`，但父卡没完成时记一条依赖提醒**。
 
-    **父卡全 done 才回到 `open`**：还有父卡没做完就回到 open，会让它被重新认领，
-    然后又卡在同一个依赖上——那是死循环，不是解阻塞。
-    父卡没全 done 时退回 `blocked` 并在评论里说清是哪张父卡挡着。
+    ## 为什么不拒绝（第一版错了）
+
+    第一版在「父卡还没 done」时**报错拒绝**。那是个死胡同：用户除了先去做父卡
+    没有别的路，而**父卡可能被别人卡着**——于是这条卡谁也推不动，也没人能表达
+    「我知道它还等着，但我先把它放回池子里」。
+
+    **Hermes 的解法是「降级」而不是「拒绝」**（`01-cli-surface.md:795`：
+    「`unblock` 把 blocked/scheduled 任务放回 ready，**父任务未完成则回 todo**」；
+    `02-tool-layer.md:385` 同）。**既不拒绝（无死胡同），也不 ready（无死循环）。**
+
+    ## 为什么不加 `--force`
+
+    加 `--force` 恰好会制造我原本担心的那个死循环：强制放回可认领状态 → 被重新认领
+    → 又卡在同一个依赖上 → 再 block → 再 force……**降级比强制好。**
+
+    ## 边界（如实写）
+
+    Orbit 的 `open` 大致对应 Hermes 的 **`todo`**；Hermes 那个更细的
+    **`ready`（可认领）** 这一档 Orbit **没有单独建模**。所以这里能做到的是
+    「放回池子 + 留一条依赖提醒」，**做不到「放回 todo 但明确不可认领」**。
+    那是状态机的一档缺口，不是本函数的 bug。
     """
     cards = load_board(data_dir)
     by_id = {card.id: card for card in cards}
@@ -284,18 +302,16 @@ def unblock(data_dir: str | Path, card_id: str) -> Card:
         if card.parent:
             parent = by_id.get(card.parent)
             if parent is not None and parent.status != STATUS_DONE:
-                card.updated_at = _now()
+                # **降级而不是拒绝**：放回池子，但把依赖留在卡上。
                 card.comments.append(
                     {
                         "author": "",
-                        "text": f"[still-blocked] 父卡 {parent.id} 仍是 {parent.status}",
+                        "text": (
+                            f"[dependency] 父卡 {parent.id} 仍是 {parent.status}——"
+                            "本卡已放回池子，但先做完父卡才有意义"
+                        ),
                         "at": _now(),
                     }
-                )
-                save_board(data_dir, cards)
-                raise KanbanError(
-                    f"父卡 {parent.id} 还没完成（{parent.status}）——解阻塞会立刻又被卡住，"
-                    "先让父卡完成"
                 )
         card.status = STATUS_OPEN
         card.updated_at = _now()
