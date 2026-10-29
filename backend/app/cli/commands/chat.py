@@ -108,9 +108,21 @@ def _submit(context: Context, store, runner, conversation_id: str, text: str):
             Message(conversation_id=conversation_id, role="user", content=text)
         )
         task = await store.save(Task(conversation_id=conversation_id, goal=text))
-        await store.event(task.id, "task_created", goal=text)
-        # --source 决定任务来源平台 → 工具暴露面（MATRIX 6.4 / 1.7）。
-        await runner.enqueue(task.id, platform=getattr(context, "session_source", "") or "cli")
+        source = getattr(context, "session_source", "") or "cli"
+        # 记进事件：这是 `--source` **真实且可观测**的效果
+        # （`orbit plane timeline` 能看到这条任务从哪来）。
+        await store.event(task.id, "task_created", goal=text, source=source)
+        # **`--source` 不是平台**（MATRIX 1.7 第 42 轮更正）。
+        #
+        # Hermes 的 `--source` 是「**会话来源标签，用于过滤**」（调研 01:181：
+        # 第三方集成用 `tool` 让它不出现在用户会话列表里）。
+        # 而 6.4 的 `platform` 决定的是**工具暴露面**——**两个概念**。
+        #
+        # 上一版把它接到 `platform` 上，后果是：第三方传 `--source tool`
+        # 期望隐藏会话，实际只是把 platform 设成 `tool`（没配置 → 工具集不变）
+        # → **净效果仍是 0，而 `--help` 在说谎**。
+        # 这是「接上了」的第五种假象：**接错概念**。
+        await runner.enqueue(task.id, platform="cli")
         return task.id
 
     return context.run(_do())
@@ -510,7 +522,12 @@ REGISTRY.add(
             Option(("--create-if-missing",), "配合 --continue <名字>：没有匹配的会话就新建", action="store_true", dest="create_if_missing"),
             Option(("--no-restore-cwd",), "恢复会话时不切回它记录的目录", action="store_true", dest="no_restore_cwd"),
             Option(("--pass-session-id",), "把会话 id 写进上下文，便于引用与对账", action="store_true", dest="pass_session_id"),
-            Option(("--source",), "会话来源标签（默认 cli），用于按来源筛选", metavar="SOURCE"),
+            Option(
+            ("--source",),
+            "会话来源标签（默认 cli）：**记进任务事件**供排查；"
+            "**不做会话列表筛选**（Hermes 的筛选语义需要 Session.source 列，Orbit 未实现）",
+            metavar="SOURCE",
+        ),
             # ── 模型与推理 ──
             Option(("-m", "--model"), "覆盖本次使用的模型名", metavar="MODEL"),
             Option(("--provider",), "覆盖本次使用的供应商（见 `orbit model --list`）", metavar="PROVIDER"),

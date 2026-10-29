@@ -99,20 +99,32 @@ def test_source_reaches_the_platform_mechanism(tmp_path):
     )
 
 
-def test_the_cli_submit_passes_the_platform_to_enqueue():
-    """**防回归**：`_submit()` 里 `enqueue` 必须带上 `platform`。
+def test_source_is_not_mistaken_for_the_platform():
+    """**接错概念的回归测试**（MATRIX 1.7 第 42 轮）。
 
-    只验 `_apply_flags` 把值挂上 context 是不够的——1.7 的虚报形状正是
-    「值写进去了、没人用它」。
+    Hermes 的 --source 是「**会话来源标签，用于过滤**」（调研 01:181）；
+    而 6.4 的 platform 决定的是**工具暴露面**。**两个概念。**
+
+    上一版把 --source 接到 platform 上：第三方传 --source tool 期望隐藏会话，
+    实际只是把 platform 设成 	ool（没配置 → 工具集不变）→
+    **净效果仍是 0，而 --help 在说谎。**
+
+    这条钉两件事：① _submit() **不能**把 source 当 platform；
+    ② 它**必须**把 source 记进任务事件（真实、可观测的效果）。
     """
     import pathlib
 
     from app.cli.commands import chat as chat_module
 
-    source = pathlib.Path(chat_module.__file__).read_text(encoding="utf-8")
-    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
-    assert 'platform=getattr(context, "session_source"' in code, (
-        "`_submit()` 没把 `--source` 传给 `enqueue`——它又变回一个装饰 flag"
+    raw = pathlib.Path(chat_module.__file__).read_text(encoding="utf-8")
+    code = "\\n".join(
+        line for line in raw.splitlines() if not line.strip().startswith("#")
+    )
+    assert 'platform=getattr(context, "session_source"' not in code, (
+        "又把 --source 当平台了——那是工具暴露面，不是会话来源标签"
+    )
+    assert 'source=source' in code, (
+        "--source 没有记进任务事件——那它又变成零效果的装饰 flag"
     )
 
 

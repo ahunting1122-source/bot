@@ -834,7 +834,34 @@ def resolve_path(root: Path, relative: str, machine: bool = False) -> Path:
       这就是 `../outside.txt` 被拒的地方，也是历史行为。
     - `machine=True`（完全访问权限）：绝对路径直接采用，相对路径仍相对授权目录解析，
       **不做包含校验**，因此能落到整机任意位置。
+
+    ## 安全判定**只有一份**（MATRIX 14.8）
+
+    这里原来有一套自己的包含校验，而 `app/path_security.py::PathPolicy` 是**另一套**：
+    设备命名空间、ADS（`file.txt:stream`）、保留名（`CON`/`NUL`）、符号链接跟随、
+    deny 模式、云元数据地址……那些检查**本身是真的（有测试），但生产路径不走它**。
+
+    **两份实现必然漂移，而安全边界的漂移比没有更危险**——两边各改一半，
+    最后没人知道真实边界在哪。
+
+    现在改成：**判定一律问 `PathPolicy`**，本函数只负责「按权限级别决定要不要
+    限制在授权目录内」以及**解析出绝对路径**。
+    这不是把检查搬个家——它让 `PathPolicy` 那 6 类检查**第一次真正保护工具调用**。
     """
+    from app.path_security import PathPolicy
+
+    policy = PathPolicy(
+        # `machine=True` → 不设允许根 = 不做包含校验（与既有语义一致）；
+        # `machine=False` → 只允许授权目录。
+        allowed_roots=() if machine else (root.resolve(),),
+        base=root,
+    )
+    decision = policy.check(relative)
+    if not decision.allowed:
+        # **保留 `ValueError` 类型**：调用方与测试都按它捕获；
+        # 但把 `kind` 带进消息，因为「为什么被拒」比「被拒了」有用得多。
+        raise ValueError(f"路径超出授权工作目录（{decision.kind}）：{decision.reason}")
+
     if machine:
         candidate = Path(relative).expanduser()
         if candidate.is_absolute():
@@ -842,6 +869,8 @@ def resolve_path(root: Path, relative: str, machine: bool = False) -> Path:
         return (root / candidate).resolve()
     path = (root / relative).resolve()
     if not path.is_relative_to(root.resolve()):
+        # `PathPolicy` 已经判过包含性；这一行是**双保险**，故意留着——
+        # 万一 `PathPolicy` 的 allowed_roots 语义将来被改动，这里还能兜住。
         raise ValueError("路径超出授权工作目录")
     return path
 
