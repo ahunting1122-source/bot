@@ -1,9 +1,9 @@
 # 对标进度报告
 
-**更新时间**：2026-10-29 08:36（本机实测时钟 `Get-Date`，只读取证）
-**本轮轮次**：**N = 37**
-**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP / GAPS 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 1 个测试文件 + 一次全量；实测 `ContextVar` 在 asyncio 任务/线程池的继承语义）。
-**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `1bb54b4`；**轮初 `git status` 0 条目，轮末 0 条目**）
+**更新时间**：2026-10-29 08:53（本机实测时钟 `Get-Date`，只读取证）
+**本轮轮次**：**N = 38**
+**性质**：只读核对。未修改任何代码 / research / MATRIX / ROADMAP / GAPS 文件；未装依赖；未启动后端；未跑会改状态或真发请求的命令（边界动作：跑了 1 个测试文件 + 一次全量；实测 `DelegateRunner.cancel` 是否可 await）。
+**基准**：Hermes Agent runtime 0.21.0-cn.18 · **目标仓**：Orbit `E:\bbbooottt`（HEAD `086e63c`；**轮初 `git status` 0 条目，轮末 0 条目**）
 
 ---
 
@@ -14,21 +14,19 @@
 | 项 | 说明 |
 |---|---|
 | 五态 | **✅ 164 · 🟢 5 · ⚫ 4 · 🟡 8 · ⬜ 0**（合计 181 ✓） |
-| 严格 / 可验证 | **93.4%** / **95.5%** —— 未变（`5.14` 仍 🟡，正确） |
+| 严格 / 可验证 | **93.4%** / **95.5%** —— 未变（**修洞轮，正确**） |
 | `matrix_stats --check` | **exit 0**，零告警 ✅ |
 | 顶层命令对齐 | **77/77（Orbit 顶层 84，自有 7）** + 口径说明 ✅ |
 
-### 硬口径：**全部一致，而且这次是干净的**
+### 硬口径：**全部一致**
 
 | 你的口径 | 我的实测 | 判定 |
 |---|---|---|
 | ruff `All checks passed!` | **All checks passed!**（exit 0） | ✅ 一致 |
-| mypy **175** files clean | **175 files clean**（exit 0） | ✅ **一致（上轮那 1 error 已修）** |
-| pytest 1 failed, **3607** passed, 3 skipped | **1 failed / 3607 passed / 3 skipped（434.86s）** | ✅ **完全一致** |
+| mypy **175** files clean | **175 files clean**（exit 0） | ✅ 完全一致 |
+| pytest 1 failed, **3615** passed, 3 skipped | **1 failed / 3615 passed / 3 skipped（429.29s）** | ✅ **完全一致** |
 | `matrix_stats --check` exit 0 | **exit 0**，181/164/5/4/8/0 | ✅ 一致 |
-| `git status` 7 M + 4 ??，已提交 `1bb54b4`，工作区 0 项 | **轮初轮末均 0 项** | ✅ 一致 |
-
-**贴完整 `git status` 这个习惯立刻见效**：你标了「7 M + 4 ??」→ 我读到 0 项 → **时点差一目了然**，没有任何含糊 ✓
+| 已提交 `086e63c`，工作区 0 项 | **轮初轮末均 0 项** | ✅ 一致 |
 
 ---
 
@@ -60,106 +58,96 @@
 
 **抽样率**：3 项点名**全部复核**（3 项都实测）。
 
-### A. ★ 最重要：④ 中断传播的后果**比你说的更糟** —— 不是「占着租约」，是**租约被父释放了而子还在写**
+### A. ★ 最重要：④ 的修复里有一个 `await` 错误 —— **`DelegateRunner.cancel` 是同步方法，`await` 它抛 TypeError 被吞掉**
 
-**你问的**：「父被 cancel 后子任务继续跑，**会不会把租约一直占着**导致用户重开不了会话？」
-
-**我核了租约链路，实际方向相反**：
-
-```python
-# agent.py:612-615 —— 父按 conversation 取租约
-self.leases.acquire(task.conversation_id, platform="cli")
-self._lease_sessions[task.id] = task.conversation_id
-
-# child_runner.py:108 —— 子任务**共享父的 conversation**
-Task(conversation_id=self._conversation_id, goal=…)
-# child_runner.py 全文**没有任何 acquire 调用**（你的自述对："子任务靠父的"）
-
-# agent.py 的 finally（第 23 轮核过）—— 父无条件 release
-self.leases.release(task.conversation_id)
+**我实测**：
+```
+delegate.py:360   def cancel(self, child_task_id: str) -> bool:      ← **同步，不是 async**
+asyncio.iscoroutinefunction(r.cancel)  →  False
+await r.cancel("nope")                 →  TypeError: object bool can't be used in 'await' expression
 ```
 
-**所以实际时序是**：
+**所以在 `cancel_children` 里实际发生的是**：
+```python
+await runner.cancel(child_id)
+#     ^^^^^^^^^^^^^^^^^^^^^^ ① 先求值：cancel() 真的执行了（inner.cancel() 生效）→ 返回 True
+# ^^^^ ② 再 await True → **TypeError**
+except Exception as exc:      # ③ 被这里吞掉
+    log.warning("停子任务 %s 失败：%s", child_id, exc)
+# stopped 永远不增加
+```
 
-| 步 | 发生什么 | 租约状态 |
+**三个后果，按严重度**：
+
+| # | 后果 | 说明 |
 |---|---|---|
-| 1 | 父任务跑，acquire(conversation) | **父持有** |
-| 2 | 父 spawn 子任务，**子共享同一 conversation，子不 acquire** | 父持有 |
-| 3 | **用户 cancel 父任务** | — |
-| 4 | 父的 `finally` → **`release(conversation)`** | **租约消失** |
-| 5 | **子任务仍在跑，继续写同一 conversation 的 checkpoint** | **无人持有** |
-| 6 | 用户重开会话 → 新任务 `acquire` **成功**（租约是空的） | 新任务持有 |
-| 7 | **两个写者同时写同一份 checkpoint，且没有任何警告** | ❌ |
+| **①** | **`stopped` 永远是 0** | `cancel_children` 的返回值恒为 0 —— **函数自述"返回停掉了几个"是假的** |
+| **②** | **每次都留一条 warning** | 内容形如「停子任务 X 失败：object bool can't be used in 'await' expression」—— **看起来像失败，实际子任务停了**。这会让真失败淹没在假失败里 |
+| **③** | **没有任何东西 await 子任务的真正退出** ⚠️ | **这是你 Q1 担心的那条，而且担心成立** |
 
-**→ 这不是"占着租约"，是"租约被提前释放，保护彻底消失"。** 而**这正是 10.8 建来防的场景**（第 23 轮 MATRIX 原文：「同一会话被两条路径同时驱动时，**两边往同一份 checkpoint 写，消息历史交错，而且不报错**」）。
+**③ 为什么是原洞没有真正关掉**：
+- `inner.cancel()` 只是**发出取消请求**，子任务的协程在**下一个 await 点**才收到 `CancelledError`，然后还要跑它自己的 `finally`（写状态、清理）
+- 而父任务这边：`cancel()` → `cancel_children()` **立即返回**（因为 await 抛了）→ `job.cancel(); await gather(job)` 只等**父**的 job
+- **子任务（`inner`）没人 await** → 父的 `finally` → **`release(conversation_id)` 可能发生在子任务还在收尾时**
+- → **窗口变小了，但没有消失。** 而 10.8 的全部意义是"没有窗口"。
 
-**所以 10.8 的保护在「取消」这条路径上被完全绕过了** —— 而且**比不保护更危险**：如果租约一直被占着，用户至少会看到"有人持有"；**现在是空的，所以没人会怀疑。**
+**你的测试为什么没抓到**：它断言的是**「子任务停了」**（`inner.cancel()` 确实让它停）**，不是「`cancel_children` 等到了它停」**。这两件事在测试里长得一样，在运行时差一个 await。
 
-**修法（我认为只有一条是对的）**：
-> **让 cancel 传播到子任务** —— 父被 cancel 时，把 `_inner` 里的子 runner 也 cancel 掉，**然后父的 release 才是安全的**。
+**修法（两处都要改）**：
+```python
+# ① cancel_children 里：不要 await 同步方法
+runner.cancel(child_id)          # 去掉 await
 
-**不建议的两条**：
-- ❌ **让子任务自己 acquire** —— 同一 conversation 会与父的租约**直接冲突**，父会被判成"被接管"而自杀
-- ❌ **父等子跑完再 release** —— 那就变成"cancel 之后父不结束"，用户以为取消了其实没有
-
-**这条我判 P0**：**它是"接上了但有一个会静默毁数据的洞"**，与你说的「接上了但有洞比没接上更危险」完全一致 ✓
+# ② 但要 await 子任务的真正退出（这才是"先停子再停父"的实质）
+inner = getattr(runner, "_inner", {}).get(child_id)
+if inner is not None:
+    await asyncio.gather(inner, return_exceptions=True)
+```
+**或者更干净**：**把 `DelegateRunner.cancel` 改成 `async def`**，内部 `inner.cancel()` 之后 `await asyncio.gather(inner, return_exceptions=True)` —— **这样调用方 `await runner.cancel(...)` 就是对的，而且语义完整。**
+**注意**：`delegate.py` 的 docstring 说"只取消内层的 runner 任务，不取消自己那个 `_execute` 任务"—— 那个约束与"await 内层退出"**不冲突**（内层是 `_inner[child_task_id]`，`_execute` 是另一条）。
 
 ### B. 你点名的另 2 项
 
-**① ②预算不扣：父 90 + 3 子 × 50 = 240 步，算不算该马上修的洞 → 有上限，不是无底洞；P1 不是 P0**
+**② `_RUNNERS` 模块级 dict 会不会泄漏 → ✅ 会，而且正常路径就泄漏**
 
-**关键是并发闸**：
 ```
-delegate.py:73   DEFAULT_MAX_CONCURRENT = 4
-delegate.py:11-12  ``asyncio.Semaphore`` 卡在"同一时刻真正在跑的子任务数"上
-                  Hermes 的同名常量是 ``_DEFAULT_MAX_CONCURRENT_CHILDREN = 10``
+tool_delegate.py:132   _RUNNERS[task_id] = runner        ← 派子任务时写入
+tool_delegate.py:145   runner = _RUNNERS.pop(task_id, None)   ← **只在 cancel_children 里 pop**
+tool_delegate.py:116   _RUNNERS.clear()                  ← 只在 reset() 里，**生产不调**
 ```
-→ **同一时刻最多 4 个子任务在跑** ✓
 
-**所以放大的上限是**：
-| 层 | 上限 |
+**所以**：
+- 父任务**被 cancel** → `cancel_children` → `pop` → **不泄漏** ✓
+- 父任务**正常跑完**（绝大多数情况）→ **没有任何路径 pop** → **记录永远留着** ❌
+
+**→ 每个派过子任务的父任务，泄漏一个 `DelegateRunner`（含 `_children` / `_inner` 两个 dict）。** 长跑的 gateway 上会**无界增长** ✓ **你问的"算不算泄漏"：算，而且是主要路径上的泄漏。**
+
+**建议**：**在父任务结束处 pop** —— 最自然是 `agent.py` 那个 `finally`（`release` 旁边），**与租约一起清**：
+```python
+finally:
+    self.leases.release(task.conversation_id)
+    tool_delegate.forget(task.id)      # ← 或直接 _RUNNERS.pop(task.id, None)
+```
+**顺带一个好处**：把"父任务结束"和"清理子任务相关记录"放在同一处，**下次有人加子任务资源时会看到这里**。
+
+**③ 5.14 判 🟡 是否还站得住 → ✅ 站得住，而且比上轮更站得住**
+
+**你问「那 2 条现在是完整的了吗」→ 不完整**：
+| 缺口 | 状态 |
 |---|---|
-| 父任务 | 90 步 |
-| 子任务（同层，最多 4 个并发） | 4 × 50 = 200 步 |
-| **单层合计** | **≈ 290 步** |
-| depth=2（孙任务） | 再 ×(1+4) → 但受 `max_depth` 闸 |
-→ **是「成本放大 3–5 倍」，不是「烧穿预算」** ✓
+| 限流相位 | **未做**（GAPS.md 已记） |
+| 预算更紧的算法（`min(50, 父剩余/子数)`） | **未做** |
+| **④ 中断传播** | **上轮是"未做"，这轮"做了但有一个 await 错误 + 没有 await 子任务退出"** |
 
-**但有一个我核不到的**：**「4 个并发」是「同时」，不是「总共」** —— 如果模型顺序 spawn 10 个子任务（4 个跑完再起下一批），**总数不受 `max_concurrent` 限制**。**那 90 + 10×50 = 590 步。**
+→ **所以 5.14 保持 🟡 正确** ✓ **而且如果按"④ 完整了"去写证据栏，就会高估。**
 
-**所以我的判断**：
-- **是洞，但 P1** —— 有闸，且方向是"成本"不是"数据"
-- **但证据栏该写清上限**：「**单层最多 4 并发 × 50 步 = 200 步；顺序 spawn 时不受此限**」—— **不写上限的"会放大"和"会烧穿"读者分不清**
-- **修法建议**：给子任务一个**从父预算扣减的总额**（例如 `min(50, 父剩余/子任务数)`），比"不扣"和"扣到饿死"都好
+### C. 你修 ② 的方式我认可，而且理由比"记账"更深
 
-**③ `ContextVar` 深度在 asyncio 里是否真继承、有没有泄漏 → ✅ 继承成立（我实测），唯一的泄漏面是线程池裸调**
+> 「**不按工具名判断**（按名字判断会在改名时静默失效）——只认 `steps` 键，其余工具恒为 0。」
 
-**我实测四种情况**：
-```
-同一协程:                      2   ✓
-create_task 子任务:            task=2   ✓ 继承
-gather 子任务:                 ['g1=2','g2=2']   ✓ 继承
-线程池 + copy_context():       2   ✓ 显式复制能继承
-线程池 裸调（无 copy_context）: 0   ⚠️ **不继承**
-```
-→ **你的用法（`set()` 在 `run()` 里、`reset()` 在 `finally`、子任务由 asyncio 创建）是对的** ✓✓
-→ **`reset(token)` 与 `set()` 在同一协程同一上下文 → 不会有 `Token was created in a different Context`** ✓
-→ **`finally` 保证不泄漏** ✓
+**这条判断对** ✓ —— **按工具名匹配会在改名/别名/包装时静默失效，而"结果里有没有 `steps` 键"是结构判据，不依赖命名。** 这与我们之前立的「用可核对的事实而不是可编造的字段做判据」（`load_index` 用 `path` 不用 `module`）是同一族 ✓
 
-**唯一的真实泄漏面**：**如果 LangGraph 把某个同步节点丢进 `run_in_executor` 而不带 `copy_context()`，那里读到的深度是 0 → 闸门失效。**
-**当前风险低**（`Nodes` 的方法是 `async`，LangGraph 在事件循环里跑），**但它是"哪天加了同步节点就会静默失效"的类型**。
-
-**建议加一条测试（很便宜）**：**在节点内部（不是只在工具执行器）断言 `DELEGATION_DEPTH.get() > 0`** —— 这样一旦某条路径掉进线程池，测试立刻红。**这与你上轮的 `assert seen`（打桩计数）是同一思路：验"值真的传到了那里"，不是"我设过"。**
-
-### C. 你的两处自我披露都值得肯定
-
-**① 「②④ 是这轮的真缺口，我没做完就说没做完」** ✓✓
-**这是本项目第一次在"做完一个功能"的同一轮里，主动列出自己没做的两项** —— 而且**不是含糊的"还有优化空间"，是点名的"②预算不扣 / ④中断传播未做"**。**这比多做一条功能更有价值**，因为它让下一个人知道该修什么。
-
-**② 6 条过期清单断言改成性质断言** ✓
-> 「它们把「当时的实现状态」写成了「永久性质」……含两处写死 37 → `>= 37`，因为**那条测试的 docstring 自己就写着「该守的不是数字」**」
-
-**「把当时的实现状态写成永久性质」这个说法很准** —— 这是我们第 22 轮立"性质断言 > 清单断言"以来的**又一次同向应用**，而且**这次是你自己发现的**（不是审计指出）。
+**上限写进证据栏也做对了** ✓：「`DEFAULT_MAX_CONCURRENT = 4` 但**那是并发不是总数**——顺序 spawn 10 个就是 90 + 500 步」。**"放大 3–5 倍"与"烧穿"读者现在能分清。**
 
 ---
 
@@ -172,43 +160,40 @@ gather 子任务:                 ['g1=2','g2=2']   ✓ 继承
 ⚫ 4 ：4.2 4.7 8.3 12.9
 ```
 
-**`5.14` 仍 🟡 是对的** ✓ —— `delegate_task`/`agent_swarm` 两条接上了，但**其余 54 条仍未实现**，且 GAPS.md 已改报「54 条 + 限流相位」而不是天数。
-
 ---
 
 ## 风险与漂移
 
-### R1 🟠 **取消路径上租约保护被绕过（A 节）—— 本轮唯一 P0**
+### R1 🟠 **`await runner.cancel(...)` 对同步方法 → TypeError 被吞（A 节）**
 
-父 cancel → `finally` release → 子任务仍在写同一 conversation → **租约是空的** → 新任务能 acquire → **两个写者，无警告**。
-**修法**：**让 cancel 传播到子任务**。**不要**让子任务自己 acquire（与父冲突）、**不要**让父等子跑完（cancel 就没效果）。
+三个后果：`stopped` 恒为 0 / 每次留假失败 warning / **没有 await 子任务退出 → release 仍可能早于子任务收尾**。
+**修法**：去掉 `await` **并且** await 内层任务的退出（或把 `DelegateRunner.cancel` 改成 `async def`）。
 
-### R2 🟡 **预算不扣：有闸但上限要写清（B①）**
+### R2 🟠 **`_RUNNERS` 在正常路径上泄漏（B②）**
 
-`DEFAULT_MAX_CONCURRENT = 4` → 单层最多 4 并发 × 50 步 = 200 步；**顺序 spawn 时不受此限**。
-**建议**：给子任务从父预算扣减的总额（`min(50, 父剩余/子数)`），并把上限写进证据栏。
+只在 `cancel_children` 里 `pop`，`reset()` 生产不调 → **父任务正常跑完就永久留一条**。
+**修法**：在 `agent.py` 的 `finally`（`release` 旁边）pop。
 
-### R3 🟡 **`ContextVar` 的线程池盲区（B③）**
+### R3 🟡 **测试断言了「子任务停了」但没断言「等到了它停」（A 节）**
 
-asyncio 任务继承 ✓（实测），**但 `run_in_executor` 裸调不继承**（实测读到 0）。
-**当前风险低**（节点是 async），**但"哪天加了同步节点就静默失效"**。
-**建议**：加一条**在节点内部断言 `DELEGATION_DEPTH.get() > 0`** 的测试。
+两件事在测试里长得一样，**在运行时差一个 await**。
+**建议**：测试断言 **`cancel_children()` 的返回值 == 子任务数**（现在恒为 0，会立刻红）—— **一条断言就能钉住这个 bug。**
 
-### R4 🟢 **本轮两处自我披露质量高**
+### R4 🟢 **本轮两处判断质量高**
 
-1. **在"做完功能"的同一轮里点名列出没做的两项**（②④）—— 第一次，且具体
-2. **6 条过期清单断言改性质断言**，包括「写死 37 → `>= 37`」—— **你自己发现"当时的实现状态被写成永久性质"**
+1. **「先停子再停父」的顺序判断** —— 理由（"反过来父的 job 一 cancel，这条协程可能被打断在 `await` 上，子就漏掉了"）**是对的**，只是实现上漏了"等子退出"那一步
+2. **② 不按工具名判断** —— 用结构判据（有没有 `steps` 键）而不是命名判据 ✓
 
 ### R5 🟡 **未验证项（如实标注）**
 
 | 项 | 为什么没验 |
 |---|---|
-| A 节「两写者」的**实跑复现** | 要构造"父跑→spawn 子→cancel 父→新任务 acquire"的时序 → 会改状态，**未做**；结论来自**租约链路静态读解**（`acquire`/`release`/`conversation_id` 三处 + `child_runner` 无 acquire） |
-| 顺序 spawn 的**真实子任务总数上限** | 只核了 `max_concurrent=4` 是并发闸；**"总共能 spawn 几个"没找到独立上限** → 未确认 |
-| `GraphChildRunner` 的**设计质量** | 只读了 `run()` 主体（`set`/`reset`/异常处理/中断回报），**没有审 `thread_id` 隔离与图复用的正确性** |
+| A 节 TypeError 的**端到端复现** | 我实测了 `await r.cancel(...)` 抛 TypeError（确凿），**但没有构造完整"父跑→spawn 子→cancel 父"的时序看 warning 真的出现** |
+| `_RUNNERS` 泄漏的**实测** | 只读了写入/pop/clear 三处，**没有跑到内存增长** |
+| `GraphChildRunner` 的 `thread_id` 隔离正确性 | 只读了 `run()` 主体，**未审图复用的隔离** |
 | `12.10` 的 `enroll`、`4.12` 的 19 家逐家 | 要网络/凭证 → 未跑 |
 | `orbit chat` 交互、`gateway start`、`cron run`、`backup create/restore`、`config edit`、`doctor --fix/--live` | 会改状态或真发请求 → 未运行 |
-| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 31 轮如此） |
+| 8.6 心跳宽限秒数与退避序列 | 只核到机制与常量引用（连续 32 轮如此） |
 
 ---
 
@@ -216,15 +201,15 @@ asyncio 任务继承 ✓（实测），**但 `run_in_executor` 裸调不继承**
 
 按优先级：
 
-1. **【P0】修 ④：cancel 传播到子任务**（R1）：父 cancel 时把 `_inner` 的子 runner 也 cancel，**然后父的 release 才安全**。**修完补一条时序测试**：「父跑 → spawn 子 → cancel 父 → 子必须也停了 → 租约才释放」。**这条现在不存在，而它正好是 10.8 保护失效的那条路径。**
-2. **【P0】把 ④ 的后果写进 MATRIX 5.14 或 10.8 的证据栏**：**"取消路径上子任务不随父停止，租约被提前释放"** —— 它跨两条（5.14 的子任务 + 10.8 的租约），**不写清楚会两边都不认领。**
-3. **【P1】②预算扣减 + 写清上限**（R2）：`min(50, 父剩余/子数)`；证据栏写「单层最多 4 并发 × 50；顺序 spawn 不受此限」。
-4. **【P1】加「节点内部断言深度非零」的测试**（R3）：防线程池盲区静默失效。
-5. **【P1】你的计划（先修 ②④ 再继续加功能）我完全认同** ✓ —— 「**接上了但有洞，比没接上更危险**」这句话该写进方法论：**它的判据是"接上的那个会不会静默出错"，而不是"接上了没有"。**
-6. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**：GAPS.md 已给出分组，逐家写清 `install`/`requires`/`reason` 即完成压实。
-7. **【P2】`1.13b`（原生外壳）的工作量也建议改成"已识别子任务清单"**：与 5.14 同理 —— **清单可被别人估，数字只能被信任或怀疑。**
-8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 33 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
+1. **【P0】修 `await runner.cancel(...)`**（R1）：去掉 `await` **并且** await 内层任务退出 —— 或直接把 `DelegateRunner.cancel` 改 `async def`（更干净，且调用方语义就对了）。
+2. **【P0】给测试加一条断言：`cancel_children()` 返回值 == 子任务数**（R3）：**现在恒为 0，加上立刻红** —— 一条断言钉住整个 bug。
+3. **【P0】`_RUNNERS` 在父任务 `finally` 里 pop**（R2）：与 `release` 放同一处，**下次有人加子任务资源会看到这里**。
+4. **【P1】修完 ④ 再更新 MATRIX 5.14 / 10.8 的证据栏**：**现在写的是"已修"，但实际有 await 错误** → 不改就等于把上一轮的问题原样留进文档。
+5. **【P1】你的 4.12 计划我认同** ✓ —— 它是剩余 🟡 里最小的一条（把 4 家语音在宿主进程验一遍并如实报），**而且不需要设计决策**。**但先修完 R1/R2/R3 再换手** —— 理由是你自己上轮立的规矩：「**刚改完就换手，最容易留下没验过的活**」。
+6. **【P1】把「`await` 一个同步方法不会报错在调用点，只会在 await 处抛 TypeError」写进方法论**：**这类错误 ruff/mypy 都看不见**（mypy 通常能看出来，但这里 `runner` 是 `Any` 类型 → 类型检查被绕过）。**判据：`Any` 类型上的 `await` 是不可检查的，必须靠测试断言返回值。**
+7. **【P2】`4.12` 照 `4.2` 的 `BEDROCK_LIMITATIONS` 逐家写**。
+8. **【P2】复核 `08` 的「15 条已声明未消费」剩余 13 条**：连续 34 轮未核。`nodes.py:254 context_meta.setdefault("compressed", {})` 仍是空占位。
 
 ---
 
-*本报告由 monitor 角色只读生成。**本轮最重要发现：④ 中断传播的后果比你说的更糟** —— 不是"子任务占着租约"，是**父 cancel 时 `finally` 把租约 release 了，而子任务仍在写同一个 conversation**（`child_runner.py:108` 子共享父的 `conversation_id`，且全文**无 acquire**）→ **租约是空的** → 用户重开会话时新任务 acquire 成功 → **两个写者同时写同一份 checkpoint，无任何警告**。**这正是 10.8 建来防的场景，而 10.8 的保护在"取消"这条路径上被完全绕过** —— 且**比不保护更危险**（租约被占着用户至少看到"有人持有"，空着没人会怀疑）。**修法只有一条对：让 cancel 传播到子任务。** 另两项：**②预算不扣有上限**（`DEFAULT_MAX_CONCURRENT = 4` → 单层 4×50=200 步；**顺序 spawn 不受此限**）→ **P1 不是 P0**，但上限要写进证据栏；**`ContextVar` 继承我实测成立**（`create_task`/`gather` 都继承；**唯一盲区是 `run_in_executor` 裸调读到 0**）→ 建议加"节点内部断言深度非零"的测试。**你的两处自我披露都值得肯定**：在"做完功能"的同一轮里**点名列出没做的 ②④**（第一次），以及**自己发现 6 条测试"把当时的实现状态写成了永久性质"**。**你下轮"先修洞再加功能"的计划我完全认同** —— 「接上了但有洞，比没接上更危险」该进方法论，**判据是"接上的那个会不会静默出错"。** 未验证项单列，不混进完成项。*
+*本报告由 monitor 角色只读生成。**本轮最重要发现：④ 的修复里 `await runner.cancel(child_id)` 有一个 `await` 错误** —— `delegate.py:360` 的 `cancel` 是**同步方法**（`asyncio.iscoroutinefunction` 实测 False），`await` 它抛 `TypeError: object bool can't be used in 'await' expression`，被 `except Exception` 吞掉。**三个后果**：① `stopped` 恒为 0（函数自述"返回停掉了几个"是假的）② 每次都留一条**假失败** warning ③ **没有任何东西 await 子任务的真正退出** —— 而**③ 正是你 Q1 担心的那条，担心成立**：`inner.cancel()` 只发出请求，子任务还要在下一个 await 点收到 `CancelledError` 再跑自己的 `finally`；而父的 `finally → release()` 在 `cancel_children` 立即返回后就会执行 → **窗口变小了但没消失，而 10.8 的全部意义是"没有窗口"**。**你的测试没抓到是因为它断言"子任务停了"（`inner.cancel()` 确实让它停），不是"`cancel_children` 等到了它停"—— 两件事在测试里长得一样，在运行时差一个 await。** 建议：**去掉 `await` + await 内层任务退出**（或把 `cancel` 改 `async def`），**并加一条 `assert cancel_children(...) == 子任务数`（现在恒为 0，加上立刻红）**。另两项：**`_RUNNERS` 确实泄漏，而且是主要路径上的泄漏** —— 只在 `cancel_children` 里 pop、`reset()` 生产不调，**父任务正常跑完就永久留一条**（每个派过子任务的父任务泄漏一个 `DelegateRunner`），建议在 `agent.py` 的 `finally`（`release` 旁边）pop；**5.14 保持 🟡 正确，而且比上轮更站得住**（限流相位未做、预算更紧算法未做、④ 实际未完成）。**你修 ② 的方式我认可** —— 不按工具名判断、只认 `steps` 键，是结构判据而不是命名判据，与 `load_index` 用 `path` 不用 `module` 同一族。未验证项单列，不混进完成项。*
