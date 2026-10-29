@@ -171,3 +171,25 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 
 - ✅ **可以宣布「本阶段交付完成」**——96.6% 是实测的，`ruff` / `mypy` / 全量测试都有证据。
 - ❌ **不可以宣布「目标达成」**——6 条 🟡 是真缺口。
+
+## 复核方式：每条一句话，别人可以自己跑
+
+> **分类的价值不在「分了几类」，在「每类能不能被读者用一条命令复核」。**
+> 下面每一条都能在本机跑一遍，不需要读我的报告。
+
+| 条目 | 复核命令 | 期望结果 |
+|---|---|---|
+| **12.5** `buzz` | `backend\.venv\Scripts\python.exe -c "import importlib.util as u; print(u.find_spec('coincurve'))"` | `None`（未装） |
+| **12.5** `photon` | 同上，把 `coincurve` 换成 `grpcio` | `None`（未装） |
+| **12.10** enroll | `orbit pairing --help` 后看是否需要公网回调 | 文档要求公网可达 HTTPS |
+| **4.12** 语音 18 家 | `where ffmpeg` / `where say` / `where espeak` / … | `ffmpeg` 在；其余不在 |
+| **1.13b** 原生外壳 | `orbit desktop --help`（`app/` 里 electron 零命中） | 只有文档文本，无实现 |
+| **4.8** iron-proxy | `orbit egress install --data-dir <临时目录>` | **exit 3**（「没有可操作的对象」） |
+| **5.14** 工具 52/94 | `orbit tools coverage`（或 `scripts/matrix_stats.py`） | `covered 52 / 94` |
+
+### 为什么加这一列
+
+**「多做一条」只增加 1/181；而「让 181 条都可复核」增加的是整份文档的可信度。**
+
+这一轮我自己的两条口径错误（`4.12` 的分母、`4.8` 的「无需外部条件」）**都是靠实测抓出来的**，
+而它们在文档里**看起来和正确的一样自信**。**唯一的区别是：能不能被一条命令验证。**
