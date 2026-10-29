@@ -93,11 +93,19 @@ class Card:
     updated_at: str = ""
 
     @property
-    def parent(self) -> str:
-        """**第一个前驱**（兼容旧读法）。
+    def first_parent(self) -> str:
+        """**第一个前驱**（没有前驱时是空串）。
 
-        只保留一个「主前驱」是为了不打破既有调用方（`summarize` / 测试），
-        **但依赖判定一律走 `parents` 全集**——否则又多一条会漂移的路径。
+        ## 为什么叫 `first_parent` 而不叫 `parent`
+
+        原来叫 `parent`，而它只返回 `parents[0]`——于是 `if card.parent == x`
+        判「是不是 x 的子卡」时**只看第一个前驱、漏检其余**。
+
+        **改 docstring 不管用**：名字叫 `parent` 就会有人当「父卡」用。
+        **最便宜的护栏是把语义放进名字**（`first_parent`），
+        而不是靠注释提醒。**判据：兼容旧调用方 ≠ 允许旧语义。**
+
+        **依赖判定一律走 `parents` 全集**（`blockers()`）——否则又多一条会漂移的路径。
         """
         return self.parents[0] if self.parents else ""
 
@@ -601,7 +609,7 @@ def summarize(cards: list[Card]) -> list[dict[str, Any]]:
                 "title": card.title,
                 "status": card.status,
                 "assignee": card.assignee,
-                "parent": card.parent,
+                "parent": card.first_parent,
                 # 可认领 = 状态对 **且** 依赖已满足
                 "ready": card.status == STATUS_OPEN and not pending,
                 "blocked_by": pending,

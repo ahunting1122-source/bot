@@ -298,13 +298,64 @@ async def wait_status(store, task_id, target, *, ceiling=150.0, stall=45.0):
         if marker != last_seen:
             last_seen = marker
             last_progress = now
-        assert now - last_progress < stall, (
-            f"任务 {task_id} 在 {stall:.0f}s 内毫无进展（当前 {task.status}，目标 {target}）"
-        )
-        assert now - started < ceiling, (
-            f"任务 {task_id} 超过 {ceiling:.0f}s 仍未到 {target}（当前 {task.status}）"
-        )
+        if now - last_progress >= stall:
+            raise AssertionError(
+                f"任务 {task_id} 在 {stall:.0f}s 内毫无进展"
+                f"（当前 {task.status}，目标 {target}）{_progress_hint(store, task_id)}"
+            )
+        if now - started >= ceiling:
+            raise AssertionError(
+                f"任务 {task_id} 超过 {ceiling:.0f}s 仍未到 {target}"
+                f"（当前 {task.status}）{_progress_hint(store, task_id)}"
+            )
         await asyncio.sleep(0.05)
+
+
+def _progress_hint(store, task_id: str, *, tail: int = 8) -> str:
+    """失败时把**最后几条事件**贴出来（第 48 轮加）。
+
+    ## 为什么值得为「失败信息」写代码
+
+    `wait_status` 放宽窗口之后，**下一次失败就会变成"到底卡在哪"这个更贵的问题**。
+    而监视子agent 给的是**根因假设**、不是实证——**如果假设错了，我就是在给一个真 bug
+    让路**。所以这里补上「进度可观测」：**即使假设错了，下次失败也能直接定位，
+    不用再猜一轮。**
+
+    这也是这个 flake 的教训之一：**上一轮我只能从「单跑过、全量不过」反推原因，
+    因为失败信息里没有任何进度线索。**
+
+    ## 为什么读事件而不是读任务字段
+
+    任务字段只有 `status` / `error`，而「卡在哪一步」只有事件流知道
+    （`step_started` / `tool_call` / `model_call` …）。
+    **读不到就如实说读不到**——不要让提示本身失败。
+    """
+    try:
+        log = getattr(store, "event_log", None)
+        if log is None:
+            return "\n（这个 store 没有 event_log，拿不到进度）"
+        events = log.since(task_id, 0)
+    except Exception as exc:  # noqa: BLE001 —— 提示失败不该盖住真正的失败
+        return f"\n（读事件失败：{exc}）"
+    if not events:
+        return "\n（这个任务一条事件都没有——**那本身就是一个线索**：它可能根本没启动）"
+    lines = ["\n最后几条事件："]
+    for item in events[-tail:]:
+        # **事件是信封形状**：`{"stream", "event_id", "payload": {"kind": ...}}`。
+        # 第一版直接读 `item["kind"]`，于是每条都显示成 `?` 并把整个信封倒出来——
+        # **验了才发现它是半坏的**（这正是「写了但没验」那一族）。
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            payload = item
+        kind = payload.get("kind") or payload.get("type") or "?"
+        detail = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"kind", "type", "id", "at", "seq", "ts"}
+        }
+        rendered = " ".join(f"{key}={value!r}" for key, value in detail.items())
+        lines.append(f"  - {kind} {rendered}".rstrip())
+    return "\n".join(lines)
 
 
 async def test_budget_stop_ends_with_a_readable_progress_summary(tmp_path):
@@ -714,3 +765,43 @@ async def test_one_task_counts_each_memory_hit_once(tmp_path):
     assert row.hit_count == 1, f"一个任务应只记一次命中，实际 {row.hit_count}"
     await runner.close()
     await store.engine.dispose()
+
+async def test_the_progress_hint_is_readable_not_a_raw_envelope(tmp_path):
+    """**`wait_status` 失败时贴出来的进度必须是人能读的**（第 48 轮）。
+
+    第一版直接读 `item["kind"]`，而事件是**信封形状**
+    （`{"stream", "event_id", "payload": {"kind": ...}}`）——
+    于是每条都显示成 `?` 并把整个信封倒出来。
+    **我是在真跑一次之后才发现的**——这正是「写了但没验」那一族：
+    代码不报错、测试也不报错，只是**输出没用**。
+
+    这条测试钉住「可读」，而不只是「有输出」：
+    `kind` 必须真的出现在里面，且信封字段（`event_id` / `stream`）不该出现。
+    """
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+
+    task = await store.save(Task(conversation_id="c1", goal="看进度"))
+    await store.event(task.id, "task_created", goal="看进度")
+    await store.event(task.id, "tool_call", name="read")
+
+    hint = _progress_hint(store, task.id)
+    assert "task_created" in hint, hint
+    assert "tool_call" in hint, hint
+    assert "name='read'" in hint, hint
+    # **信封字段不该漏出来**——那是第一版的症状
+    assert "event_id" not in hint, f"把原始信封倒出来了：{hint}"
+    assert "?" not in hint.replace("？", ""), f"事件种类没解析出来：{hint}"
+
+
+async def test_the_progress_hint_says_so_when_there_are_no_events(tmp_path):
+    """**读不到就如实说读不到**——「一条事件都没有」本身就是线索（可能根本没启动）。"""
+    settings = Settings(data_dir=tmp_path / "data", workspace=tmp_path / "files")
+    settings.prepare()
+    migrate(settings)
+    store = Store(settings.data_dir / "app.sqlite")
+
+    hint = _progress_hint(store, "no-such-task")
+    assert "一条事件都没有" in hint, hint

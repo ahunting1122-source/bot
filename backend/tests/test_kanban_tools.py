@@ -255,7 +255,7 @@ def test_link_attaches_a_parent_to_an_existing_card(board):
     parent = kanban.create(data_dir, "父")
     child = kanban.create(data_dir, "子")
     linked = kanban.link(data_dir, child.id, parent.id)
-    assert linked.parent == parent.id
+    assert linked.first_parent == parent.id
 
 
 def test_link_refuses_a_cycle(board):
@@ -269,7 +269,7 @@ def test_link_refuses_a_cycle(board):
         kanban.link(data_dir, first.id, second.id)  # B → A 会成环
     assert "环" in str(excinfo.value)
     # 数据没被改坏
-    assert kanban.show(data_dir, first.id).parent == ""
+    assert kanban.show(data_dir, first.id).first_parent == ""
 
 
 def test_link_refuses_a_card_as_its_own_parent(board):
@@ -537,7 +537,7 @@ def test_link_adds_an_edge_instead_of_overwriting(board):
 
     assert set(linked.parents) == {b.id, c.id}, linked.parents
     # 派生 parent 仍是第一个（兼容旧读法）
-    assert linked.parent == b.id
+    assert linked.first_parent == b.id
 
 
 def test_both_parents_block_the_card(board):
@@ -592,7 +592,7 @@ def test_an_old_board_with_a_single_parent_still_reads(board):
     )
     old = kanban.show(data_dir, "k-0001")
     assert old.parents == ["k-0002"]
-    assert old.parent == "k-0002"
+    assert old.first_parent == "k-0002"
 
 def test_list_separates_waiting_on_parent_from_an_explicit_block(board):
     """**两种「不可开工」的原因必须分开**（第 47 轮）。
@@ -612,3 +612,47 @@ def test_list_separates_waiting_on_parent_from_an_explicit_block(board):
     # 父卡自己是可以开工的
     assert rows[parent.id]["blocked_reason"] == ""
     assert rows[parent.id]["ready"] is True
+
+def test_cycle_detection_finds_a_cycle_on_the_second_parent(board):
+    """**环只在「第二个前驱」那条路上可达**——这条才证明是 DFS（第 48 轮）。
+
+    ## 第一版这条测试是**摆设**，实测发现的
+
+    第一版构造的是 `C.parents=[A]`、`B.parents=[C]`，再 `link(C→B)`。
+    但环检测从 `B` 出发**第一跳就撞上 `C`** —— **DFS 一次都没被用到**。
+    我把实现降级成「只看 `parents[0]`」再跑，**它照样过**。→ 摆设。
+
+    ## 能区分的构造
+
+    ```
+    M.parents = [A, X]   ← M 有两个前驱，X 在**第二个**
+    Y.parents = [M]      ← Y → M
+    link(X → Y)          ← 检查：从 Y 上溯能否到 X
+    ```
+
+    - **DFS**：Y → M → 展开 M 的全部前驱 {A, X} → **撞到 X** → 报环 ✓
+    - **只看第一个前驱**：Y → M → `parents[0]` = A → A 无父 → 停 → **漏检** ✗
+
+    建边过程本身没有环（X 无父、A 无父），所以这个环**完全由 `link(X→Y)` 造成**。
+    """
+    kanban, data_dir = board
+    a = kanban.create(data_dir, "A")
+    x = kanban.create(data_dir, "X")
+    m = kanban.create(data_dir, "M")
+    y = kanban.create(data_dir, "Y")
+
+    # M 先依赖 A（成为 parents[0]），再依赖 X（成为 parents[1]）
+    kanban.link(data_dir, m.id, a.id)
+    kanban.link(data_dir, m.id, x.id)
+    assert kanban.show(data_dir, m.id).parents == [a.id, x.id], "X 必须落在第二个前驱"
+
+    # Y 依赖 M
+    kanban.link(data_dir, y.id, m.id)
+
+    # 现在让 X 依赖 Y → X → Y → M → X 成环，**而这条环只在 M 的第二个前驱上可达**
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.link(data_dir, x.id, y.id)
+    assert "环" in str(excinfo.value)
+
+    # 数据没被改坏
+    assert kanban.show(data_dir, x.id).parents == []

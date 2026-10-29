@@ -277,7 +277,7 @@ def _full(card: Any) -> dict[str, Any]:
     # **parent 是派生属性**（第 47 轮改成多父边之后），sdict() 不会带上它。
     # 但工具载荷里必须留着：模型和既有调用方按 parent 读，突然消失会让它们
     # 静默拿到 None——**字段消失比字段改名更难发现**。
-    payload["parent"] = card.parent
+    payload["parent"] = card.first_parent
     return payload
 
 
