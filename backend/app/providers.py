@@ -1272,6 +1272,40 @@ def _build_bedrock(
         ) from exc
 
 
+def _refuse_cloud_metadata_endpoint(base_url: str, provider_id: str) -> None:
+    """拒绝把模型请求发往云元数据端点。
+
+    云元数据端点（169.254.169.254 / metadata.google.internal 等）的唯一用途是
+    **把实例凭证交出去**。模型 provider 没有任何正当理由指向它——如果 base_url
+    指向那里，只有两种可能：配置被恶意改过，或有人被诱导改了配置。
+    **两种都该在发出第一个请求之前停下。**
+
+    名单**复用** pp/path_security.py 的 BLOCKED_IPS / BLOCKED_HOSTNAMES——
+    不是新建一份（两份必然漂移）。
+
+    **边界（如实写）**：这里只判字面量。通过 DNS 解析到元数据 IP 的域名挡不住——
+    那要真查 DNS，而客户端构造是同步的、不该在这里做网络 IO。**已知残余风险。**
+    """
+    from urllib.parse import urlparse
+
+    from app.path_security import BLOCKED_HOSTNAMES, BLOCKED_IPS
+
+    host = (urlparse(str(base_url or "")).hostname or "").strip().lower()
+    if not host:
+        return
+    if host in {name.lower() for name in BLOCKED_HOSTNAMES}:
+        raise ValueError(
+            f"{provider_id} 的 base_url 指向云元数据主机名（{host}）。"
+            "**它的唯一用途是交出实例凭证，模型 provider 没有正当理由指向它**——"
+            "请检查配置是否被改动过。"
+        )
+    if host in {str(blocked).lower() for blocked in BLOCKED_IPS}:
+        raise ValueError(
+            f"{provider_id} 的 base_url 指向云元数据地址（{host}）。"
+            "**这是 SSRF 取凭证的经典目标**——请检查配置是否被改动过。"
+        )
+
+
 def _build_openai_chat(
     profile: ProviderProfile,
     model: str,
@@ -1299,6 +1333,20 @@ def _build_openai_chat(
             f"{profile.id}：缺 API key。用 `orbit login --provider {profile.id}` 写入系统"
             f" keyring，或设置 {profile.key_env or '对应环境变量'}。"
         )
+    # **模型出站是凭证真正流动的那一步，必须在这里拦**（第 52 轮）。
+    #
+    # `EgressPolicy` 之前只被两处用：shell 命令的 host 检查（`tools.py`）和
+    # `egress check` / `egress_status`（**说明性**命令）。**模型这条路一次都没查过**——
+    # 而它才是 API key 真正发出去的地方：一个恶意或被污染的 `base_url`
+    # （例如指向 `169.254.169.254`）会在这里把凭证直接送出去。
+    #
+    # **判据：闸门要放在危害发生的那一步。** 上一轮我在 `EgressPolicy.check` 里加了
+    # 云元数据硬拦，但如果这条路径不查它，那只是把「说明」改对了，闸门仍不在路上。
+    #
+    # 只拦云元数据、不拦私网：本地 provider（Ollama `127.0.0.1:11434`、
+    # LM Studio、本地 gateway）有正当用途，一刀切会打死「配一个 provider 就能用」。
+    _refuse_cloud_metadata_endpoint(base_url, profile.id)
+
     kwargs: dict[str, Any] = {
         "model": model,
         "base_url": base_url,
