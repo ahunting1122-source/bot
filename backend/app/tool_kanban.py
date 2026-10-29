@@ -273,7 +273,12 @@ async def execute(
 def _full(card: Any) -> dict[str, Any]:
     from dataclasses import asdict
 
-    return asdict(card)
+    payload = asdict(card)
+    # **parent 是派生属性**（第 47 轮改成多父边之后），sdict() 不会带上它。
+    # 但工具载荷里必须留着：模型和既有调用方按 parent 读，突然消失会让它们
+    # 静默拿到 None——**字段消失比字段改名更难发现**。
+    payload["parent"] = card.parent
+    return payload
 
 
 def register_kanban_tools(registry: Any, *, data_dir: str | Path | None = None) -> list[str]:

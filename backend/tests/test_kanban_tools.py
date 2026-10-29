@@ -516,3 +516,99 @@ def test_claim_refuses_a_card_that_is_not_open(board):
     kanban.complete(data_dir, card.id, handoff="ok")
     with pytest.raises(kanban.KanbanError):
         kanban.claim(data_dir, card.id)
+
+
+# ── 多父依赖：link 是「加一条边」不是「覆盖」（第 47 轮）──────────────────
+
+
+def test_link_adds_an_edge_instead_of_overwriting(board):
+    """**link 的语义是「加一条依赖边」**（Hermes kanban_link），边可以有多条。
+
+    原来的 parent 是单个字符串，link() 就是**覆盖**：link(A,B) 之后
+    link(A,C) 会把 B 那条边**悄悄丢掉**（实测确认过）。**那不是加边，是数据丢失。**
+    而数据丢失在这里**不会报错**——A 只是少了一个前驱，看起来一切正常。
+    """
+    kanban, data_dir = board
+    a = kanban.create(data_dir, "A")
+    b = kanban.create(data_dir, "B")
+    c = kanban.create(data_dir, "C")
+    kanban.link(data_dir, a.id, b.id)
+    linked = kanban.link(data_dir, a.id, c.id)
+
+    assert set(linked.parents) == {b.id, c.id}, linked.parents
+    # 派生 parent 仍是第一个（兼容旧读法）
+    assert linked.parent == b.id
+
+
+def test_both_parents_block_the_card(board):
+    """**依赖判定走全集**：只看第一个前驱会漏掉另一条。"""
+    kanban, data_dir = board
+    a = kanban.create(data_dir, "A")
+    b = kanban.create(data_dir, "B")
+    c = kanban.create(data_dir, "C")
+    kanban.link(data_dir, a.id, b.id)
+    kanban.link(data_dir, a.id, c.id)
+
+    # 只做完 B，C 还没做 → 仍然不能认领
+    kanban.complete(data_dir, b.id, handoff="B 好了")
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.claim(data_dir, a.id)
+    assert c.id in str(excinfo.value)
+
+    # C 也做完 → 才能认领
+    kanban.complete(data_dir, c.id, handoff="C 好了")
+    assert kanban.claim(data_dir, a.id).status == kanban.STATUS_DOING
+
+
+def test_linking_the_same_edge_twice_is_idempotent(board):
+    """重复加同一条边**不是错误**，只是重放——但也不能产生重复项。"""
+    kanban, data_dir = board
+    a = kanban.create(data_dir, "A")
+    b = kanban.create(data_dir, "B")
+    kanban.link(data_dir, a.id, b.id)
+    twice = kanban.link(data_dir, a.id, b.id)
+    assert twice.parents == [b.id]
+
+
+def test_an_old_board_with_a_single_parent_still_reads(board):
+    """**旧板只有 parent 字符串**：读的时候升级成列表，不迁移文件。"""
+    import json
+
+    kanban, data_dir = board
+    path = data_dir / kanban.BOARD_DIRNAME / kanban.BOARD_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "cards": [
+                    {"id": "k-0001", "title": "旧卡", "parent": "k-0002"},
+                    {"id": "k-0002", "title": "旧父"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    old = kanban.show(data_dir, "k-0001")
+    assert old.parents == ["k-0002"]
+    assert old.parent == "k-0002"
+
+def test_list_separates_waiting_on_parent_from_an_explicit_block(board):
+    """**两种「不可开工」的原因必须分开**（第 47 轮）。
+
+    只报 `ready=False` 会把「等前驱做完」和「有人显式叫停」混成一件——
+    而处理方式完全不同：前者再等等就好，后者要人/agent 去解。
+    """
+    kanban, data_dir = board
+    parent = kanban.create(data_dir, "父")
+    waiting = kanban.create(data_dir, "等父卡", parent=parent.id)
+    stopped = kanban.create(data_dir, "被叫停")
+    kanban.block(data_dir, stopped.id, reason="等评审")
+
+    rows = {row["id"]: row for row in kanban.summarize(kanban.list_cards(data_dir))}
+    assert rows[waiting.id]["blocked_reason"] == "waiting_on_parent"
+    assert rows[stopped.id]["blocked_reason"] == "blocked"
+    # 父卡自己是可以开工的
+    assert rows[parent.id]["blocked_reason"] == ""
+    assert rows[parent.id]["ready"] is True

@@ -75,8 +75,13 @@ class Card:
     status: str = STATUS_OPEN
     #: 谁在负责（agent 名 / 用户名）。空 = 没人认领。
     assignee: str = ""
-    #: 父任务 id。空 = 顶层卡片。
-    parent: str = ""
+    #: 前驱卡片 id 列表。空 = 顶层卡片。
+    #:
+    #: **为什么是列表而不是单个 `parent`**（第 47 轮修）：`link()` 的语义是
+    #: 「给两个已存在任务加**依赖边**」（Hermes `kanban_link`）——边可以有多条。
+    #: 原来 `parent` 是单个字符串，`link()` 就是**覆盖**：`link(A,B)` 之后
+    #: `link(A,C)` 会把 B 那条边**悄悄丢掉**（实测确认）。**那不是加边，是数据丢失。**
+    parents: list[str] = field(default_factory=list)
     #: 完成时交给下游的结构化交接物（Hermes 的 handoff）。
     handoff: str = ""
     #: 跨 run 的持久评论（`kanban_comment`）。
@@ -86,6 +91,15 @@ class Card:
     attachments: list[dict[str, Any]] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+
+    @property
+    def parent(self) -> str:
+        """**第一个前驱**（兼容旧读法）。
+
+        只保留一个「主前驱」是为了不打破既有调用方（`summarize` / 测试），
+        **但依赖判定一律走 `parents` 全集**——否则又多一条会漂移的路径。
+        """
+        return self.parents[0] if self.parents else ""
 
 
 def _now() -> str:
@@ -120,7 +134,12 @@ def load_board(data_dir: str | Path) -> list[Card]:
                     body=str(item.get("body", "")),
                     status=str(item.get("status", STATUS_OPEN)),
                     assignee=str(item.get("assignee", "")),
-                    parent=str(item.get("parent", "")),
+                    # 旧板只有 `parent`（单个字符串）：读的时候升级成列表。
+                    # **不迁移文件**——读兼容比迁移便宜，而且旧板不会因此坏掉。
+                    parents=(
+                        list(item.get("parents") or [])
+                        or ([str(item["parent"])] if item.get("parent") else [])
+                    ),
                     handoff=str(item.get("handoff", "")),
                     comments=list(item.get("comments") or []),
                     attachments=list(item.get("attachments") or []),
@@ -181,7 +200,7 @@ def create(
         id=_new_id(cards),
         title=title,
         body=body,
-        parent=parent,
+        parents=[parent] if parent else [],
         assignee=assignee,
         created_at=_now(),
         updated_at=_now(),
@@ -306,20 +325,22 @@ def unblock(data_dir: str | Path, card_id: str) -> Card:
             continue
         if card.status != STATUS_BLOCKED:
             raise KanbanError(f"卡片 {card_id} 不在 blocked 状态（当前 {card.status}）")
-        if card.parent:
-            parent = by_id.get(card.parent)
-            if parent is not None and parent.status != STATUS_DONE:
-                # **降级而不是拒绝**：放回池子，但把依赖留在卡上。
-                card.comments.append(
-                    {
-                        "author": "",
-                        "text": (
-                            f"[dependency] 父卡 {parent.id} 仍是 {parent.status}——"
-                            "本卡已放回池子，但先做完父卡才有意义"
-                        ),
-                        "at": _now(),
-                    }
-                )
+        pending = blockers(cards, card)
+        if pending:
+            # **降级而不是拒绝**：放回池子，但把依赖留在卡上。
+            detail = "、".join(
+                f"{pid}({by_id[pid].status})" for pid in pending if pid in by_id
+            )
+            card.comments.append(
+                {
+                    "author": "",
+                    "text": (
+                        f"[dependency] 前驱未完成：{detail}——"
+                        "本卡已放回池子，但先做完前驱才有意义"
+                    ),
+                    "at": _now(),
+                }
+            )
         card.status = STATUS_OPEN
         card.updated_at = _now()
         save_board(data_dir, cards)
@@ -366,23 +387,29 @@ def link(data_dir: str | Path, child_id: str, parent_id: str) -> Card:
     if child_id == parent_id:
         raise KanbanError("不能让一张卡成为自己的父卡")
 
-    # 沿 parent 链上溯：遇到 child 就是环
-    cursor: str | None = parent_id
+    # 沿**所有**前驱链上溯：遇到 child 就是环。
+    # 用显式栈而不是单链游标——`parents` 是列表，一条边可能分叉。
+    stack: list[str] = [parent_id]
     seen: set[str] = set()
-    while cursor:
+    while stack:
+        cursor = stack.pop()
         if cursor == child_id:
             raise KanbanError(
                 f"会形成环：{child_id} → {parent_id} → … → {child_id}。"
                 "**成环不会报错，会让拓扑序永远算不完（两张互相等着、都永远不该开始）**"
             )
         if cursor in seen:  # 已有的环（坏数据）——别让它把我们转死
-            break
+            continue
         seen.add(cursor)
-        parent_card = by_id.get(cursor)
-        cursor = parent_card.parent if parent_card is not None else None
+        node = by_id.get(cursor)
+        if node is not None:
+            stack.extend(node.parents)
 
     card = by_id[child_id]
-    card.parent = parent_id
+    # **追加，不覆盖**：`link` 的语义是「加一条边」。
+    # 重复加同一条边是幂等的（不报错、也不产生重复项）——那不是错误，只是重放。
+    if parent_id not in card.parents:
+        card.parents.append(parent_id)
     card.updated_at = _now()
     save_board(data_dir, cards)
     return card
@@ -508,10 +535,12 @@ def blockers(cards: list[Card], card: Card) -> list[str]:
     而**两处各写一遍必然漂移**——漂移的后果是「列表说能接、认领说不能」。
     """
     by_id = {item.id: item for item in cards}
-    parent = by_id.get(card.parent) if card.parent else None
-    if parent is not None and parent.status != STATUS_DONE:
-        return [parent.id]
-    return []
+    # **全部前驱**，不是只看第一个——`link` 可以加多条边。
+    return [
+        pid
+        for pid in card.parents
+        if (by_id.get(pid) is not None and by_id[pid].status != STATUS_DONE)
+    ]
 
 
 def claim(data_dir: str | Path, card_id: str, *, assignee: str = "") -> Card:
@@ -576,6 +605,15 @@ def summarize(cards: list[Card]) -> list[dict[str, Any]]:
                 # 可认领 = 状态对 **且** 依赖已满足
                 "ready": card.status == STATUS_OPEN and not pending,
                 "blocked_by": pending,
+                # **两种「不可开工」的原因必须分开**（第 47 轮）：
+                # `waiting_on_parent` = 等前驱做完（再等等就好）；
+                # `blocked` = 有人显式叫停（要人/agent 去解）。
+                # 只报 `ready=False` 会把这两件事混成一件，而处理方式完全不同。
+                "blocked_reason": (
+                    "blocked"
+                    if card.status == STATUS_BLOCKED
+                    else ("waiting_on_parent" if pending else "")
+                ),
             }
         )
     return out
