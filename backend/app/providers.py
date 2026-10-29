@@ -1183,6 +1183,14 @@ def build_chat_model(
         )
 
     base_url = _resolve_base_url(profile, settings)
+    # **闸门放在分叉点之前**（第 53 轮）：上一轮只在 `_build_openai_chat()` 里加，
+    # 只堵了 `chat_completions` 一条路；`anthropic_messages` 与 `gemini` 各自
+    # new 客户端，**都没有闸**，而它们的 base_url 同样来自用户可改的配置、
+    # api_key 同样会发出去。
+    #
+    # **共用的安全检查放在分叉点之前，不放在分支里面**——三条路各写一遍必然漏一条，
+    # 这次就漏了两条。
+    _refuse_cloud_metadata_endpoint(base_url, profile.id)
     key = resolve_api_key(profile, settings)
     # 钩子在这里叠上去（而不是填在 `PROVIDERS` 上）：本函数是**唯一**真正要发请求的
     # 地方，也是唯一该看到 `fetch_models` / `build_extra_body` 的地方。见 `PROVIDER_HOOKS`。
@@ -1285,6 +1293,14 @@ def _refuse_cloud_metadata_endpoint(base_url: str, provider_id: str) -> None:
 
     **边界（如实写）**：这里只判字面量。通过 DNS 解析到元数据 IP 的域名挡不住——
     那要真查 DNS，而客户端构造是同步的、不该在这里做网络 IO。**已知残余风险。**
+
+    **触发条件（决定不做要写触发条件，否则它变成永久借口）**：
+    **一旦 `base_url` 可以来自不可信来源（例如从远端配置/环境变量继承而来），
+    或模型能影响请求 URL，就必须补「发请求那一步」的 DNS 检查**——
+    那一步是异步的、可以 IO，复用 `EgressPolicy.ips_for` 即可。
+    **不要为此推翻 `default=allow`**：那个设计决定保护的是合理场景
+    （本地 Ollama、私网 gateway），而云元数据没有合理场景——
+    **它是「例外的例外」，该在发请求那一步单独拦。**
     """
     from urllib.parse import urlparse
 
@@ -1333,19 +1349,8 @@ def _build_openai_chat(
             f"{profile.id}：缺 API key。用 `orbit login --provider {profile.id}` 写入系统"
             f" keyring，或设置 {profile.key_env or '对应环境变量'}。"
         )
-    # **模型出站是凭证真正流动的那一步，必须在这里拦**（第 52 轮）。
-    #
-    # `EgressPolicy` 之前只被两处用：shell 命令的 host 检查（`tools.py`）和
-    # `egress check` / `egress_status`（**说明性**命令）。**模型这条路一次都没查过**——
-    # 而它才是 API key 真正发出去的地方：一个恶意或被污染的 `base_url`
-    # （例如指向 `169.254.169.254`）会在这里把凭证直接送出去。
-    #
-    # **判据：闸门要放在危害发生的那一步。** 上一轮我在 `EgressPolicy.check` 里加了
-    # 云元数据硬拦，但如果这条路径不查它，那只是把「说明」改对了，闸门仍不在路上。
-    #
-    # 只拦云元数据、不拦私网：本地 provider（Ollama `127.0.0.1:11434`、
-    # LM Studio、本地 gateway）有正当用途，一刀切会打死「配一个 provider 就能用」。
-    _refuse_cloud_metadata_endpoint(base_url, profile.id)
+    # 闸门已在 `build_chat_model()` 的分叉点之前调用过（见那里），这里不再重复——
+    # **同一检查写两遍，早晚会有一遍被改掉而另一遍没跟上**。
 
     kwargs: dict[str, Any] = {
         "model": model,
