@@ -76,7 +76,11 @@ TOOLSETS: dict[str, str] = {
     # 一模一样，而这两件事的后续动作完全不同（前者写进文档，后者写进排期）。
     # 它们永远不会有成员（原因见 :data:`EMPTY_TOOLSETS`），因此把它们写进
     # ``data/tools.json`` 的 ``disabled`` 是**合法的 no-op**，不是拼写错误。
-    "delegation": "委派与子 agent（域内无模型工具：委派是图节点行为，不是可调用工具）",
+    # **第 37 轮改口**：原来写「域内无模型工具：委派是图节点行为，不是可调用工具」——
+    # 那句话在写的时候是对的（`ChildRunner` 协议零实现，注册了也调不动），
+    # 但补上 `app/child_runner.py` 之后它变成了假话。**描述里的"没有"最容易过期**，
+    # 所以改写成当前事实。
+    "delegation": "委派子 agent（delegate_task 单个 / agent_swarm 按依赖批量）",
     "media": "媒体生成：图片 / 视频（域内无工具：要联网调付费 provider）",
     "vision": "视觉与视频理解（域内无工具：多模态由模型自带，不需要工具桥）",
     "tts": "语音合成（text_to_speech：本机走 Windows SAPI 或命令通道；19 家云端见 app/voice.py）",
@@ -91,6 +95,9 @@ TOOLSETS: dict[str, str] = {
 #: ``unclassified``（测试会失败）。之所以全量列出而不是只写前缀规则：
 #: 这张表就是"暴露面清单"，review 时能一眼看出模型手里到底有什么。
 TOOL_TOOLSET: dict[str, str] = {
+    # delegation（第 37 轮）
+    "delegate_task": "delegation",
+    "agent_swarm": "delegation",
     # core
     "ask_user": "core",
     # 元工具：检索可用工具。归 core 而不是新建 toolset——它不该被"禁用 web"这类

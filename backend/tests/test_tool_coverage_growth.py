@@ -402,12 +402,27 @@ def test_compact_and_context_usage_are_not_marked_unavailable_any_more():
         assert "实现见 app/tool_extra_impl.py" in record.reason, name
 
 
-def test_delegation_and_kanban_stay_unavailable_with_their_reasons():
-    """这两类仍是"做不到"，理由必须能直接抄进 MATRIX（本轮复核过，不是没排期）。"""
+def test_delegation_is_covered_and_kanban_is_still_unavailable():
+    """**性质断言**（不是清单断言）：委派已覆盖、看板仍缺。
+
+    原来这条叫 `test_delegation_and_kanban_stay_unavailable_with_their_reasons`，
+    断言「委派**永远**不可用」——那在写的时候是对的（`ChildRunner` 协议零实现），
+    **但它把当时的实现状态写成了永久性质**。第 37 轮补上 `app/child_runner.py`
+    之后这条就过期了。
+
+    **清单断言会过期，性质断言不会**：这里改成断言「两边各自的**性质**」——
+    委派**必须**覆盖（能力存在），看板**必须**仍是 unavailable 且**必须带原因**
+    （缺能力时不能悄悄消失）。
+    """
     by_name = {tool.name: tool for tool in tool_catalog.HERMES_TOOLS}
+    # **委派已覆盖**（第 37 轮补了 `app/child_runner.py`）：它必须有真实的 Orbit 映射，
+    # 且**不再需要** `reason`——`reason` 是「为什么做不到」的位置，做到了就该空着。
     delegate = by_name["delegate_task"]
-    assert delegate.orbit_status == "unavailable" and delegate.orbit_tools == ()
-    assert "runner_factory" in delegate.reason, delegate.reason
+    assert delegate.orbit_status == "covered", delegate.orbit_status
+    assert delegate.orbit_tools == ("delegate_task",), delegate.orbit_tools
+    swarm = by_name["agent_swarm"]
+    assert swarm.orbit_status == "covered", swarm.orbit_status
+    # **看板仍缺**，且**必须带原因**——缺能力时不能悄悄消失。
     kanban = by_name["kanban_show"]
     assert kanban.orbit_status == "unavailable" and kanban.orbit_tools == ()
     assert "服务端" in kanban.reason

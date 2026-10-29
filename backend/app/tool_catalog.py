@@ -294,23 +294,19 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "delegate_task",
         "delegation",
         "在隔离上下文里派生 1..N 个子 agent（支持后台 / 编排）",
-        status="unavailable",
-        reason="**做不到，不是没排期**：`app/delegate.py::DelegateRunner` 的 `runner_factory` "
-        "在**全仓库没有任何地方注入**（默认的 `_missing_factory` 一调就抛，"
-        "`app/cli/commands/delegate.py` 自己也写着「未注入子任务 runner」）。"
-        "也就是说「起一个子 agent」这条链现在根本不存在，注册了必然调一次错一次 —— "
-        "而「调了才失败」比「没有这个工具」坏得多。要推它，先由装配层注入一个真的 "
-        "`runner_factory`（在 app/agent.py / app/policies.py 里），再把工具接上。",
+        # 第 37 轮：补了 `app/child_runner.py`（真的 `ChildRunner` 实现）之后，
+        # 装配层（`main.py`）注入 `graph_child_factory(...)` 并在运行时注册。
+        orbit_tools=("delegate_task",),
     ),
     _t(
         "agent_swarm",
         "delegation",
         "用 prompt 模板 + {{item}} 占位符批量起子 agent",
-        status="unavailable",
-        reason="同上：调度器（`app/swarm.py::run_plan`，拓扑序 + 同层并发 + 失败隔离）是真的，"
-        "但它下面同样是 `DelegateRunner`，`runner_factory` 未注入 —— 没有子任务 runner，"
-        "再好的调度器也只是把「必然失败」排成了批次。另外 Hermes 的限流相位"
-        "（突发 5 个、之后每 700ms 起 1 个、429 退避）本轮也没做。",
+        # 同上：`app/swarm.py::run_plan` 的拓扑序/同层并发/失败隔离是真的，
+        # 本轮补了子任务 runner 之后才真的能跑。
+        # **仍缺**：Hermes 的限流相位（突发 5 个、之后每 700ms 起 1 个、429 退避）——
+        # 见 MATRIX 5.14 的证据栏。
+        orbit_tools=("agent_swarm",),
     ),
     # ── 媒体生成（4）────────────────────────────────────────────────────────
     _t(
@@ -543,6 +539,16 @@ def orbit_pool() -> tuple[str, ...]:
     # MATRIX 5.14 第三轮新增的 5 个（`ROUND3_TOOLS`）：同样是"实现了但还没接线"，
     # 与上面两批分开列的理由一致。
     names |= set(round3_tool_names())
+    # MATRIX 5.14 第四轮新增的 2 个（`DELEGATE_TOOLS`：`delegate_task` / `agent_swarm`）。
+    #
+    # 这一批与前三批的**性质不同**：它们不是"实现了但没接线"，而是
+    # **长期没有 runner 可用**（`ChildRunner` 协议零实现，`DelegateRunner()` 一跑就抛），
+    # 本轮补了 `app/child_runner.py` 之后才注册得上。
+    #
+    # 为什么必须列进来：`orbit_coverage()` 用这张**静态表**，而这些工具是
+    # **运行时注册**的。不列就会出现「模型看得见、报告说缺失」——
+    # 那与「报告说覆盖了、模型看不见」是同一类不一致，只是方向相反。
+    names |= set(delegate_tool_names())
     return tuple(sorted(names))
 
 
@@ -570,6 +576,18 @@ def growth_tool_names() -> tuple[str, ...]:
     except Exception:  # noqa: BLE001
         return ()
     return tuple(tool.name for tool in GROWTH_TOOLS)
+
+
+def delegate_tool_names() -> tuple[str, ...]:
+    """第四轮（委派）那 2 个工具的名字。
+
+    与 `extra_tool_names()` / `growth_tool_names()` / `round3_tool_names()` 同形：
+    只读声明表，不 import 实现模块（`tool_delegate` 会拖进 pydantic 的 Args 与
+    `app.tools`，而这张表要被 CLI 零成本导入）。
+    """
+    from app.tool_delegate import DELEGATE_TOOLS
+
+    return tuple(tool.name for tool in DELEGATE_TOOLS)
 
 
 def round3_tool_names() -> tuple[str, ...]:

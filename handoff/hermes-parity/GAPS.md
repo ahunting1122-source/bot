@@ -24,7 +24,7 @@
 
 | 条目 | 缺什么 | 触发条件 | 代价 | 量级 | **结论** |
 |---|---|---|---|---|---|
-| **5.14** 工具 94 个 | **57 条 = 全仓无实现 54 + 有机制缺 Tool 包装 2 + 刻意不做 1 + 有定义未进池 0**（`scripts/classify_missing_tools.py`） | 无——**那 54 条不需要外部条件，是没写** | **工作量两档**：54 条要写 schema + 分发 + 测试（**几天量级**）；`delegate_task` / `agent_swarm` **不是「包一层 Tool」**——实测 `DelegateRunner()` 无工厂直接抛 `DelegateError`、`available=False`，缺的是**一个真的子 agent runner**（`ChildRunnerFactory` → `ChildRunner` 协议：`async run(goal) -> dict` + `partial_output()`）。**包一层 Tool 只会得到一个每次调用都必然抛错的工具** | **54 条 ≈ 2–3 周；那 2 条 ≈ 1–2 天（要写真 runner + 递归/预算/租约三处防重入）** | **继续 🟡** |
+| **5.14** 工具 94 个 | **55 条 = 全仓无实现 54 + 刻意不做 1**（`scripts/classify_missing_tools.py` 现算；原「有机制缺包装 2」**已于第 37 轮接上**：补了 `app/child_runner.py` 才注册得上 `delegate_task` / `agent_swarm`） | 无——**那 54 条不需要外部条件，是没写** | 54 个工具要逐个实现（schema + 分发 + 测试），**几天量级**；另缺 Hermes `agent_swarm` 的**限流相位**（突发 5 / 700ms / 429 退避） | **≈2–3 周** | **继续 🟡** |
 | **4.12** 语音 19 家 | **15 家**：9 家云（要 key+网络）+ 6 家引擎二进制（要装依赖） | 云要网络与凭证；引擎要 `pip install` / 系统包 | 只有 4 家能出声，且 `sapi`/`onecore` **只在正常完整性的宿主进程里可用** | 本机只剩「把 4 家在宿主进程里验一遍并如实报」，**约 2 小时**；再补一家都不可能 | **继续 🟡** |
 | **12.5** 平台 22 个 | 2 个要二进制：`buzz` 要 secp256k1（本机无 `coincurve`/`ecdsa`/`secp256k1`）、`photon` 要 `grpcio` | 能 `pip install coincurve grpcio` 的环境 | 少 2 个平台接入（Nostr 类社交 / gRPC 传输） | **0**（纯 Python 手搓密码学不现实；`grpcio` 无纯 Python 替代） | **继续 🟡** |
 | **12.10** enroll | 3 条路径里 1 条要**公网可达的 HTTPS 回调地址** | 有公网 IP / 隧道 + 平台账号 | 只能验「生成本地绑定载荷 + 校验签名」，验不到「平台真的回调成功」 | **0**（本地两条已做完且有测试） | **继续 🟡** |

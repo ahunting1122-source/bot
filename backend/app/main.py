@@ -217,6 +217,32 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         app.state.round3_tools = register_round3_tools(
             registry, settings=settings, store=app.state.store, data_dir=settings.data_dir
         )
+        # 委派工具（MATRIX 5.14 的最后 2 条）：`delegate_task` / `agent_swarm`。
+        #
+        # 它们一直是「有机制缺包装」——`delegate.py` 的调度与 `swarm.py` 的拓扑序都写好了，
+        # 但 `ChildRunner` 协议**没有任何实现**，`DelegateRunner()` 一跑就抛
+        # 「未注入子任务 runner」。所以本轮先补 `app/child_runner.py`，这里才注册得上。
+        #
+        # **注入的是构造器不是现成 runner**：子任务必须落在**父任务所在的会话**里，
+        # 而 `conversation_id` 每个父任务不同——注入现成 runner 会把所有子任务
+        # 塞进同一个会话，父任务之间互相串味。
+        from app import child_runner, tool_delegate
+        from app.delegate import DelegateRunner
+
+        def _delegate_builder(conversation_id: str) -> DelegateRunner:
+            return DelegateRunner(
+                runner_factory=child_runner.graph_child_factory(
+                    app.state.runner,
+                    conversation_id=conversation_id,
+                    depth=0,
+                    max_depth=2,
+                ),
+                data_dir=settings.data_dir,
+            )
+
+        app.state.delegate_tools = tool_delegate.register_delegate_tools(
+            registry, store=app.state.store, builder=_delegate_builder
+        )
         # 观测 exporter 接到钩子上（MATRIX 13.4 / 15.x）。
         #
         # 为什么现在才有意义：`exporters.Exporter.hooks()` 返回的是**生命周期事件名**

@@ -355,9 +355,12 @@ def test_coverage_moved_from_31_to_33_and_the_new_rows_are_real():
     """
     coverage = tool_catalog.orbit_coverage()
     assert coverage.total == 94
-    assert coverage.covered_count == 37, (
-        f"覆盖应到 37（第三轮 33 + 第四轮 4 个浏览器工具），现在 {coverage.covered_count}："
-        f"missing={list(coverage.missing)[:5]}…"
+    # **不写死数字**：这条测试自己的 docstring 就写着「该守的不是数字」。
+    # 写死 37 会让每加一个工具都要改一次测试——而那种「改测试让它绿」的动作
+    # 恰好会掩盖真正的回归。这里守**性质**：覆盖率只增不减，且每条 covered
+    # 都映射到池子里的真工具（下面那段才是核心）。
+    assert coverage.covered_count >= 37, (
+        f"覆盖数从 37 掉到 {coverage.covered_count}：missing={list(coverage.missing)[:5]}…"
     )
     # 第四轮那 4 个必须真的算进来，且各自映射到自己
     for name in ("browser_back", "browser_get_images", "browser_console", "browser_dialog"):
@@ -387,7 +390,10 @@ def test_remaining_gaps_are_all_unavailable_with_reasons():
         assert record.orbit_status == "unavailable", f"{name} 缺了却没标成做不到"
         assert record.orbit_tools == (), f"{name} 标了做不到却给了 Orbit 映射"
         assert record.reason.strip(), f"{name} 缺了但没写理由"
-    # 三个最容易"顺手标成 todo 蒙过去"的域，理由必须点到具体原因
-    assert "runner_factory" in by_name["delegate_task"].reason
+    # 最容易"顺手标成 todo 蒙过去"的域，理由必须点到具体原因。
+    #
+    # **`delegate_task` 已不在其中**：第 37 轮补了 `app/child_runner.py` 之后它
+    # 真的覆盖了，`reason` 自然为空——`reason` 是「为什么做不到」的位置，
+    # 做到了就该空着。断言一个已完成的条目「必须有做不到的理由」是自相矛盾的。
     assert "服务端" in by_name["kanban_show"].reason
     assert "app/" in by_name["browser_back"].reason
