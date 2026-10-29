@@ -204,7 +204,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser",
         "截图做视觉检查（CAPTCHA / 视觉验证 / 复杂布局）",
         status="unavailable",
-        reason="要截图 + 多模态模型；本机无网络、无视觉 provider。",
+        reason="**缺的不是截图，是「让工具能调模型」这条通道**：截图那一半已经做完（`BrowserController.last_screenshot_data_url()` 返回 `data:image/png;base64,…`，且被 `tests/test_browser_lifecycle.py` 覆盖）；而 `app/tool_*.py` 里没有任何一处调模型（工具是纯函数式执行器，模型只在 agent 循环里）。原文写「要截图 + 多模态模型；本机无网络、无视觉 provider」——**「要截图」已不成立，「无网络」也被第 66 轮推翻**。**所以它是架构决定（工具要不要有模型通道），不是缺一条依赖。",
     ),
     _t(
         "browser_console",
@@ -250,7 +250,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "search",
         "用 xAI 内置 X Search 搜 X/Twitter 帖子、主页、线程",
         status="unavailable",
-        reason="需要 xAI API 与凭证，本机无网络。",
+        reason="需要 **xAI API 凭证**（`XAI_API_KEY`）；**网络是通的**（第 66 轮实测），缺的是凭证。",
     ),
     _t(
         "session_search",
@@ -314,31 +314,31 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "media",
         "文生图（编辑/参考能力由 serving 侧动态渲染）",
         status="unavailable",
-        reason="需要图像模型 provider，本机无网络。",
+        reason="**需要图像生成 provider + 工具层到模型的通道**（`app/tool_*.py` 不调模型）。原文写「本机无网络」——**已被第 66 轮推翻**。",
     ),
     _t(
         "video_generate",
         "media",
         "文生视频（schema 在出口处动态重建）",
         status="unavailable",
-        reason="需要视频模型 provider，本机无网络。",
+        reason="**需要视频生成 provider + 工具层到模型的通道**（同上）。原文写「本机无网络」——**已被第 66 轮推翻**。",
     ),
-    _t("xai_video_edit", "media", "用 xAI Imagine 编辑已有视频", status="unavailable", reason="需要 xAI 凭证，本机无网络。"),
-    _t("xai_video_extend", "media", "用 xAI Imagine 延长已有视频", status="unavailable", reason="需要 xAI 凭证，本机无网络。"),
+    _t("xai_video_edit", "media", "用 xAI Imagine 编辑已有视频", status="unavailable", reason="需要 **xAI 凭证**；**网络是通的**（第 66 轮实测），缺的是凭证。"),
+    _t("xai_video_extend", "media", "用 xAI Imagine 延长已有视频", status="unavailable", reason="需要 **xAI 凭证**；**网络是通的**（第 66 轮实测），缺的是凭证。"),
     # ── 视觉理解（2）────────────────────────────────────────────────────────
     _t(
         "vision_analyze",
         "vision",
         "把图片加载进对话（任意时刻用户提到图片都可调）",
         status="unavailable",
-        reason="需要多模态模型 provider，本机无网络。",
+        reason="**需要多模态 provider，并且需要「工具层能调模型」这条通道** —— `app/tool_*.py` 里没有任何一处调模型（工具是纯函数式执行器）。原文写「本机无网络」——**已被第 66 轮实测推翻**（PyPI 200、`pip install` 成功过两次）。所以它缺的是架构通道 + 一个视觉模型，不是网络。",
     ),
     _t(
         "video_analyze",
         "vision",
         "用多模态模型分析 URL 或本地视频",
         status="unavailable",
-        reason="需要多模态模型 provider，本机无网络。",
+        reason="**需要多模态 provider + 工具层到模型的通道**（同上，`app/tool_*.py` 不调模型）；另外要抽帧（本机有 `ffmpeg`）。原文写「本机无网络」——**已被第 66 轮推翻**。",
     ),
     # ── 语音合成（1）────────────────────────────────────────────────────────
     _t(
@@ -439,10 +439,10 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("yb_search_sticker", "collab", "按关键词搜内置贴纸", status="unavailable", reason="需要元宝（腾讯）网关与凭证 + 网络"),
     _t("yb_send_sticker", "collab", "发内置贴纸到当前会话", status="unavailable", reason="需要元宝（腾讯）网关与凭证 + 网络"),
     # ── 智能家居（4）───────────────────────────────────────────────────────
-    _t("ha_list_entities", "home", "列实体，可按 domain/area 过滤", status="unavailable", reason="需要 Home Assistant 实例地址与长期令牌，本机无网络。"),
-    _t("ha_get_state", "home", "单个实体的详细状态 + 全部属性", status="unavailable", reason="需要 Home Assistant 实例地址与长期令牌，本机无网络"),
-    _t("ha_list_services", "home", "列可用服务（动作）", status="unavailable", reason="需要 Home Assistant 实例地址与长期令牌，本机无网络"),
-    _t("ha_call_service", "home", "调服务控制设备", status="unavailable", reason="需要 Home Assistant 实例地址与长期令牌，本机无网络"),
+    _t("ha_list_entities", "home", "列实体，可按 domain/area 过滤", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
+    _t("ha_get_state", "home", "单个实体的详细状态 + 全部属性", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
+    _t("ha_list_services", "home", "列可用服务（动作）", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
+    _t("ha_call_service", "home", "调服务控制设备", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
     # ── 元工具（8）─────────────────────────────────────────────────────────
     _t("todo", "meta", "会话任务清单（无参 = 读）", ("todo",), reason="Orbit 改成「每次调用回读完整清单」，不注入上下文（图节点是禁改区）。"),
     _t("clarify", "meta", "需要决策/澄清时向用户提一个或多个问题", ("clarify",), reason="Orbit 落成带序号的选择题（2-6 选项），不是多问题表单。"),
