@@ -220,6 +220,105 @@ def complete(data_dir: str | Path, card_id: str, *, handoff: str = "") -> Card:
     raise KanbanError(f"找不到卡片 {card_id}")
 
 
+def comment(data_dir: str | Path, card_id: str, text: str, *, author: str = "") -> Card:
+    """给卡片追加一条**跨 run 的持久评论**。
+
+    评论不是"再发一次消息"——它是**留在卡上的记录**：下一个接这张卡的人（可能是
+    另一个 agent、也可能是三天后的自己）读 `kanban_show` 就能看到上下文。
+    """
+    body = (text or "").strip()
+    if not body:
+        raise KanbanError("评论不能为空——写清你要留什么给下一个人")
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        card.comments.append({"author": author, "text": body, "at": _now()})
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
+def block(data_dir: str | Path, card_id: str, *, reason: str = "") -> Card:
+    """把卡片标记为阻塞。
+
+    **已经 done 的卡不能阻塞**——完成了就是完成了，把它退回 blocked 会让下游
+    看到一张「已完成又阻塞」的卡，比不标更迷惑。
+    """
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status == STATUS_DONE:
+            raise KanbanError(
+                f"卡片 {card_id} 已经是 done——不能把已完成的卡改回 blocked"
+                "（下游会看到一张「已完成又阻塞」的卡，比不标更迷惑）"
+            )
+        card.status = STATUS_BLOCKED
+        if reason:
+            card.comments.append({"author": "", "text": f"[blocked] {reason}", "at": _now()})
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
+def unblock(data_dir: str | Path, card_id: str) -> Card:
+    """解除阻塞。
+
+    **父卡全 done 才回到 `open`**：还有父卡没做完就回到 open，会让它被重新认领，
+    然后又卡在同一个依赖上——那是死循环，不是解阻塞。
+    父卡没全 done 时退回 `blocked` 并在评论里说清是哪张父卡挡着。
+    """
+    cards = load_board(data_dir)
+    by_id = {card.id: card for card in cards}
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status != STATUS_BLOCKED:
+            raise KanbanError(f"卡片 {card_id} 不在 blocked 状态（当前 {card.status}）")
+        if card.parent:
+            parent = by_id.get(card.parent)
+            if parent is not None and parent.status != STATUS_DONE:
+                card.updated_at = _now()
+                card.comments.append(
+                    {
+                        "author": "",
+                        "text": f"[still-blocked] 父卡 {parent.id} 仍是 {parent.status}",
+                        "at": _now(),
+                    }
+                )
+                save_board(data_dir, cards)
+                raise KanbanError(
+                    f"父卡 {parent.id} 还没完成（{parent.status}）——解阻塞会立刻又被卡住，"
+                    "先让父卡完成"
+                )
+        card.status = STATUS_OPEN
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
+def heartbeat(data_dir: str | Path, card_id: str) -> Card:
+    """给卡片打一次「我还活着」。
+
+    用途是**让 orchestrator 分辨「在跑」与「跑挂了」**：只有 `updated_at` 会被
+    刷新，状态不变。**已 done 的卡不打**——那会让它看起来还在跑。
+    """
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status == STATUS_DONE:
+            raise KanbanError(f"卡片 {card_id} 已经 done，不需要 heartbeat")
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
 def summarize(cards: list[Card]) -> list[dict[str, Any]]:
     """`kanban_list` 的载荷：**摘要**，不带 body（那是 `show` 的事）。"""
     return [
@@ -244,11 +343,15 @@ __all__ = [
     "STATUS_DONE",
     "STATUS_OPEN",
     "board_path",
+    "block",
+    "comment",
     "complete",
     "create",
+    "heartbeat",
     "list_cards",
     "load_board",
     "save_board",
     "show",
     "summarize",
+    "unblock",
 ]

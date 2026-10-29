@@ -133,9 +133,119 @@ def test_without_wiring_nothing_is_registered():
     assert names == []
     assert registry.tools == {}
 
+# ── 第二轮：comment / block / unblock / heartbeat ──────────────────────────
 
-def test_production_registers_the_four_tools(tmp_path):
-    """**生产装配**：`create_app()` 之后这 4 个真的在注册表里。"""
+
+def test_a_comment_is_persisted_on_the_card(board):
+    """评论是**留在卡上的记录**，不是"再发一次消息"。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "要留话的卡")
+    kanban.comment(data_dir, card.id, "我先看了，卡在等 API key", author="alice")
+
+    stored = kanban.show(data_dir, card.id)
+    assert len(stored.comments) == 1
+    assert "等 API key" in stored.comments[0]["text"]
+    assert stored.comments[0]["author"] == "alice"
+
+
+def test_an_empty_comment_is_refused(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "空评论")
+    with pytest.raises(kanban.KanbanError):
+        kanban.comment(data_dir, card.id, "   ")
+
+
+def test_block_records_the_reason_as_a_comment(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "会被卡住")
+    blocked = kanban.block(data_dir, card.id, reason="等父卡")
+
+    assert blocked.status == kanban.STATUS_BLOCKED
+    assert any("[blocked]" in item["text"] for item in blocked.comments)
+
+
+def test_a_done_card_cannot_be_blocked(board):
+    """**完成了就是完成了**——把它退回 blocked 会让下游看到「已完成又阻塞」的卡。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "已做完")
+    kanban.complete(data_dir, card.id, handoff="ok")
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.block(data_dir, card.id)
+    assert "已完成又阻塞" in str(excinfo.value)
+
+
+def test_unblock_needs_the_parent_done(board):
+    """**父卡没完成就解阻塞 = 死循环**：会被重新认领，然后又卡在同一个依赖上。"""
+    kanban, data_dir = board
+    parent = kanban.create(data_dir, "父卡")
+    child = kanban.create(data_dir, "子卡", parent=parent.id)
+    kanban.block(data_dir, child.id, reason="等父")
+
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.unblock(data_dir, child.id)
+    assert parent.id in str(excinfo.value)
+    # 仍然 blocked，且留下了一条说明是哪张父卡挡着
+    still = kanban.show(data_dir, child.id)
+    assert still.status == kanban.STATUS_BLOCKED
+    assert any("[still-blocked]" in item["text"] for item in still.comments)
+
+    # 父卡做完之后就能解了
+    kanban.complete(data_dir, parent.id, handoff="父做完")
+    assert kanban.unblock(data_dir, child.id).status == kanban.STATUS_OPEN
+
+
+def test_unblock_refuses_a_card_that_is_not_blocked(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "没被卡过")
+    with pytest.raises(kanban.KanbanError):
+        kanban.unblock(data_dir, card.id)
+
+
+def test_heartbeat_only_touches_updated_at(board):
+    """heartbeat 让 orchestrator 分辨「在跑」与「跑挂了」——**状态不能变**。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "在跑")
+    before = kanban.show(data_dir, card.id)
+    after = kanban.heartbeat(data_dir, card.id)
+    assert after.status == before.status
+    assert after.updated_at >= before.updated_at
+
+
+def test_heartbeat_refuses_a_done_card(board):
+    """已 done 的卡打 heartbeat 会让它看起来还在跑。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "已完")
+    kanban.complete(data_dir, card.id, handoff="ok")
+    with pytest.raises(kanban.KanbanError):
+        kanban.heartbeat(data_dir, card.id)
+
+
+async def test_the_four_new_tools_dispatch(board):
+    from app import tool_kanban
+
+    _kanban, _data_dir = board
+    created = await tool_kanban.execute("kanban_create", {"title": "走一遍"}, "t", "o1")
+    card_id = created["card"]["id"]
+
+    commented = await tool_kanban.execute(
+        "kanban_comment", {"id": card_id, "text": "留句话"}, "t", "o2"
+    )
+    assert commented["card"]["comments"]
+
+    blocked = await tool_kanban.execute(
+        "kanban_block", {"id": card_id, "reason": "等依赖"}, "t", "o3"
+    )
+    assert blocked["card"]["status"] == "blocked"
+
+    unblocked = await tool_kanban.execute("kanban_unblock", {"id": card_id}, "t", "o4")
+    assert unblocked["card"]["status"] == "open"
+
+    beat = await tool_kanban.execute("kanban_heartbeat", {"id": card_id}, "t", "o5")
+    assert beat["card"]["status"] == "open"
+
+
+def test_production_registers_all_eight(tmp_path):
+    """**生产装配**：`create_app()` 之后 8 个看板工具真的都在注册表里。"""
     from starlette.testclient import TestClient
 
     from app.config import Settings
@@ -145,10 +255,15 @@ def test_production_registers_the_four_tools(tmp_path):
     settings.prepare()
     app = create_app(settings=settings)
     with TestClient(app):
-        names = app.state.kanban_tools
-        assert set(names) == {
+        names = set(app.state.kanban_tools)
+        expected = {
             "kanban_create",
             "kanban_list",
             "kanban_show",
             "kanban_complete",
-        }, names
+            "kanban_comment",
+            "kanban_block",
+            "kanban_unblock",
+            "kanban_heartbeat",
+        }
+        assert names == expected, names

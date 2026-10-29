@@ -87,7 +87,7 @@ TOOLSETS: dict[str, str] = {
     # **第 44 轮改口**：原来写「域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端」
     # ——那句话在写的时候是对的，本轮实现了 4 个看板工具之后它变成假话。
     # **描述里的「没有」最容易过期。**
-    "kanban": "看板（kanban_create / list / show / complete：跨 run 的任务板；其余 10 个 Hermes 看板工具未做）",
+    "kanban": "看板（create / list / show / complete / comment / block / unblock / heartbeat：跨 run 的任务板；其余 6 个 Hermes 看板工具未做）",
     "cron": "定时任务（cron_job：建 / 列 / 停 / 删；真正执行由 `orbit cron` 守护进程负责）",
     "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
     "home": "智能家居（域内无工具：要 Home Assistant 之类的网关与设备凭证）",
@@ -103,6 +103,10 @@ TOOL_TOOLSET: dict[str, str] = {
     "kanban_list": "kanban",
     "kanban_show": "kanban",
     "kanban_complete": "kanban",
+    "kanban_comment": "kanban",
+    "kanban_block": "kanban",
+    "kanban_unblock": "kanban",
+    "kanban_heartbeat": "kanban",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

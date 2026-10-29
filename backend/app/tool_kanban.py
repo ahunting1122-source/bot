@@ -60,6 +60,21 @@ class CompleteArgs(Args):
     )
 
 
+class CommentArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    text: str = Field(min_length=1, description="要留的话（写给下一个接这张卡的人）")
+    author: str = Field(default="", description="署名（可空）")
+
+
+class BlockArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    reason: str = Field(default="", description="为什么卡住（会作为一条评论留在卡上）")
+
+
+class CardIdArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+
+
 KANBAN_TOOLS: list[Tool] = [
     Tool(
         "kanban_create",
@@ -81,6 +96,26 @@ KANBAN_TOOLS: list[Tool] = [
         "把一张卡标记完成并写下 handoff（做了什么 / 产出在哪 / 还差什么）。"
         "重复完成会报错——那通常意味着两个 agent 在推同一张卡。",
         CompleteArgs,
+    ),
+    Tool(
+        "kanban_comment",
+        "给一张卡留一条持久评论（跨 run 可见）。下一个接这张卡的人读 show 就能看到上下文。",
+        CommentArgs,
+    ),
+    Tool(
+        "kanban_block",
+        "把卡片标记为阻塞并说明原因。已完成（done）的卡不能阻塞。",
+        BlockArgs,
+    ),
+    Tool(
+        "kanban_unblock",
+        "解除阻塞。**父卡全 done 才回到 open**——否则会立刻又被卡住。",
+        CardIdArgs,
+    ),
+    Tool(
+        "kanban_heartbeat",
+        "给卡片打一次「我还活着」，让 orchestrator 能分辨「在跑」与「跑挂了」。",
+        CardIdArgs,
     ),
 ]
 
@@ -133,6 +168,25 @@ async def execute(
     if name == "kanban_complete":
         card = kanban.complete(data_dir, str(args["id"]), handoff=str(args.get("handoff") or ""))
         return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_comment":
+        card = kanban.comment(
+            data_dir,
+            str(args["id"]),
+            str(args["text"]),
+            author=str(args.get("author") or ""),
+        )
+        return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_block":
+        card = kanban.block(data_dir, str(args["id"]), reason=str(args.get("reason") or ""))
+        return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_unblock":
+        return {"ok": True, "card": _full(kanban.unblock(data_dir, str(args["id"])))}
+
+    if name == "kanban_heartbeat":
+        return {"ok": True, "card": _full(kanban.heartbeat(data_dir, str(args["id"])))}
 
     raise ValueError(f"未知的看板工具：{name}")
 

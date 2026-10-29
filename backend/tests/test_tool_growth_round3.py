@@ -398,5 +398,5 @@ def test_remaining_gaps_are_all_unavailable_with_reasons():
     # **`kanban_show` 已不在其中**（第 44 轮实现了 4 个看板工具）——
     # 断言一个已完成的条目「必须有做不到的理由」是自相矛盾的。
     # 改钉**仍未做**的那个：`kanban_block` 必须带原因。
-    assert "状态机" in by_name["kanban_block"].reason
+    assert "环检测" in by_name["kanban_link"].reason
     assert "app/" in by_name["browser_back"].reason

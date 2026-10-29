@@ -426,6 +426,6 @@ def test_delegation_is_covered_and_the_kanban_board_is_partially_covered():
     # 没做的那几个**必须仍带原因**——缺能力时不能悄悄消失。
     assert by_name["kanban_show"].orbit_status == "covered"
     assert by_name["kanban_show"].orbit_tools == ("kanban_show",)
-    still_missing = by_name["kanban_block"]
+    still_missing = by_name["kanban_link"]
     assert still_missing.orbit_status == "unavailable"
     assert still_missing.reason.strip(), "未做的看板工具必须写清为什么"
