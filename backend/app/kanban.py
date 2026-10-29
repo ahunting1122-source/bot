@@ -38,6 +38,9 @@ from typing import Any
 
 BOARD_DIRNAME = "kanban"
 BOARD_FILENAME = "board.json"
+#: 附件落点：`<data_dir>/kanban/attachments/<card_id>/<name>`。
+ATTACH_DIRNAME = "attachments"
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
 #: 状态机（刻意小）：`open` 可被认领 → `doing` → `done`。
 #: `blocked` 留了位置但**本轮没有工具会产生它**（`kanban_block` 未实现）——
@@ -76,8 +79,11 @@ class Card:
     parent: str = ""
     #: 完成时交给下游的结构化交接物（Hermes 的 handoff）。
     handoff: str = ""
-    #: 跨 run 的持久评论（`kanban_comment` 未实现，先留字段）。
+    #: 跨 run 的持久评论（`kanban_comment`）。
     comments: list[dict[str, str]] = field(default_factory=list)
+    #: 附件：`[{name, path, bytes}]`。`path` 是**相对 `<data_dir>` 的路径**——
+    #: 存绝对路径会让整块板在换机器/换数据目录后全部失效。
+    attachments: list[dict[str, Any]] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -117,6 +123,7 @@ def load_board(data_dir: str | Path) -> list[Card]:
                     parent=str(item.get("parent", "")),
                     handoff=str(item.get("handoff", "")),
                     comments=list(item.get("comments") or []),
+                    attachments=list(item.get("attachments") or []),
                     created_at=str(item.get("created_at", "")),
                     updated_at=str(item.get("updated_at", "")),
                 )
@@ -430,18 +437,148 @@ def request_changes(data_dir: str | Path, card_id: str, *, changes: str) -> Card
     raise KanbanError(f"找不到卡片 {card_id}")
 
 
+def attach(data_dir: str | Path, card_id: str, name: str, data: bytes) -> Card:
+    """把一段字节挂到卡片上（`kanban_attach` 收 base64，这里收已解码的字节）。
+
+    ## 落点与存储形状
+
+    文件落在 `<data_dir>/kanban/attachments/<card_id>/<name>`，
+    **卡上存相对 `<data_dir>` 的路径**——存绝对路径会让整块板在换机器/换数据目录后
+    全部失效，而那种失效**不会报错，只会让附件"凭空消失"**。
+
+    ## 名字要清洗
+
+    `name` 来自模型，**不能直接当文件名**：`../` 会写到附件目录外，
+    绝对路径会覆盖任意文件。所以只取 basename，并挡掉 `.` / `..` / 空名。
+    """
+    from pathlib import PurePath
+
+    clean = PurePath(str(name or "")).name.strip()
+    if clean in ("", ".", ".."):
+        raise KanbanError(f"附件名不合法：{name!r}（只取文件名部分，且不能是 . / ..）")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise KanbanError(
+            f"附件过大：{len(data)} 字节（上限 {MAX_ATTACHMENT_BYTES}）。"
+            "大文件请用 `kanban_attach_url`（未实现）或放到工作目录再引用路径"
+        )
+
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        target_dir = Path(data_dir) / BOARD_DIRNAME / ATTACH_DIRNAME / card_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / clean
+        target.write_bytes(data)
+        rel = target.relative_to(Path(data_dir)).as_posix()
+        # 同名覆盖：**替换那条记录**而不是追加两条——否则列出来会有两个同路径条目
+        card.attachments = [item for item in card.attachments if item.get("name") != clean]
+        card.attachments.append({"name": clean, "path": rel, "bytes": len(data)})
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
+def attachments(data_dir: str | Path, card_id: str) -> list[dict[str, Any]]:
+    """列附件，**并把相对路径还原成绝对路径**交回去。
+
+    模型拿到的是相对路径就没法直接读——而这个工具的用途就是「告诉我附件在哪」，
+    所以还原成绝对路径。**板里仍然只存相对路径**（换机器不失效），
+    绝对路径是**查询时算出来的**。
+    """
+    card = show(data_dir, card_id)
+    out: list[dict[str, Any]] = []
+    for item in card.attachments:
+        rel = str(item.get("path", ""))
+        out.append(
+            {
+                "name": str(item.get("name", "")),
+                "path": str(Path(data_dir) / rel) if rel else "",
+                "bytes": int(item.get("bytes") or 0),
+            }
+        )
+    return out
+
+
+def blockers(cards: list[Card], card: Card) -> list[str]:
+    """这张卡**还没做完的前驱**（父卡）。空 = 依赖已满足。
+
+    抽成函数是因为它有两个调用方（`claim()` 的闸门、`summarize()` 的 `ready` 标记），
+    而**两处各写一遍必然漂移**——漂移的后果是「列表说能接、认领说不能」。
+    """
+    by_id = {item.id: item for item in cards}
+    parent = by_id.get(card.parent) if card.parent else None
+    if parent is not None and parent.status != STATUS_DONE:
+        return [parent.id]
+    return []
+
+
+def claim(data_dir: str | Path, card_id: str, *, assignee: str = "") -> Card:
+    """认领一张卡：`open` → `doing`。**父卡没 done 就拒绝**。
+
+    ## 为什么闸门必须在「认领」这一步
+
+    上一版把 `unblock` 改成「父卡没完成也放回 `open`」——**关掉了死胡同**
+    （用户不再无路可走），**但没关掉死循环**：`open` **是可认领的**
+    （见本模块顶部的状态机注释），所以那张卡仍会被认领、又卡在同一个依赖上。
+
+    而 `[dependency]` 那条评论**只是记录，不是闸门**——没有任何东西会因为它而不认领。
+
+    **判据：闸门要放在危害真正发生的那一步。** 这里危害发生在「认领」，
+    不在「状态值」——所以闸门放这里，而不是靠一个看起来相关的字段。
+    （同族：第 34 轮 `_slot_client` 的「闸门位置错了」。）
+
+    ## 为什么不加一个 `ready` 状态
+
+    Hermes 用 `todo`（不可认领）/ `ready`（可认领）两档表达同一件事。
+    加一档要动所有状态判断处；而**闸门放在认领这一步，效果相同、改动面小一个数量级**。
+    """
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status != STATUS_OPEN:
+            raise KanbanError(f"卡片 {card_id} 不是 open（当前 {card.status}），不能认领")
+        pending = blockers(cards, card)
+        if pending:
+            raise KanbanError(
+                f"卡片 {card_id} 的前驱还没完成（{', '.join(pending)}）——"
+                "现在认领会立刻又卡在同一个依赖上（死循环），先让前驱完成"
+            )
+        card.status = STATUS_DOING
+        if assignee:
+            card.assignee = assignee
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
 def summarize(cards: list[Card]) -> list[dict[str, Any]]:
-    """`kanban_list` 的载荷：**摘要**，不带 body（那是 `show` 的事）。"""
-    return [
-        {
-            "id": card.id,
-            "title": card.title,
-            "status": card.status,
-            "assignee": card.assignee,
-            "parent": card.parent,
-        }
-        for card in cards
-    ]
+    """`kanban_list` 的载荷：**摘要**，不带 body（那是 `show` 的事）。
+
+    **带 `ready` 与 `blocked_by`**：`kanban_list` 是 orchestrator「发现可路由的活」
+    的那一步——**如果它只报 `status`，orchestrator 会把一张「open 但父卡没 done」
+    的卡当成可接的**，然后认领时才被拒。**把判据提前到发现那一步，
+    错误就不会发生**（而不是发生后再报错）。
+    """
+    out: list[dict[str, Any]] = []
+    for card in cards:
+        pending = blockers(cards, card)
+        out.append(
+            {
+                "id": card.id,
+                "title": card.title,
+                "status": card.status,
+                "assignee": card.assignee,
+                "parent": card.parent,
+                # 可认领 = 状态对 **且** 依赖已满足
+                "ready": card.status == STATUS_OPEN and not pending,
+                "blocked_by": pending,
+            }
+        )
+    return out
 
 
 __all__ = [
@@ -454,7 +591,13 @@ __all__ = [
     "STATUS_DONE",
     "STATUS_OPEN",
     "STATUS_REVIEW",
+    "ATTACH_DIRNAME",
+    "MAX_ATTACHMENT_BYTES",
+    "attach",
+    "attachments",
+    "blockers",
     "board_path",
+    "claim",
     "block",
     "comment",
     "complete",

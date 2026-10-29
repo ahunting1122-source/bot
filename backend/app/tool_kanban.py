@@ -1,11 +1,17 @@
 """`kanban_*` 工具（MATRIX 5.14）：跨 run 的持久任务板。
 
-## 本轮做 4 个，其余 10 个如实列在这里
+## 已做哪些、未做哪些：**看 `orbit_coverage()`，不要看这里**
 
-**已做**：`kanban_create` / `kanban_list` / `kanban_show` / `kanban_complete`。
-**未做**：`kanban_comment` / `kanban_block` / `kanban_unblock` /
-`kanban_request_review` / `kanban_request_changes` / `kanban_heartbeat` /
-`kanban_link` / `kanban_attach` / `kanban_attach_url` / `kanban_attachments`。
+**这段原来手写了一份「已做 / 未做」清单，而它已经过期了**——写着「未做 10 个」，
+实际只剩 `kanban_attach_url` 一个（它要联网下载，本机做不到）。
+
+**一份过期的「如实清单」比没有清单更糟，因为读者会信它。**
+而这正是本项目打了二十多轮的「清单断言会过期」——**它出现在一个专门用来
+「如实列出没做什么」的 docstring 里，格外讽刺。**
+
+**唯一事实源是 `app/tool_catalog.py::orbit_coverage()`**：它把 `KANBAN_TOOLS`
+与 `HERMES_TOOLS` 逐条对账，`covered` / `missing` 都是现算的。
+`tests/test_kanban_tools.py` 也按「生产装配后实际注册了几个」断言，不按名单。
 
 **为什么不一次做 14 个**：后 10 个各自带一套状态机与并发语义
 （交审 → 退回 → 再交审的循环、阻塞的依赖判定、heartbeat 的超时窗口、附件的
@@ -90,6 +96,12 @@ class ChangesArgs(Args):
     changes: str = Field(min_length=1, description="必改项（不能为空）")
 
 
+class AttachArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    name: str = Field(min_length=1, description="附件文件名（只取文件名部分，不能是 . / ..）")
+    content_base64: str = Field(min_length=1, description="文件内容的 base64 编码")
+
+
 KANBAN_TOOLS: list[Tool] = [
     Tool(
         "kanban_create",
@@ -146,6 +158,17 @@ KANBAN_TOOLS: list[Tool] = [
         "kanban_request_changes",
         "审阅结论：把 in_review 的卡退回 open，并写清**必改项**（不能为空）。",
         ChangesArgs,
+    ),
+    Tool(
+        "kanban_attach",
+        "把一段内容（base64）挂到卡片上。落盘在 <data_dir>/kanban/attachments/，"
+        "卡上只存相对路径（换机器不失效）。",
+        AttachArgs,
+    ),
+    Tool(
+        "kanban_attachments",
+        "列一张卡的附件（**交回绝对路径**，可以直接拿去读）。",
+        CardIdArgs,
     ),
 ]
 
@@ -229,6 +252,20 @@ async def execute(
     if name == "kanban_request_changes":
         card = kanban.request_changes(data_dir, str(args["id"]), changes=str(args["changes"]))
         return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_attach":
+        import base64
+
+        try:
+            data = base64.b64decode(str(args["content_base64"]), validate=True)
+        except Exception as exc:  # noqa: BLE001 —— base64 坏了要说清是编码问题
+            raise ValueError(f"content_base64 不是合法 base64：{exc}") from exc
+        card = kanban.attach(data_dir, str(args["id"]), str(args["name"]), data)
+        return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_attachments":
+        items = kanban.attachments(data_dir, str(args["id"]))
+        return {"ok": True, "count": len(items), "attachments": items}
 
     raise ValueError(f"未知的看板工具：{name}")
 

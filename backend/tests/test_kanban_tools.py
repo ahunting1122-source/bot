@@ -14,6 +14,9 @@ Hermes 有 14 个 `kanban_*`，后 10 个各自带一套状态机与并发语义
 
 from __future__ import annotations
 
+import base64
+import pathlib
+
 import pytest
 
 
@@ -351,9 +354,104 @@ async def test_the_three_new_tools_dispatch(board):
     )
     assert returned["card"]["status"] == "open"
 
+# ── 第四轮：attach / attachments ───────────────────────────────────────────
 
-def test_production_registers_eleven(tmp_path):
-    """**生产装配**：`create_app()` 之后 11 个看板工具真的都在注册表里。"""
+
+def test_attach_writes_the_file_and_stores_a_relative_path(board):
+    """**卡上只存相对路径**——存绝对路径会让整块板在换数据目录后全部失效，
+    而那种失效**不会报错，只会让附件「凭空消失」**。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "要挂附件")
+    attached = kanban.attach(data_dir, card.id, "note.txt", b"hello")
+
+    assert len(attached.attachments) == 1
+    item = attached.attachments[0]
+    assert not pathlib.PurePath(item["path"]).is_absolute(), item["path"]
+    assert (pathlib.Path(data_dir) / item["path"]).read_bytes() == b"hello"
+    assert item["bytes"] == 5
+
+
+def test_attachments_returns_absolute_paths(board):
+    """列附件时**还原成绝对路径**——这个工具的用途就是「告诉我附件在哪」。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "查附件")
+    kanban.attach(data_dir, card.id, "a.bin", b"xyz")
+
+    items = kanban.attachments(data_dir, card.id)
+    assert len(items) == 1
+    assert pathlib.Path(items[0]["path"]).is_absolute()
+    assert pathlib.Path(items[0]["path"]).read_bytes() == b"xyz"
+
+
+def test_attach_strips_directories_from_the_name(board):
+    """**名字来自模型，不能直接当文件名**：`../` 会写到附件目录外。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "路径穿越")
+    attached = kanban.attach(data_dir, card.id, "../../evil.txt", b"x")
+    assert attached.attachments[0]["name"] == "evil.txt"
+    # 落在附件目录里，不在数据目录外
+    stored = pathlib.Path(data_dir) / attached.attachments[0]["path"]
+    assert kanban.ATTACH_DIRNAME in stored.parts
+    assert stored.read_bytes() == b"x"
+
+
+def test_attach_refuses_dot_and_dotdot_names(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "坏名字")
+    for bad in (".", "..", ""):
+        with pytest.raises(kanban.KanbanError):
+            kanban.attach(data_dir, card.id, bad, b"x")
+
+
+def test_reattaching_the_same_name_replaces_the_record(board):
+    """同名覆盖时**替换那条记录**而不是追加两条——否则列出来有两个同路径条目。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "覆盖")
+    kanban.attach(data_dir, card.id, "same.txt", b"first")
+    again = kanban.attach(data_dir, card.id, "same.txt", b"second!")
+    assert len(again.attachments) == 1
+    assert again.attachments[0]["bytes"] == 7
+
+
+async def test_the_two_attachment_tools_dispatch(board):
+    from app import tool_kanban
+
+    _kanban, _data_dir = board
+    created = await tool_kanban.execute("kanban_create", {"title": "挂"}, "t", "o1")
+    card_id = created["card"]["id"]
+
+    payload = base64.b64encode(b"hi there").decode()
+    attached = await tool_kanban.execute(
+        "kanban_attach",
+        {"id": card_id, "name": "hi.txt", "content_base64": payload},
+        "t",
+        "o2",
+    )
+    assert attached["card"]["attachments"][0]["name"] == "hi.txt"
+
+    listed = await tool_kanban.execute("kanban_attachments", {"id": card_id}, "t", "o3")
+    assert listed["count"] == 1
+    assert pathlib.Path(listed["attachments"][0]["path"]).is_absolute()
+
+
+async def test_a_broken_base64_is_refused_with_a_clear_reason(board):
+    from app import tool_kanban
+
+    _kanban, _data_dir = board
+    created = await tool_kanban.execute("kanban_create", {"title": "坏编码"}, "t", "o1")
+    card_id = created["card"]["id"]
+    with pytest.raises(ValueError) as excinfo:
+        await tool_kanban.execute(
+            "kanban_attach",
+            {"id": card_id, "name": "x.bin", "content_base64": "!!!not-base64!!!"},
+            "t",
+            "o2",
+        )
+    assert "base64" in str(excinfo.value)
+
+
+def test_production_registers_thirteen(tmp_path):
+    """**生产装配**：`create_app()` 之后 13 个看板工具真的都在注册表里。"""
     from starlette.testclient import TestClient
 
     from app.config import Settings
@@ -364,17 +462,57 @@ def test_production_registers_eleven(tmp_path):
     app = create_app(settings=settings)
     with TestClient(app):
         names = set(app.state.kanban_tools)
-        expected = {
-            "kanban_create",
-            "kanban_list",
-            "kanban_show",
-            "kanban_complete",
-            "kanban_comment",
-            "kanban_block",
-            "kanban_unblock",
-            "kanban_heartbeat",
-            "kanban_link",
-            "kanban_request_review",
-            "kanban_request_changes",
-        }
-        assert names == expected, names
+        assert len(names) == 13, sorted(names)
+        assert "kanban_attach" in names
+        assert "kanban_attachments" in names
+
+
+# ── 认领闸门：死循环那一半（第 46 轮）─────────────────────────────────────
+
+
+def test_claim_refuses_when_the_parent_is_not_done(board):
+    """**闸门在「认领」这一步，不在「状态值」**（MATRIX 5.14 第 46 轮）。
+
+    上一版把 unblock 改成「父卡没完成也放回 open」——**关掉了死胡同**，
+    **但没关掉死循环**：open 是可认领的，那张卡仍会被认领、又卡在同一依赖上。
+    而 [dependency] 那条评论**只是记录，不是闸门**。
+
+    **判据：闸门要放在危害真正发生的那一步。** 危害发生在「认领」。
+    """
+    kanban, data_dir = board
+    parent = kanban.create(data_dir, "父卡")
+    child = kanban.create(data_dir, "子卡", parent=parent.id)
+    kanban.block(data_dir, child.id, reason="等父")
+    kanban.unblock(data_dir, child.id)  # 放回 open（父卡仍未完成）
+
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.claim(data_dir, child.id)
+    assert parent.id in str(excinfo.value)
+
+    # 父卡做完之后就能认领了
+    kanban.complete(data_dir, parent.id, handoff="父做完")
+    assert kanban.claim(data_dir, child.id, assignee="alice").status == kanban.STATUS_DOING
+
+
+def test_list_reports_ready_so_discovery_does_not_mislead(board):
+    """kanban_list 是 orchestrator **发现可路由的活**的那一步。
+
+    只报 status 的话，一张「open 但父卡没 done」的卡会被当成可接的——
+    **把判据提前到发现那一步，错误就不会发生**（而不是发生后再报错）。
+    """
+    kanban, data_dir = board
+    parent = kanban.create(data_dir, "父")
+    child = kanban.create(data_dir, "子", parent=parent.id)
+
+    rows = {row["id"]: row for row in kanban.summarize(kanban.list_cards(data_dir))}
+    assert rows[parent.id]["ready"] is True
+    assert rows[child.id]["ready"] is False
+    assert rows[child.id]["blocked_by"] == [parent.id]
+
+
+def test_claim_refuses_a_card_that_is_not_open(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "已做")
+    kanban.complete(data_dir, card.id, handoff="ok")
+    with pytest.raises(kanban.KanbanError):
+        kanban.claim(data_dir, card.id)
