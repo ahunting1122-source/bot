@@ -1,0 +1,134 @@
+# 接手说明
+
+> 给下一个接这份工作的人。**三节：已封口 / 明确欠着 / 别碰。**
+>
+> 最后一节最值钱：**它记录的是「看起来像 bug、其实是决定」的东西。**
+> 我自己在 59 轮里两次把已声明的设计当成缺陷去改，都被门禁或文档拦住了。
+
+---
+
+## 一、已封口（做完且有验证证据）
+
+**核验方式**（三条命令，缺一条都不算）：
+
+```powershell
+cd E:\bbbooottt\backend
+.\.venv\Scripts\python.exe -m ruff check .          # 应 All checks passed
+.\.venv\Scripts\python.exe -m mypy app              # 应 Success, 177 files
+.\.venv\Scripts\python.exe -m pytest -q             # 应 1 failed（基线既有）/ 3718 passed
+cd E:\bbbooottt
+.\.venv\Scripts\python.exe scripts\matrix_stats.py --check       # 应 exit 0
+.\.venv\Scripts\python.exe scripts\audit_matrix_citations.py     # 应 exit 0
+```
+
+**那个 1 failed 是基线既有的**：`tests/test_connectors.py::test_browser_append_and_reload`
+——它不是回归，**从第 1 轮起就在**。
+
+**182 行 MATRIX：✅166 · 🟢5 · ⚫4 · 🟡7 · ⬜0（严格 94.0% / 可验证 96.1%）**
+
+---
+
+## 二、明确欠着（7 条 🟡，每条都有解锁条件）
+
+| 条目 | 欠什么 | 解锁条件 | 量级 |
+|---|---|---|---|
+| **4.8** iron-proxy | `install` / `setup` / `start`（**不需二进制的部分已全部做完**） | 下载 iron-proxy 二进制 + 网络 | 约 1 周 |
+| **14.11** 出站闸全覆盖 | 4 处 `httpx.Client(` 未接（`connectors`×2 / `platforms` / `peer_client`） | **需先重构那几处的取值方式**（`url` 在 `try` 块与条件表达式内部） | 约 1 天 |
+| **12.5** `buzz` | 平台适配器 | `pip install coincurve`（**不要手写 secp256k1**） | 半天 |
+| **12.5** `photon` | 平台适配器 | `pip install grpcio` | 半天 |
+| **12.10** enroll | 注册流程 | 公网可达 HTTPS 回调 | 1 天 |
+| **4.12** 语音 15 家 | 见 MATRIX 五类（1 可用 / 1 平台不适用 / 4 要装 / 8 云 / 3 模型 / 1 命令） | 各自不同 | 每家 1–2 小时 |
+| **5.14** 工具 42 条 | 见 GAPS 终表三类 | 大部分要外部条件 | —— |
+| **1.13b** 原生外壳 | Electron 外壳 | `npm install electron` + 打包器 | 3–5 天 |
+
+**`4.12` 的 `say` 是「平台不适用」**（macOS 命令），**不是「缺外部条件」**——
+后者暗示「配一下就行」，前者是「这个平台永远没有」。
+
+---
+
+## 三、别碰（看起来像 bug，其实是决定）
+
+> **这一节是为了防止下一个人重复我犯过的错。每一条都写清「为什么」和「改了会怎样」。**
+
+### 3.1 `EgressPolicy` 的 `default=allow` 不做 IP 校验
+
+`_guard_resolved_ip` 里有四条跳过条件，其中一条是「走 `default=allow`（没命中任何规则）不查」。
+
+**我曾把它当「第二个安全洞」去打补丁——那是误判。** 它是有名字、有位置、有理由的设计：
+**没配策略时不该每次出站都真查 DNS。**
+
+**判据：把「我没读到的设计」当成「洞」，与把「我没读到的实现」当成「不存在」是同一类错误。**
+
+**但云元数据是「例外的例外」**：它没有合理场景，所以 `egress` 里对它是**硬拦**（不受 allow/deny 影响）。
+
+### 3.2 `kanban_unblock` 父卡没完成时「降级」而不是「拒绝」
+
+Hermes 实证（`01-cli-surface.md:795`）：**父任务未完成则回 todo**。
+
+**不要加 `--force`** —— 强制放回可认领状态会制造死循环（重新认领 → 又卡住 → 再 block → 再 force）。
+**真正的闸门在 `claim()`**：父卡没 done 就拒绝认领。
+
+**判据：闸门要放在危害真正发生的那一步。**
+
+### 3.3 `kanban_heartbeat` 拒绝已 done 的卡
+
+Hermes 实证（`01-cli-surface.md:811`）：「为**运行中**任务发心跳」。
+done 不是运行中，**打了会让它看起来还在跑**。
+
+### 3.4 `--source` 记进任务事件，**不做会话列表筛选**
+
+`--source` 在 Hermes 是「会话来源标签，用于过滤」（`01-cli-surface.md:181`）。
+Orbit 的 `conversations.source` 列**已加**（`0012` 迁移），`sessions list --source` **真的筛**。
+
+**但 `--source` 只在「创建会话时」能设** —— **Hermes 自己也没有 set-source / retag 命令**，
+所以「只在创建时能设」不是缺陷。
+
+### 3.5 `kanban_attach_url` 未做
+
+**要联网下载**。它的失败模式（下载超时 / 重定向 / 大文件）与本地落盘的 `attach` 完全不同，
+**不能拿 `attach` 顶替**。
+
+### 3.6 `test_graph::test_time_budget_backgrounds` 与 `test_mcp` 的偶发失败
+
+**两条都是负载敏感的**（第 1 条已有 3 次独立观察，第 2 条 2 次）。单跑必过。
+
+`wait_status` 的窗口已从 `stall=15s / ceiling=60s` 放宽到 **45s / 150s**，
+理由写在函数 docstring 里：**`stall` 的假设是「没进展 = 逻辑坏了」，
+但 CPU 被饿住时「没进展」也是正常的**。
+
+**不要把这两条标成 flaky** —— 那等于把红灯信号调成静音。
+
+### 3.7 `egress disable` / `egress reload` 返回 exit 3
+
+**那不是失败，是正确答案**：没有守护进程时，拒绝比假装成功诚实。
+**这是「静默降级」的反面。**
+
+### 3.8 `--run-budget` 写的是 `max_seconds` 不是 `run_budget_seconds`
+
+`Settings` 里**没有** `run_budget_seconds` 这个字段，pydantic 会**静默丢掉**未声明的 kwarg
+——原来那版**一个字节都没生效**。产品读的是 `settings.max_seconds`。
+
+**判据：`updates` 里出现的每个键都必须在 `Settings.model_fields` 里。**
+`tests/test_global_flag_consumers.py` 用**性质断言**守着这条（遍历当前实际写的键，不是清单）。
+
+---
+
+## 四、方法论（59 轮里用血换的，按价值排序）
+
+1. **`git status` 空只覆盖「工作区 vs HEAD」，覆盖不了「坏代码是否进过提交」。**
+   回退要验两处：工作区、历史。
+2. **「把代码改坏之后测试仍然过」时，第一个该怀疑的是「我改坏了没有」，不是「测试没用」。**
+   我两次自证都错在「降级」这一环。
+3. **要证明「没有上限」，测更大的数只能排除「小上限」；真正的证明是「代码里没有上限变量」。**
+4. **判断「某个定义在不在」必须匹配定义签名（`\ndef name(`），不能匹配裸名字**
+   ——裸名字会把调用点也算进去。同一个错我犯过两次。
+5. **同一份安全检查抄到第 3 处就该抽出来**——不是为了少打字，是为了不让它们漂移。
+6. **`✅` 的行不能有「已知未完成」；有欠账的行不能标 `✅`。**
+   而「写进 `✅` 的行」比「写进散文」更糟——**它看起来进了账本，但状态说"做完了"**。
+7. **「命令出现在 `--help` 里」只证明它被注册，不证明它做了那件事。唯一证据是跑它、看副作用。**
+8. **同一个错误犯两次之后，就该把它从「注意」升级成「机械检查」。**
+   `scripts/matrix_stats.py` 与 `scripts/audit_matrix_citations.py` 就是这么来的。
+9. **「不需外部条件」≠「该做」——看的是「做出来的东西能不能被验证」。**
+   所以不要手写 secp256k1 去绕过 `coincurve`。
+10. **带中文 / 特殊字符 / 三引号的改动一律走脚本文件，不走 PowerShell heredoc。**
+    这个坑踩了 9 次以上（`—` U+2014 被吃坏、`\r` 被转义、缩进被破坏）。
