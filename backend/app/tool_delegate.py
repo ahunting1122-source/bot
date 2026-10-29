@@ -32,6 +32,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import Any
 
@@ -149,7 +151,24 @@ async def cancel_children(task_id: str) -> int:
     try:
         for child_id in list(getattr(runner, "_children", {}) or {}):
             try:
-                await runner.cancel(child_id)
+                # **`DelegateRunner.cancel` 是同步方法、返回 bool。**
+                # 第一版在这里写了 `await runner.cancel(...)`：`cancel()` 确实执行了
+                # （`inner.cancel()` 生效），但接着 `await True` 抛 `TypeError`，
+                # 被下面的 `except` 吞掉 —— 于是 `stopped` 恒为 0（函数自述「返回停掉了
+                # 几个」变成假话），而且每次都留一条**假失败 warning**，真失败会被淹没。
+                #
+                # `inspect.isawaitable` 兜一下：假件可能给 async 版本，两种都要成立。
+                outcome = runner.cancel(child_id)
+                if inspect.isawaitable(outcome):
+                    await outcome
+                # **然后真的等它退出。** `inner.cancel()` 只是**发出**取消请求，
+                # 子任务还要在下一个 await 点收到 `CancelledError`、再跑自己的
+                # `finally`（写状态、清理）。不等的话，父的 `finally → release()`
+                # 会在本函数立即返回后执行 —— **窗口变小了但没消失，
+                # 而 10.8 的全部意义是「没有窗口」。**
+                inner = (getattr(runner, "_inner", {}) or {}).get(child_id)
+                if inner is not None:
+                    await asyncio.gather(inner, return_exceptions=True)
                 stopped += 1
             except Exception as exc:  # noqa: BLE001 —— 见 docstring
                 log.warning("停子任务 %s 失败：%s", child_id, exc)

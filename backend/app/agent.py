@@ -727,6 +727,22 @@ class AgentRunner:
                 log.warning("会话租约释放失败（不影响任务结果）：%s", exc)
             self._lease_sessions.pop(task.id, None)
             self._task_platform.pop(task.id, None)
+            # **清掉这个父任务用过的委派器**（MATRIX 5.14）。
+            #
+            # 不放这里就会泄漏：`_RUNNERS[task_id]` 在派子任务时写入，
+            # 但原来**只有 `cancel_children` 里 pop**——父任务被取消才清。
+            # 而**绝大多数父任务是正常跑完的**，那些记录会永远留着
+            # （每个带一个 `DelegateRunner`，内含 `_children` / `_inner` 两个 dict），
+            # 长跑的 gateway 会无界增长。
+            #
+            # 放在 `release` 旁边是有意的：**「父任务结束」和「清理子任务资源」
+            # 应该在同一个地方**——下次有人加新的子任务资源，会看到这里。
+            try:
+                from app import tool_delegate
+
+                tool_delegate._RUNNERS.pop(task.id, None)
+            except Exception as exc:  # noqa: BLE001 —— 清理失败不影响任务结果
+                log.warning("清理委派器记录失败（不影响任务结果）：%s", exc)
             # `on_session_end` 发射点（MATRIX 13.5）：与 `on_session_start` 配对。
             # 放在 `finally` 里，**失败/取消的任务也要发**——否则观测端的会话数永远少于
             # 实际跑过的任务，而"少记"比"记错"更难发现。

@@ -218,3 +218,128 @@ async def test_the_delegation_depth_is_visible_inside_the_node():
 
     assert await _child_context() == 1, "深度没传进节点——递归闸门会静默失效"
     assert DELEGATION_DEPTH.get() == 0, "reset 没生效，深度泄漏到外层"
+
+# ── 同步 `cancel`：真实 `DelegateRunner.cancel` 是**同步**的 ────────────────
+
+
+async def test_a_synchronous_cancel_is_supported_and_counted(caplog):
+    """**真 bug 的回归测试**：`DelegateRunner.cancel` 是**同步方法**，返回 bool。
+
+    ## 第一版错在哪
+
+    ```python
+    await runner.cancel(child_id)     # cancel() 真的执行了（inner.cancel() 生效）
+    # 然后 await True → TypeError → 被 except 吞掉
+    ```
+
+    三个后果：① **`stopped` 恒为 0**（函数自述「返回停掉了几个」是假话）
+    ② **每次都留一条假失败 warning**（真失败会被淹没）
+    ③ 没有任何东西 await 子任务的**真正退出**。
+
+    ## 为什么原来的测试没抓到
+
+    我原来的假件写的是 `async def cancel`，而**真实类是 `def cancel`**——
+    **两件事在测试里长得一样，在运行时差一个 await。**
+    所以这条用一个**同步**假件（与真实类同形）。
+
+    **判据**：`assert cancel_children(...) == 子任务数`——第一版恒为 0，加上立刻红。
+    """
+    from app import tool_delegate
+
+    class _SyncRunner:
+        """与真实 `DelegateRunner` 同形：`cancel` 是同步的、返回 bool。"""
+
+        def __init__(self, children=("c1", "c2")):
+            self._children = {child: object() for child in children}
+            self._inner: dict = {}
+            self.cancelled: list[str] = []
+
+        def cancel(self, child_id) -> bool:
+            self.cancelled.append(child_id)
+            return True
+
+    tool_delegate.reset()
+    runner = _SyncRunner()
+    tool_delegate._RUNNERS["parent-task"] = runner
+    try:
+        with caplog.at_level("WARNING"):
+            stopped = await tool_delegate.cancel_children("parent-task")
+        assert stopped == 2, (
+            f"只报了 {stopped} 个——同步 cancel 上的 `await` 会抛 TypeError 被吞，"
+            "计数恒为 0"
+        )
+        assert sorted(runner.cancelled) == ["c1", "c2"]
+        # 不该有「停子任务失败」的假告警
+        fake = [r.getMessage() for r in caplog.records if "停子任务" in r.getMessage()]
+        assert not fake, f"留下了假失败告警，真失败会被淹没：{fake}"
+    finally:
+        tool_delegate.reset()
+
+
+async def test_the_child_s_exit_is_awaited_not_just_requested():
+    """`inner.cancel()` 只是**发出**请求；必须**等它真的退出**。
+
+    不等的话，父的 `finally → release()` 会在 `cancel_children` 立即返回后执行——
+    **窗口变小了但没消失，而 10.8 的全部意义是「没有窗口」。**
+    """
+    import asyncio
+
+    from app import tool_delegate
+
+    finished = asyncio.Event()
+
+    class _Runner:
+        def __init__(self):
+            self._children = {"c1": object()}
+            self._inner = {"c1": asyncio.create_task(self._child())}
+
+        async def _child(self):
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                # 模拟子任务的 `finally`：写状态、清理。
+                # **刻意不在取消处理里再 await**——那会被立刻再次取消。
+                # 这个测试自己踩过：`await` 在 `except CancelledError` 里拿不到
+                # 执行机会，于是 `finished` 永不置位，看起来像产品的错。
+                finished.set()
+                raise
+
+        def cancel(self, child_id) -> bool:
+            self._inner[child_id].cancel()
+            return True
+
+    tool_delegate.reset()
+    holder = _Runner()
+    tool_delegate._RUNNERS["parent-task"] = holder
+    # **必须让子任务先真的跑起来一步**：一个在第一次执行前就被 cancel 的 Task
+    # 根本不会进入协程体，`except CancelledError` 也就不会执行——
+    # 那会让 `finished` 永不置位，看起来像产品的错（这个测试自己踩过）。
+    await asyncio.sleep(0)
+    try:
+        await tool_delegate.cancel_children("parent-task")
+        assert finished.is_set(), (
+            "`cancel_children` 返回时子任务还没跑完自己的 finally——"
+            "父的 release 会在子任务仍在写时执行"
+        )
+    finally:
+        tool_delegate.reset()
+
+
+def test_runners_are_cleaned_up_when_the_parent_task_ends():
+    """**防泄漏**：父任务正常结束时必须清掉 `_RUNNERS` 记录。
+
+    原来只有 `cancel_children` 里 pop —— 而**绝大多数父任务是正常跑完的**，
+    那些记录会永远留着（每个带一个 `DelegateRunner`，内含两个 dict），
+    长跑的 gateway 会无界增长。
+
+    放在 `release` 旁边是有意的：**「父任务结束」和「清理子任务资源」该在同一处。**
+    """
+    import pathlib as _pathlib
+
+    from app import agent as agent_module
+
+    source = _pathlib.Path(agent_module.__file__).read_text(encoding="utf-8")
+    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
+    assert "tool_delegate._RUNNERS.pop(task.id, None)" in code, (
+        "父任务结束时没清 `_RUNNERS`——正常跑完的父任务会泄漏委派器记录"
+    )
