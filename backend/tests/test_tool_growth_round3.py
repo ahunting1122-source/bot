@@ -395,5 +395,8 @@ def test_remaining_gaps_are_all_unavailable_with_reasons():
     # **`delegate_task` 已不在其中**：第 37 轮补了 `app/child_runner.py` 之后它
     # 真的覆盖了，`reason` 自然为空——`reason` 是「为什么做不到」的位置，
     # 做到了就该空着。断言一个已完成的条目「必须有做不到的理由」是自相矛盾的。
-    assert "服务端" in by_name["kanban_show"].reason
+    # **`kanban_show` 已不在其中**（第 44 轮实现了 4 个看板工具）——
+    # 断言一个已完成的条目「必须有做不到的理由」是自相矛盾的。
+    # 改钉**仍未做**的那个：`kanban_block` 必须带原因。
+    assert "状态机" in by_name["kanban_block"].reason
     assert "app/" in by_name["browser_back"].reason

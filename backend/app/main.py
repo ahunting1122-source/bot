@@ -243,6 +243,17 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         app.state.delegate_tools = tool_delegate.register_delegate_tools(
             registry, store=app.state.store, builder=_delegate_builder
         )
+        # 看板工具（MATRIX 5.14 的 `kanban_*` 一组，本轮 4 个）。
+        #
+        # `todo` 是**单个任务自己的**清单；看板是**跨 run、跨 agent** 的任务板
+        # （「谁在做什么、谁等谁」）。两者不是替代关系。
+        # 存储用 `<data_dir>/kanban/board.json` 而不是新表——**不需要迁移**，
+        # 而这个模块的价值在协议不在存储引擎。
+        from app import tool_kanban
+
+        app.state.kanban_tools = tool_kanban.register_kanban_tools(
+            registry, data_dir=settings.data_dir
+        )
         # 观测 exporter 接到钩子上（MATRIX 13.4 / 15.x）。
         #
         # 为什么现在才有意义：`exporters.Exporter.hooks()` 返回的是**生命周期事件名**

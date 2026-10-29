@@ -402,7 +402,7 @@ def test_compact_and_context_usage_are_not_marked_unavailable_any_more():
         assert "实现见 app/tool_extra_impl.py" in record.reason, name
 
 
-def test_delegation_is_covered_and_kanban_is_still_unavailable():
+def test_delegation_is_covered_and_the_kanban_board_is_partially_covered():
     """**性质断言**（不是清单断言）：委派已覆盖、看板仍缺。
 
     原来这条叫 `test_delegation_and_kanban_stay_unavailable_with_their_reasons`，
@@ -422,7 +422,10 @@ def test_delegation_is_covered_and_kanban_is_still_unavailable():
     assert delegate.orbit_tools == ("delegate_task",), delegate.orbit_tools
     swarm = by_name["agent_swarm"]
     assert swarm.orbit_status == "covered", swarm.orbit_status
-    # **看板仍缺**，且**必须带原因**——缺能力时不能悄悄消失。
-    kanban = by_name["kanban_show"]
-    assert kanban.orbit_status == "unavailable" and kanban.orbit_tools == ()
-    assert "服务端" in kanban.reason
+    # **看板部分覆盖**（第 44 轮做了 4 个）：覆盖的那几个必须有真实映射，
+    # 没做的那几个**必须仍带原因**——缺能力时不能悄悄消失。
+    assert by_name["kanban_show"].orbit_status == "covered"
+    assert by_name["kanban_show"].orbit_tools == ("kanban_show",)
+    still_missing = by_name["kanban_block"]
+    assert still_missing.orbit_status == "unavailable"
+    assert still_missing.reason.strip(), "未做的看板工具必须写清为什么"

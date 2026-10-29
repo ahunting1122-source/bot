@@ -84,7 +84,10 @@ TOOLSETS: dict[str, str] = {
     "media": "媒体生成：图片 / 视频（域内无工具：要联网调付费 provider）",
     "vision": "视觉与视频理解（域内无工具：多模态由模型自带，不需要工具桥）",
     "tts": "语音合成（text_to_speech：本机走 Windows SAPI 或命令通道；19 家云端见 app/voice.py）",
-    "kanban": "看板（域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端）",
+    # **第 44 轮改口**：原来写「域内无工具：Orbit 用 todo 工具 + 前端面板，没有看板后端」
+    # ——那句话在写的时候是对的，本轮实现了 4 个看板工具之后它变成假话。
+    # **描述里的「没有」最容易过期。**
+    "kanban": "看板（kanban_create / list / show / complete：跨 run 的任务板；其余 10 个 Hermes 看板工具未做）",
     "cron": "定时任务（cron_job：建 / 列 / 停 / 删；真正执行由 `orbit cron` 守护进程负责）",
     "desktop": "桌面与窗口（域内无工具：要 pyautogui 之类的桌面运行时，本机没有）",
     "home": "智能家居（域内无工具：要 Home Assistant 之类的网关与设备凭证）",
@@ -95,6 +98,11 @@ TOOLSETS: dict[str, str] = {
 #: ``unclassified``（测试会失败）。之所以全量列出而不是只写前缀规则：
 #: 这张表就是"暴露面清单"，review 时能一眼看出模型手里到底有什么。
 TOOL_TOOLSET: dict[str, str] = {
+    # kanban（第 44 轮）
+    "kanban_create": "kanban",
+    "kanban_list": "kanban",
+    "kanban_show": "kanban",
+    "kanban_complete": "kanban",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",
