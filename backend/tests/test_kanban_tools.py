@@ -243,9 +243,116 @@ async def test_the_four_new_tools_dispatch(board):
     beat = await tool_kanban.execute("kanban_heartbeat", {"id": card_id}, "t", "o5")
     assert beat["card"]["status"] == "open"
 
+# ── 第三轮：link / request_review / request_changes ────────────────────────
 
-def test_production_registers_all_eight(tmp_path):
-    """**生产装配**：`create_app()` 之后 8 个看板工具真的都在注册表里。"""
+
+def test_link_attaches_a_parent_to_an_existing_card(board):
+    kanban, data_dir = board
+    parent = kanban.create(data_dir, "父")
+    child = kanban.create(data_dir, "子")
+    linked = kanban.link(data_dir, child.id, parent.id)
+    assert linked.parent == parent.id
+
+
+def test_link_refuses_a_cycle(board):
+    """**成环不会报错，会让拓扑序永远算不完**——死锁比报错更难查。"""
+    kanban, data_dir = board
+    first = kanban.create(data_dir, "A")
+    second = kanban.create(data_dir, "B")
+    kanban.link(data_dir, second.id, first.id)  # A → B
+
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.link(data_dir, first.id, second.id)  # B → A 会成环
+    assert "环" in str(excinfo.value)
+    # 数据没被改坏
+    assert kanban.show(data_dir, first.id).parent == ""
+
+
+def test_link_refuses_a_card_as_its_own_parent(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "自环")
+    with pytest.raises(kanban.KanbanError):
+        kanban.link(data_dir, card.id, card.id)
+
+
+def test_request_review_moves_the_card_to_in_review(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "要交审")
+    reviewed = kanban.request_review(data_dir, card.id, note="请看一下")
+    assert reviewed.status == kanban.STATUS_REVIEW
+    assert any("[review]" in item["text"] for item in reviewed.comments)
+
+
+def test_a_done_card_cannot_be_sent_to_review(board):
+    """**done 是终点**——再交审会让 orchestrator 看到「已完成又在等人审」。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "已完")
+    kanban.complete(data_dir, card.id, handoff="ok")
+    with pytest.raises(kanban.KanbanError):
+        kanban.request_review(data_dir, card.id)
+
+
+def test_a_blocked_card_cannot_be_sent_to_review(board):
+    """blocked 要先把阻塞解掉——否则会看到「又阻塞又在等人审」。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "卡住的")
+    kanban.block(data_dir, card.id, reason="等依赖")
+    with pytest.raises(kanban.KanbanError):
+        kanban.request_review(data_dir, card.id)
+
+
+def test_request_changes_sends_it_back_with_the_required_changes(board):
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "要改")
+    kanban.request_review(data_dir, card.id)
+    returned = kanban.request_changes(data_dir, card.id, changes="第三节要加数据")
+    assert returned.status == kanban.STATUS_OPEN
+    assert any("第三节要加数据" in item["text"] for item in returned.comments)
+
+
+def test_request_changes_needs_a_non_empty_reason(board):
+    """**退回却不说是改什么，等于把问题原样丢回去。**"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "空退回")
+    kanban.request_review(data_dir, card.id)
+    with pytest.raises(kanban.KanbanError):
+        kanban.request_changes(data_dir, card.id, changes="   ")
+
+
+def test_only_an_in_review_card_can_be_returned(board):
+    """从 done 退回会抹掉已完成的记录。"""
+    kanban, data_dir = board
+    card = kanban.create(data_dir, "没交审")
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.request_changes(data_dir, card.id, changes="改点东西")
+    assert "in_review" in str(excinfo.value)
+
+
+async def test_the_three_new_tools_dispatch(board):
+    from app import tool_kanban
+
+    _kanban, _data_dir = board
+    a = (await tool_kanban.execute("kanban_create", {"title": "A"}, "t", "o1"))["card"]["id"]
+    b = (await tool_kanban.execute("kanban_create", {"title": "B"}, "t", "o2"))["card"]["id"]
+
+    linked = await tool_kanban.execute(
+        "kanban_link", {"child_id": b, "parent_id": a}, "t", "o3"
+    )
+    assert linked["card"]["parent"] == a
+
+    reviewed = await tool_kanban.execute(
+        "kanban_request_review", {"id": b, "note": "看一下"}, "t", "o4"
+    )
+    assert reviewed["card"]["status"] == "in_review"
+
+    returned = await tool_kanban.execute(
+        "kanban_request_changes", {"id": b, "changes": "补测试"}, "t", "o5"
+    )
+    assert returned["card"]["status"] == "open"
+
+
+def test_production_registers_eleven(tmp_path):
+    """**生产装配**：`create_app()` 之后 11 个看板工具真的都在注册表里。"""
     from starlette.testclient import TestClient
 
     from app.config import Settings
@@ -265,5 +372,8 @@ def test_production_registers_all_eight(tmp_path):
             "kanban_block",
             "kanban_unblock",
             "kanban_heartbeat",
+            "kanban_link",
+            "kanban_request_review",
+            "kanban_request_changes",
         }
         assert names == expected, names

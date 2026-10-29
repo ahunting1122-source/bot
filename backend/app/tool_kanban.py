@@ -75,6 +75,21 @@ class CardIdArgs(Args):
     id: str = Field(min_length=1, description="卡片 id")
 
 
+class LinkArgs(Args):
+    child_id: str = Field(min_length=1, description="子卡片 id")
+    parent_id: str = Field(min_length=1, description="父卡片 id（必须先完成它）")
+
+
+class ReviewArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    note: str = Field(default="", description="交审说明（可空）")
+
+
+class ChangesArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    changes: str = Field(min_length=1, description="必改项（不能为空）")
+
+
 KANBAN_TOOLS: list[Tool] = [
     Tool(
         "kanban_create",
@@ -116,6 +131,21 @@ KANBAN_TOOLS: list[Tool] = [
         "kanban_heartbeat",
         "给卡片打一次「我还活着」，让 orchestrator 能分辨「在跑」与「跑挂了」。",
         CardIdArgs,
+    ),
+    Tool(
+        "kanban_link",
+        "给两张已存在的卡加父子依赖边（**会做环检测**：成环会让拓扑序永远算不完）。",
+        LinkArgs,
+    ),
+    Tool(
+        "kanban_request_review",
+        "交审：把卡标成 in_review 等人看。done 是终点、blocked 要先解，都不能交审。",
+        ReviewArgs,
+    ),
+    Tool(
+        "kanban_request_changes",
+        "审阅结论：把 in_review 的卡退回 open，并写清**必改项**（不能为空）。",
+        ChangesArgs,
     ),
 ]
 
@@ -187,6 +217,18 @@ async def execute(
 
     if name == "kanban_heartbeat":
         return {"ok": True, "card": _full(kanban.heartbeat(data_dir, str(args["id"])))}
+
+    if name == "kanban_link":
+        card = kanban.link(data_dir, str(args["child_id"]), str(args["parent_id"]))
+        return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_request_review":
+        card = kanban.request_review(data_dir, str(args["id"]), note=str(args.get("note") or ""))
+        return {"ok": True, "card": _full(card)}
+
+    if name == "kanban_request_changes":
+        card = kanban.request_changes(data_dir, str(args["id"]), changes=str(args["changes"]))
+        return {"ok": True, "card": _full(card)}
 
     raise ValueError(f"未知的看板工具：{name}")
 

@@ -426,6 +426,12 @@ def test_delegation_is_covered_and_the_kanban_board_is_partially_covered():
     # 没做的那几个**必须仍带原因**——缺能力时不能悄悄消失。
     assert by_name["kanban_show"].orbit_status == "covered"
     assert by_name["kanban_show"].orbit_tools == ("kanban_show",)
-    still_missing = by_name["kanban_link"]
-    assert still_missing.orbit_status == "unavailable"
-    assert still_missing.reason.strip(), "未做的看板工具必须写清为什么"
+    # **不写死是哪一张**：写死名字的话，每覆盖一个就要改一次测试——
+    # 而这轮已经为此红了三次。改成从「实际仍缺的看板工具」里取，
+    # 断言的是**性质**（缺的必须带原因），不是**清单**（哪几个缺）。
+    coverage = tool_catalog.orbit_coverage()
+    still_missing = [by_name[name] for name in coverage.missing if "kanban" in name]
+    assert still_missing, "看板全部覆盖了——这条断言该改成别的域，或整条删掉"
+    for record in still_missing:
+        assert record.orbit_status == "unavailable", record.name
+        assert record.reason.strip(), f"{record.name} 缺了却没写理由"

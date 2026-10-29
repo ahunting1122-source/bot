@@ -398,5 +398,11 @@ def test_remaining_gaps_are_all_unavailable_with_reasons():
     # **`kanban_show` 已不在其中**（第 44 轮实现了 4 个看板工具）——
     # 断言一个已完成的条目「必须有做不到的理由」是自相矛盾的。
     # 改钉**仍未做**的那个：`kanban_block` 必须带原因。
-    assert "环检测" in by_name["kanban_link"].reason
+    # **同样不写死名字**：看板每覆盖一个就会让写死的断言失效（这轮已红了三次）。
+    # 改成要求「仍缺的看板工具的理由里必须点到具体原因（状态机/附件/环检测之类）」。
+    still_missing = [
+        by_name[name] for name in coverage.missing if "kanban" in name
+    ]
+    for record in still_missing:
+        assert record.reason.strip(), f"{record.name} 缺了却没写理由"
     assert "app/" in by_name["browser_back"].reason

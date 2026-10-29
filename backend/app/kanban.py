@@ -46,7 +46,10 @@ STATUS_OPEN = "open"
 STATUS_DOING = "doing"
 STATUS_DONE = "done"
 STATUS_BLOCKED = "blocked"
-STATUSES = (STATUS_OPEN, STATUS_DOING, STATUS_DONE, STATUS_BLOCKED)
+#: 交审中（第 46 轮加）：`request_review` 进入，`request_changes` 退回，`complete` 通过。
+#: **它与 `doing` 分开**，因为「还在写」与「写完了等人看」对 orchestrator 是两件事。
+STATUS_REVIEW = "in_review"
+STATUSES = (STATUS_OPEN, STATUS_DOING, STATUS_DONE, STATUS_BLOCKED, STATUS_REVIEW)
 
 MAX_TITLE_CHARS = 200
 MAX_BODY_CHARS = 20000
@@ -319,6 +322,98 @@ def heartbeat(data_dir: str | Path, card_id: str) -> Card:
     raise KanbanError(f"找不到卡片 {card_id}")
 
 
+def link(data_dir: str | Path, child_id: str, parent_id: str) -> Card:
+    """给两张**已存在**的卡加一条父子依赖边。
+
+    ## 必须做环检测
+
+    `create(parent=...)` 只能在建卡时挂父卡，而且那时子卡还不存在，**天然不会有环**。
+    `link` 是**在已有卡片之间加边**——`A→B` 之后再 `B→A` 就成环了。
+    成环的后果不是报错，是**拓扑序永远算不完**：orchestrator 会认为「这两张互相等着」，
+    于是两张都永远不该开始。**死锁比报错更难查。**
+
+    检测方式：从 `parent_id` 沿现有父链上溯，**如果路上遇到 `child_id` 就是环**。
+    """
+    cards = load_board(data_dir)
+    by_id = {card.id: card for card in cards}
+    if child_id not in by_id:
+        raise KanbanError(f"找不到子卡片 {child_id}")
+    if parent_id not in by_id:
+        raise KanbanError(f"找不到父卡片 {parent_id}")
+    if child_id == parent_id:
+        raise KanbanError("不能让一张卡成为自己的父卡")
+
+    # 沿 parent 链上溯：遇到 child 就是环
+    cursor: str | None = parent_id
+    seen: set[str] = set()
+    while cursor:
+        if cursor == child_id:
+            raise KanbanError(
+                f"会形成环：{child_id} → {parent_id} → … → {child_id}。"
+                "**成环不会报错，会让拓扑序永远算不完（两张互相等着、都永远不该开始）**"
+            )
+        if cursor in seen:  # 已有的环（坏数据）——别让它把我们转死
+            break
+        seen.add(cursor)
+        parent_card = by_id.get(cursor)
+        cursor = parent_card.parent if parent_card is not None else None
+
+    card = by_id[child_id]
+    card.parent = parent_id
+    card.updated_at = _now()
+    save_board(data_dir, cards)
+    return card
+
+
+def request_review(data_dir: str | Path, card_id: str, *, note: str = "") -> Card:
+    """交审：`doing`/`open` → `in_review`。
+
+    **已 done / blocked 的卡不能交审**：done 是终点，blocked 要先把阻塞解掉——
+    否则 orchestrator 会看到一张「又阻塞又在等人审」的卡。
+    """
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status in (STATUS_DONE, STATUS_BLOCKED):
+            raise KanbanError(
+                f"卡片 {card_id} 当前是 {card.status}，不能交审"
+                "（done 是终点；blocked 要先把阻塞解掉）"
+            )
+        card.status = STATUS_REVIEW
+        if note:
+            card.comments.append({"author": "", "text": f"[review] {note}", "at": _now()})
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
+def request_changes(data_dir: str | Path, card_id: str, *, changes: str) -> Card:
+    """审阅结论：`in_review` → `open`，并记下**必改项**。
+
+    **必改项不能为空**：退回却不说是改什么，等于把问题原样丢回去。
+    **只有 `in_review` 的卡能被退回**——从 done 退回会抹掉已完成的记录。
+    """
+    body = (changes or "").strip()
+    if not body:
+        raise KanbanError("退回必须写清要改什么（空退回等于把问题原样丢回去）")
+    cards = load_board(data_dir)
+    for card in cards:
+        if card.id != card_id:
+            continue
+        if card.status != STATUS_REVIEW:
+            raise KanbanError(
+                f"卡片 {card_id} 不在 in_review（当前 {card.status}）——只有交审中的卡能被退回"
+            )
+        card.status = STATUS_OPEN
+        card.comments.append({"author": "", "text": f"[changes] {body}", "at": _now()})
+        card.updated_at = _now()
+        save_board(data_dir, cards)
+        return card
+    raise KanbanError(f"找不到卡片 {card_id}")
+
+
 def summarize(cards: list[Card]) -> list[dict[str, Any]]:
     """`kanban_list` 的载荷：**摘要**，不带 body（那是 `show` 的事）。"""
     return [
@@ -342,16 +437,20 @@ __all__ = [
     "STATUS_DOING",
     "STATUS_DONE",
     "STATUS_OPEN",
+    "STATUS_REVIEW",
     "board_path",
     "block",
     "comment",
     "complete",
     "create",
     "heartbeat",
+    "link",
     "list_cards",
     "load_board",
     "save_board",
     "show",
+    "request_changes",
+    "request_review",
     "summarize",
     "unblock",
 ]
