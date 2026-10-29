@@ -106,23 +106,20 @@ def run_list(context: Context, args) -> int:
     # 之前这里打印「已忽略」，而那比没有这个选项更糟——用户会以为它生效了。
 
     searcher = SessionSearch(context.store)
-    # 带 --workspace / --source 时必须先多取一些再过滤：
-    # 直接 limit 会在过滤前就把命中切掉。
-    fetch = 200 if (workspace or source) else limit
-    sessions = _run(context, searcher.browse(limit=fetch))
+    # **过滤推进 SQL**（第 51 轮修）：第一版是「取最近 200 条再在内存里筛」，
+    # 那是静默漏数据——第 201 条起的同来源会话永远查不到，且没有任何提示。
+    # 换成更大的常数只是把「第 201 条漏」改成「第 2001 条漏」；任何魔法数都会漏。
+    workspace_ids = _workspace_conversations(context, workspace) if workspace else None
+    sessions = _run(
+        context,
+        searcher.browse(
+            limit=limit, source=source, workspace=workspace, conversation_ids=workspace_ids
+        ),
+    )
 
-    if source:
-        allowed = _source_conversations(context, source)
-        sessions = [item for item in sessions if item["id"] in allowed]
-
-    if workspace:
-        lowered = workspace.lower()
-        by_goal = _workspace_conversations(context, workspace)
-        sessions = [
-            item
-            for item in sessions
-            if lowered in (item["title"] or "").lower() or item["id"] in by_goal
-        ]
+    # **workspace 的过滤已经全部在 SQL 里**（见 `_browse_filters`）：
+    # 两半（标题子串 / 任务目标命中的 id 集合）用 `or_` 组在同一个 where 里。
+    # 留一半在内存就会互相打架——第一版就是这么错的。
     sessions = sessions[:limit]
 
     suffix = ""

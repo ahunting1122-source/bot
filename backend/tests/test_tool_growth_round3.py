@@ -276,7 +276,7 @@ async def test_egress_status_reports_policy_and_static_decision(env):
             {
                 "default": "allow",
                 "allow": ["api.openai.com"],
-                "deny": ["169.254.169.254"],
+                "deny": ["169.254.169.254", "blocked.example"],
                 "credentials": [{"host": "api.openai.com", "key": "openai_api_key"}],
             }
         ),
@@ -287,12 +287,14 @@ async def test_egress_status_reports_policy_and_static_decision(env):
     policy = shown["data"]["policy"]
     assert policy["default"] == "allow"
     assert policy["allow"] == ["api.openai.com"]
-    assert policy["deny"] == ["169.254.169.254"]
+    assert "169.254.169.254" in policy["deny"]
     # 凭证只给键名，永不回值
     assert policy["credentials"][0]["key"] == "openai_api_key"
     assert "openai_api_key" in json.dumps(policy["credentials"], ensure_ascii=False)
 
-    blocked = await call(registry, task_id, "egress_status", {"url": "http://169.254.169.254/latest"})
+    # **探测用非元数据主机**：云元数据现在被硬拦（第 51 轮），会先于 deny 规则命中，
+    # 那条路径由 	est_egress_metadata_block.py 单独覆盖。
+    blocked = await call(registry, task_id, "egress_status", {"url": "http://blocked.example/x"})
     assert blocked["data"]["decision"]["action"] == "deny"
     assert "deny" in blocked["data"]["decision"]["reason"]
 

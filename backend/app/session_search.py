@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, false, func, or_, select
 
 from app.storage import Conversation, Message, Store
 
@@ -87,6 +87,44 @@ SNIPPET_CHARS = 120
 #: 拼错一个就变成"第三条路"，而它根本不存在。
 ROUTE_FTS = "fts"
 ROUTE_LIKE = "like"
+
+
+def _browse_filters(
+    source: str, workspace: str = "", conversation_ids: set[str] | None = None
+) -> list[Any]:
+    """把 `browse()` 的可选过滤条件翻成 SQL `where` 子句。
+
+    ## `--workspace` 的两半必须**都**在 SQL 里
+
+    第一版把「任务目标命中」那半推进了 SQL（`id IN (...)`），
+    「标题子串」那半留在内存——**结果 SQL 先把标题命中的行滤掉了，内存再也补不回来**。
+    `test_sessions_list_workspace_matches_goal_and_title` 立刻抓到。
+
+    **只要有一半在 SQL、一半在内存，就会互相打架**：SQL 收窄时不知道内存那半要什么。
+    所以两半都用 `or_` 组进同一个 `where`。
+
+    ## 空集合要生成「恒假」
+
+    `conversation_ids` 是空集合时**不能生成无条件**——否则「筛到 0 条」
+    会变成「筛到全部」，**那正是最危险的那种静默错**。
+    """
+    clauses: list[Any] = []
+    if source:
+        clauses.append(Conversation.source == source)
+    if workspace:
+        lowered = workspace.lower()
+        ids = conversation_ids or set()
+        clauses.append(
+            or_(
+                func.lower(Conversation.title).contains(lowered),
+                Conversation.id.in_(ids) if ids else false(),
+            )
+        )
+    elif conversation_ids is not None:
+        clauses.append(
+            Conversation.id.in_(conversation_ids) if conversation_ids else false()
+        )
+    return clauses
 
 
 class SessionSearchError(RuntimeError):
@@ -548,8 +586,26 @@ class SessionSearch:
         }
 
     # ── browse ──────────────────────────────────────────────────────────────
-    async def browse(self, *, limit: int = 20) -> list[dict[str, Any]]:
-        """BROWSE：按 ``updated_at`` 倒序列出最近会话（不做关键词过滤）。"""
+    async def browse(
+        self,
+        *,
+        limit: int = 20,
+        source: str = "",
+        workspace: str = "",
+        conversation_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """BROWSE：按 ``updated_at`` 倒序列出最近会话（不做关键词过滤）。
+
+        ## `source` / `conversation_ids` 为什么必须在这里而不是取回之后再筛
+
+        `sessions list --source` 第一版是「先取最近 200 条，再在内存里筛」。
+        **那是静默漏数据**：第 201 条起的同来源会话永远查不到，而且**没有任何提示**
+        ——用户看到空列表会以为「没有这个来源的会话」，实际可能有 300 条。
+
+        换成 2000 只是把「第 201 条漏」改成「第 2001 条漏」。**任何魔法数都会漏。**
+        **过滤条件的正确位置是「数据源」，不是「取回之后」。**
+        （与「闸门要放在危害发生的那一步」同族：**位置错了，参数再调也没用**。）
+        """
         limit = _clamp(limit, 1, 200)
         counts = (
             select(Message.conversation_id, func.count(Message.id).label("message_count"))
@@ -561,6 +617,7 @@ class SessionSearch:
                 await session.execute(
                     select(Conversation, func.coalesce(counts.c.message_count, 0))
                     .outerjoin(counts, counts.c.conversation_id == Conversation.id)
+                    .where(*_browse_filters(source, workspace, conversation_ids))
                     .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
                     .limit(limit)
                 )

@@ -574,6 +574,40 @@ class EgressPolicy:
                     "或用裸主机名（api.example.com）。"
                 ),
             )
+        # ── 云元数据硬拦（第 51 轮）────────────────────────────────────────
+        #
+        # **这条不受 allow/deny 规则影响，也没有 `--force`**：云元数据端点的唯一
+        # 意义就是把实例凭证交出去，agent 没有任何正当理由访问它。
+        # 名单复用 `path_security`（那里早就有，只是 egress 这侧从没查过）。
+        #
+        # 为什么只拦元数据、不拦私网：私网有正当用途（本地 Ollama / 本地 gateway），
+        # 一刀切会打死「配一个 provider 就能用」；而元数据没有任何正当用途。
+        from app.path_security import BLOCKED_HOSTNAMES, BLOCKED_IPS
+
+        if host.lower() in {name.lower() for name in BLOCKED_HOSTNAMES}:
+            return EgressDecision(
+                url=str(url or ""),
+                host=host,
+                action=DENY,
+                rule="cloud-metadata",
+                reason=(
+                    "目标是云元数据主机名（如 metadata.google.internal）——"
+                    "**它的唯一用途是交出实例凭证，agent 没有正当理由访问它**"
+                ),
+            )
+        for blocked in BLOCKED_IPS:
+            if host == str(blocked):
+                return EgressDecision(
+                    url=str(url or ""),
+                    host=host,
+                    action=DENY,
+                    rule="cloud-metadata",
+                    reason=(
+                        f"目标是云元数据地址（{blocked}）——"
+                        "**SSRF 取凭证的经典目标，agent 没有正当理由访问它**"
+                    ),
+                )
+
         for rule in self.deny:
             if match_host(rule, host):
                 return EgressDecision(
@@ -609,6 +643,12 @@ class EgressPolicy:
                 action=ASK,
                 reason="没有匹配的规则，且 default=ask（需要人工确认这个主机）",
             )
+        # **`default=allow` 不做 IP 校验**——这是 `_guard_resolved_ip` 里
+        # 四条跳过条件之一，**是刻意的**：没配策略时不该每次出站都真查 DNS。
+        #
+        # 第 51 轮我曾把它当「第二个洞」去补，**那是误判**：它是有名字、有位置、
+        # 有理由的设计决定。**把「我没读到的设计」当成「洞」，与把「我没读到的实现」
+        # 当成「不存在」是同一类错误。**
         return EgressDecision(
             url=str(url or ""),
             host=host,
