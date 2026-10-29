@@ -83,22 +83,37 @@ def _workspace_conversations(context: Context, needle: str) -> set[str]:
     return {task.conversation_id for task in tasks if lowered in (task.goal or "").lower()}
 
 
+def _source_conversations(context: Context, source: str) -> set[str]:
+    """按来源标签筛出会话 id。
+
+    **为什么要先查 id 集合再过滤**：`searcher.browse()` 返回的是摘要 dict，
+    走的是会话搜索那条路（带消息计数），在那里加一个 `source` 条件会牵动它的
+    SQL 形状。查一次 id 集合更小、更不容易改坏既有查询。
+    """
+    from app.storage import Conversation
+
+    rows = context.run(context.store.rows(select(Conversation).where(Conversation.source == source)))
+    return {row.id for row in rows}
+
+
 def run_list(context: Context, args) -> int:
     """`sessions list`：列出近期会话（``--workspace`` 做路径子串过滤）。"""
     limit = _int(getattr(args, "limit", None), 20)
     source = str(getattr(args, "source", "") or "").strip()
     workspace = str(getattr(args, "workspace", "") or "").strip()
 
-    if source:
-        context.warn(
-            "`--source` 已忽略：Orbit 是单用户本地部署，conversations 表没有平台来源列"
-            "（cli / telegram / discord…），这个过滤条件在本库里永远匹配不到东西。"
-        )
+    # `--source` **现在真的生效**（第 50 轮）：`conversations.source` 列已加。
+    # 之前这里打印「已忽略」，而那比没有这个选项更糟——用户会以为它生效了。
 
     searcher = SessionSearch(context.store)
-    # 带 --workspace 时必须先多取一些再过滤：直接 limit 会在过滤前就把命中切掉。
-    fetch = 200 if workspace else limit
+    # 带 --workspace / --source 时必须先多取一些再过滤：
+    # 直接 limit 会在过滤前就把命中切掉。
+    fetch = 200 if (workspace or source) else limit
     sessions = _run(context, searcher.browse(limit=fetch))
+
+    if source:
+        allowed = _source_conversations(context, source)
+        sessions = [item for item in sessions if item["id"] in allowed]
 
     if workspace:
         lowered = workspace.lower()
@@ -110,7 +125,12 @@ def run_list(context: Context, args) -> int:
         ]
     sessions = sessions[:limit]
 
-    context.out(f"会话 {len(sessions)} 条" + (f"（workspace 含 {workspace}）" if workspace else ""))
+    suffix = ""
+    if workspace:
+        suffix += f"（workspace 含 {workspace}）"
+    if source:
+        suffix += f"（来源 {source}）"
+    context.out(f"会话 {len(sessions)} 条" + suffix)
     context.out()
     context.table(
         ("会话", "标题", "消息数", "更新时间"),
@@ -124,7 +144,10 @@ def run_list(context: Context, args) -> int:
             "ok": True,
             "count": len(sessions),
             "sessions": sessions,
-            "source_ignored": bool(source),
+            # 第 50 轮起 `--source` **真的筛选**了，所以这个字段不再是「已忽略」，
+            # 而是「本次按什么来源筛的」。**留着旧名字会让读 JSON 的脚本
+            # 继续以为参数没生效。**
+            "source": source,
             "workspace": workspace,
         }
     )

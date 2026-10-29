@@ -516,13 +516,29 @@ async def test_sessions_list_cli(tmp_path, capsys):
     assert [item["id"] for item in payload["sessions"]] == ["c2", "c1"]
 
 
-async def test_sessions_list_ignores_source_with_a_reason(tmp_path, capsys):
+async def test_sessions_list_really_filters_by_source(tmp_path, capsys):
+    """**`--source` 现在真的筛选**（第 50 轮，MATRIX 10.x）。
+
+    这条测试原来叫 `test_sessions_list_ignores_source_with_a_reason`，断言的是
+    「参数被忽略 + 给了理由」。**那在当时是诚实的**（`conversations` 没有来源列），
+    但它编码的是**缺陷**——**「有理由地忽略一个参数」仍然比「让参数生效」差一档**：
+    第三方集成传 `--source tool` 想隐藏会话，实际什么都不会发生。
+
+    现在 `conversations.source` 列存在了，这条改成断言**真筛选**：
+    只传 `--source cli` 时拿到 cli 会话；传一个没人用过的来源时拿到空列表。
+    """
     settings = await _cli_seed(tmp_path)
+
     assert main(_argv(settings, "--json", "sessions", "list", "--source", "cli")) == 0
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-    assert payload["source_ignored"] is True
-    assert "已忽略" in captured.err, "忽略参数必须给理由，不能静默"
+    payload = json.loads(capsys.readouterr().out)
+    # 种子会话的 source 默认就是 cli → 全都在
+    assert payload["count"] == 2
+    assert payload["source"] == "cli"
+
+    # 换一个没人用过的来源 → **真的筛掉了**（旧行为会原样返回全部）
+    assert main(_argv(settings, "--json", "sessions", "list", "--source", "tool")) == 0
+    other = json.loads(capsys.readouterr().out)
+    assert other["count"] == 0, "`--source` 没生效——它又变回一个被忽略的参数了"
 
 
 async def test_sessions_list_workspace_matches_goal_and_title(tmp_path, capsys):

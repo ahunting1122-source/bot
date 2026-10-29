@@ -94,7 +94,9 @@ def _conversation(context: Context, store, *, resume: bool, title: str):
             )
             if rows:
                 return rows[0]
-        return await store.save(Conversation(title=title or "命令行对话"))
+        source = getattr(context, "session_source", "") or "cli"
+        # `--source` 落进会话本身（Hermes 语义：会话来源标签，用于过滤）。
+        return await store.save(Conversation(title=title or "命令行对话", source=source))
 
     return context.run(_pick())
 

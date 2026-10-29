@@ -102,6 +102,12 @@ class Conversation(Base):
     #: 任务判"成功"而真实花销已经越线。这两列让它可汇总、可见、可断言。
     summary_tokens: Mapped[int] = mapped_column(Integer, default=0)
     summary_cost_seconds: Mapped[float] = mapped_column(default=0.0)
+    #: 会话来源标签（Hermes `--source`，调研 `01-cli-surface.md:181`）。
+    #:
+    #: **它的唯一用途是过滤**：第三方集成用 `tool` 让自己不出现在用户会话列表里。
+    #: 之前 Orbit 没有这一列，`sessions list --source` 只能打印一句「已忽略」——
+    #: 而**一个存在却被忽略的选项，比没有这个选项更糟**（用户会以为它生效了）。
+    source: Mapped[str] = mapped_column(default="cli", index=True)
 
 
 class Message(Base):
