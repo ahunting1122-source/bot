@@ -193,3 +193,31 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 
 这一轮我自己的两条口径错误（`4.12` 的分母、`4.8` 的「无需外部条件」）**都是靠实测抓出来的**，
 而它们在文档里**看起来和正确的一样自信**。**唯一的区别是：能不能被一条命令验证。**
+
+## `5.14` 剩余 42 条工具的实测三类表
+
+> **口径**：`orbit_coverage()` 是唯一事实源（covered 52 / 94，missing 42）。
+> 下表按 **domain** 分类，每类写清「为什么做不了」与「解锁条件」——
+> **不是估算，是逐条看 `reason` 与实现依赖之后的分类。**
+
+| domain | 条数 | 代表工具 | 类别 | 阻塞条件 / 解锁方式 |
+|---|---|---|---|---|
+| **desktop** | **15** | `desktop_preview` / `open_preview` / `drive_preview` … | **要外部条件** | 要桌面预览运行时（Electron 或等价物）+ 图形会话；本机无 |
+| **collab** | **12** | `discord` / `feishu_doc_read` / `feishu_drive_*` … | **要外部条件** | 要 Discord / 飞书账号与凭证 |
+| **media** | **4** | `image_generate` / `video_generate` / `xai_video_*` | **要外部条件** | 要多模态生成 provider（key + 网络） |
+| **home** | **4** | `ha_list_entities` / `ha_call_service` … | **要外部条件** | 要一台 Home Assistant 实例 |
+| **browser** | **3** | `browser_vision` / `browser_exec` / `browser_cdp` | **2 要外部条件 + 1 刻意不做** | `browser_vision` 要视觉 provider；`browser_exec` 要 `browser-use` 外部 CLI；**`browser_cdp` 刻意不做**（协议逃生口会绕过 ref 校验） |
+| **vision** | **2** | `vision_analyze` / `video_analyze` | **要外部条件** | 要多模态 provider |
+| **search** | **1** | `x_search` | **要外部条件** | 要 X（Twitter）API |
+| **kanban** | **1** | `kanban_attach_url` | **要外部条件** | 要服务端下载 URL 后落盘；本机无网络 |
+
+**合计：本机能做 0 · 要外部条件 41 · 刻意不做 1。**
+
+### 为什么「本机能做 0」这个结论可信
+
+我逐条看了 42 条的 `reason`，并按 domain 分组核对依赖：
+**没有一条是「纯本地逻辑没写」** —— 每一条都缺一个外部物（运行时 / 账号 / provider / CLI）。
+这与 `4.12` 那 18 家语音的结论同形：**分母是真的，只是分子卡在外部条件上。**
+
+**判据：说「本机能做的都做完了」之前，必须逐条看过 `reason`——
+否则「本机能做 0」和「我没找」在文档里长得一样。**
