@@ -143,7 +143,7 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 | **12.10** enroll | 需**公网可达的 HTTPS 回调**地址 | 隧道 / 公网 IP + 平台账号 | 约 1 天 |
 | **4.12** 语音 14 家 | 9 家云要 key + 网络；5 家引擎要装二进制 | 对应 provider 的 key，或 `pip install` 引擎 | 每家约 1–2 小时 |
 | **1.13b** 原生外壳 | Electron 工具链未装（`app/` 里 **零命中**，只有 `skill_seed.py` 的文档文本） | `npm install electron` + 打包器（需网络） | 约 3–5 天 |
-| **4.8** iron-proxy | **无需外部条件——纯排期决定** | 排进某个阶段 | 约 1 周 |
+| **4.8** iron-proxy | **要下载 iron-proxy 二进制 + 铸签 CA + 强制定向出站**（`install` / `setup` / `start` 三条，实测 `egress install` 直接返回 3） | 装二进制 + 有网络 → 约 1 周 | **不需二进制的部分已全部做完**：`allow` / `deny` / `policy` / `check` / `status` / `disable` / `reload` 都已实测可用（`disable`/`reload` 在无守护进程时返回 3 并解释，**那是正确答案**） |
 | **5.14** 工具 47 条未实现 | 见下（分三类） | 见下 | 见下 |
 
 ## `5.14` 的 47 条按「本机能做 / 要外部条件 / 刻意不做」再分
@@ -156,8 +156,14 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 
 ## 一条唯一的「不需外部条件、纯缺排期」的
 
-**`4.8`（iron-proxy）是 6 条里唯一「只要决定做就能做」的**（约 1 周，不需要任何
-外部条件或二进制）。**如果目标是尽量对齐，它可能是下一个该做的。**
+**⚠️ 更正（第 55 轮实测）：`4.8` 不是「只要决定做就能做」的。**
+它需要下载 iron-proxy 二进制、铸签 CA、强制定向出站——`egress install` 实测直接返回 3。
+**「不需二进制的部分」（`allow` / `deny` / `policy` / `check` / `status` / `disable` /
+`reload`）已全部做完**，剩下的三条 `install` / `setup` / `start` **本机无网络、无二进制，
+做不了**。
+
+**所以 6 条 🟡 现在全部是「缺外部条件」或「真缺口」，没有一条是「只缺排期」。**
+**这也意味着：不存在「只要决定做就能推进」的条目了。**
 但它是**架构性改动**（重写整条出站链路），会让「配一个 provider 就能用」变成
 「先配代理才能用」——**所以它是「做不做」的判断，不是「能不能做」的判断。**
 
