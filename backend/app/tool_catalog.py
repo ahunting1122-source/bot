@@ -239,7 +239,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "browser",
         "browser-use CLI 后端执行代码",
         status="unavailable",
-        reason="需要 browser-use 这个外部 CLI（未安装，且本机不能装依赖）。",
+        reason="要一个「在页面里跑任意 JS」的逃生口 —— 与另一条同类条目是同一类决定（都会绕过 ref 校验）。原文写「需要 browser-use 外部 CLI（本机不能装依赖）」，但「不能装」已被第 66 轮实测推翻；而即使装上，要不要一个绕过 ref 校验的入口仍是设计选择，不是依赖问题。",
     ),
     # ── web（2）─────────────────────────────────────────────────────────────
     _t("web_search", "web", "网页搜索，最多 5 条结果", ("web_search",)),
