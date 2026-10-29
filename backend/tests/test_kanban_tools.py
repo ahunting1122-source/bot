@@ -656,3 +656,33 @@ def test_cycle_detection_finds_a_cycle_on_the_second_parent(board):
 
     # 数据没被改坏
     assert kanban.show(data_dir, x.id).parents == []
+
+def test_cycle_detection_walks_the_whole_chain_not_just_two_levels(board):
+    """**环只在第 5 层可达**——这条防的是「BFS 但只走两层」那种假 DFS（第 49 轮）。
+
+    上一条测试（环在第二个前驱）能挡住「只看 `parents[0]`」的实现，
+    **但挡不住「走了前驱、但只走两层」的实现**——那种在上一条的构造里也能撞上 X。
+
+    这里把环藏到第 5 层：
+    ```
+    N1.parents = [N2]
+    N2.parents = [N3]
+    N3.parents = [N4]
+    N4.parents = [N5]
+    N5.parents = [N1]      ← 已经成环？不行，那是建边时就该被拒
+    ```
+    所以换个方向：先建一条**长链**，再让**链头**依赖**链尾**——
+    检查从链尾上溯必须走满 4 跳才撞到链头。
+    """
+    kanban, data_dir = board
+    nodes = [kanban.create(data_dir, f"N{i}") for i in range(1, 6)]
+
+    # N1 → N2 → N3 → N4 → N5（N1 是链头，N5 是链尾）
+    for child, parent in zip(nodes[1:], nodes[:4], strict=False):
+        kanban.link(data_dir, child.id, parent.id)
+
+    # 让链头依赖链尾 → 成环，**从 N1 上溯要跨 4 条边才回到 N5→N1**
+    with pytest.raises(kanban.KanbanError) as excinfo:
+        kanban.link(data_dir, nodes[0].id, nodes[4].id)
+    assert "环" in str(excinfo.value)
+    assert kanban.show(data_dir, nodes[0].id).parents == []

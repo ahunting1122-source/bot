@@ -805,3 +805,33 @@ async def test_the_progress_hint_says_so_when_there_are_no_events(tmp_path):
 
     hint = _progress_hint(store, "no-such-task")
     assert "一条事件都没有" in hint, hint
+
+async def test_the_progress_hint_does_not_swallow_the_real_failure(tmp_path):
+    """**提示失败不该盖住真正的失败**（第 49 轮）。
+
+    `_progress_hint` 里有一条 `except`——读事件本身抛异常时，要**返回一句说明**
+    而不是把异常抛出去盖掉原始断言。**那是它唯一没被测试覆盖的路径**，
+    而「错误处理分支没测过」正是最容易写错的地方。
+    """
+
+    class _BrokenLog:
+        def since(self, *args, **kwargs):
+            raise RuntimeError("事件流坏了")
+
+    class _BrokenStore:
+        event_log = _BrokenLog()
+
+    hint = _progress_hint(_BrokenStore(), "any-task")
+    assert "读事件失败" in hint, hint
+    # **不能把异常抛出去**——那会让原始失败信息消失
+    assert "事件流坏了" in hint, hint
+
+
+async def test_the_progress_hint_says_so_when_the_store_has_no_log(tmp_path):
+    """store 没有 `event_log` 时也要如实说，而不是静默返回空串。"""
+
+    class _NoLog:
+        pass
+
+    hint = _progress_hint(_NoLog(), "any-task")
+    assert "没有 event_log" in hint, hint
