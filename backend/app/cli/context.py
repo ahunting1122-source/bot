@@ -85,6 +85,8 @@ class Context:
         #: 在**不同的层**，`state` 传不过去。而 `--source` 的语义是「这个任务从哪来」，
         #: 它要被 `_submit()` 拿去当 `enqueue(..., platform=...)`。
         self.session_source = ""
+        #: --usage-file 用的 task_id（_one_turn 写，_write_usage_report 读）。
+        self.last_task_id: str | None = None
         if data_dir is not None:
             self.settings = self.settings.model_copy(update={"data_dir": data_dir})
         self.json = json_output

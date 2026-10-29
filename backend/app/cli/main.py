@@ -69,6 +69,15 @@ def _global_options() -> argparse.ArgumentParser:
         default=suppressed,
         help="单次提问：只把最终回答打到 stdout 后退出（脚本/管道友好）",
     )
+    # `--usage-file` 是**全局** flag（与 `-z` 同级）：Hermes 的语义是
+    # 「**仅 one-shot 模式**：运行后把 JSON 用量报告写到该路径」
+    # （`research/01-cli-surface.md:1834`）。
+    parser.add_argument(
+        "--usage-file",
+        metavar="PATH",
+        default=suppressed,
+        help="仅 one-shot 模式：运行后把 JSON 用量报告（token 数 / 模型 / api_calls / 耗时）写到该路径",
+    )
     return parser
 
 

@@ -191,6 +191,102 @@ def _answer_of(context: Context, store, task_id: str) -> str:
     return str(row.content) if row is not None else ""
 
 
+def _write_usage_report(context: Context, store, usage_file) -> None:
+    """`--usage-file` 的落地：把这次 one-shot 的用量写成 JSON。
+
+    ## 哪些字段精确、哪些是近似、哪些没有（如实写）
+
+    - `tokens`：**精确** —— `Chunk` 表按 `task_id` 汇总；
+    - `model`：**精确** —— 取 `settings.model`；
+    - `duration_seconds`：**精确** —— `Task.updated_at - created_at`；
+    - `api_calls`：**近似** —— `TaskEvent` 里 `event_type` 含 `model` 的条数，
+      **它不等于 Hermes 的 `api_calls`**（本仓的 `event_type` 是自己定的名字）；
+    - `cost`：**没有** —— 本仓没有单价表，**不编一个数**。
+
+    **「这一项没有」比「这一项是错的」好。**
+    """
+    if not usage_file:
+        return
+    import json
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.storage import Task, TaskEvent
+
+    task_id = getattr(context, "last_task_id", None)
+    if not task_id:
+        context.warn("--usage-file：这次没有拿到 task_id（不是 one-shot 模式？），未写用量报告。")
+        return
+
+    async def _gather():
+        # **正确的源是 `summary_cost` 事件**（`agent.py` 在任务收尾时写）：
+        # 它带 `calls` / `tokens` / `elapsed`，正好是 Hermes 报告要的三样。
+        #
+        # 第一版按 `sum(Chunk.tokens)` 算 —— **但 `Chunk.tokens` 从不被写**
+        # （有列、有类型、有默认值，看起来完全可用，**却没有写入点**），
+        # 所以真实运行里永远报 `tokens: 0`。**我是在「跑一遍看输出」时发现的。**
+        ledger = None
+        for event in await store.rows(
+            select(TaskEvent).where(
+                TaskEvent.task_id == task_id,
+                TaskEvent.event_type == "summary_cost",
+            )
+        ):
+            ledger = event.payload or {}
+        task = await store.get(Task, task_id)
+        return ledger, task
+
+    try:
+        ledger, task = context.run(_gather())
+    except Exception as exc:  # noqa: BLE001 —— 写报告失败不该让成功的问答变成失败
+        context.warn(f"--usage-file：汇总用量失败（{exc}），未写报告。")
+        return
+
+    # 台账缺失要**如实说**，不能当成 0 ——「0 token」和「没记到」是两件事。
+    ledger = ledger if isinstance(ledger, dict) else {}
+    total_tokens = ledger.get("tokens")
+    api_calls = ledger.get("calls")
+
+    report = {
+        "task_id": task_id,
+        "model": context.settings.model,
+        "tokens": total_tokens,
+        "api_calls": api_calls,
+        "ledger_note": (
+            "取自任务收尾时写的 `summary_cost` 事件（`calls` / `tokens` / `elapsed`）；"
+            "**台账缺失时为 null，不是 0**"
+            if ledger
+            else "**这次任务没有 `summary_cost` 台账**（例如未走到收尾）——"
+            "`tokens` 与 `api_calls` 为 null，不是 0"
+        ),
+        "cost": None,
+        "cost_note": "本仓没有单价表，不估算——这一项没有，不是 0",
+        "duration_seconds": None,
+        "status": getattr(task, "status", None),
+    }
+    if ledger.get("elapsed") is not None:
+        report["model_elapsed_seconds"] = ledger.get("elapsed")
+    if task is not None:
+        try:
+            from datetime import datetime
+
+            start = datetime.fromisoformat(str(task.created_at))
+            end = datetime.fromisoformat(str(task.updated_at))
+            report["duration_seconds"] = round((end - start).total_seconds(), 3)
+        except (TypeError, ValueError):
+            pass
+
+    path = Path(str(usage_file)).expanduser()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        context.warn(f"--usage-file：写不了 {path}（{exc}）。")
+        return
+    context.note(f"--usage-file：用量报告已写到 {path}")
+
+
 def _one_turn(context: Context, store, runner, conversation_id: str, text: str, *, stream: bool) -> str:
     """跑一轮：提交 → 驱动 → 处理 WAITING_USER → 取最终回答。"""
     task_id = _submit(context, store, runner, conversation_id, text)
@@ -213,6 +309,8 @@ def _one_turn(context: Context, store, runner, conversation_id: str, text: str, 
         if state["status"] == "CANCELLED":
             raise CliError("任务被取消")
         answer = _answer_of(context, store, task_id) or state["text"]
+        # 记下 task_id：`--usage-file` 要按它汇总用量（见 `_write_usage_report`）。
+        context.last_task_id = task_id
         return answer
 
 
@@ -474,6 +572,7 @@ def run_chat(context: Context, args) -> int:
     try:
         if prompt:
             answer = _one_turn(context, store, runner, conversation.id, str(prompt), stream=False)
+            _write_usage_report(context, store, getattr(args, "usage_file", None))
             context.out(answer)
             context.emit({"ok": True, "answer": answer, "conversation_id": conversation.id})
             return 0
