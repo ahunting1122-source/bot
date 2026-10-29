@@ -109,7 +109,8 @@ def _submit(context: Context, store, runner, conversation_id: str, text: str):
         )
         task = await store.save(Task(conversation_id=conversation_id, goal=text))
         await store.event(task.id, "task_created", goal=text)
-        await runner.enqueue(task.id)
+        # --source 决定任务来源平台 → 工具暴露面（MATRIX 6.4 / 1.7）。
+        await runner.enqueue(task.id, platform=getattr(context, "session_source", "") or "cli")
         return task.id
 
     return context.run(_do())
@@ -309,13 +310,29 @@ def _apply_flags(context: Context, args) -> dict[str, Any]:
     if run_budget:
         if int(run_budget) <= 0:
             raise CliError(f"--run-budget 必须是正整数秒：{run_budget}")
-        updates["run_budget_seconds"] = int(run_budget)
+        # **写 `max_seconds`，不是 `run_budget_seconds`**（MATRIX 1.7）。
+        #
+        # 原来写的是 `updates["run_budget_seconds"]`，而 `Settings` 里根本没有
+        # 这个字段——pydantic 会**静默丢掉**未声明的 kwarg，于是 `--run-budget`
+        # **一个字节都没生效**：产品读的是 `settings.max_seconds`
+        # （`policies.py` 拿它做时间预算闸门）。
+        #
+        # 这是「**接上了但没生效**」那一族（与 2.2 / 4.3 / 4.4 / 4.9 同族），
+        # 而且是最难发现的一种：**flag 能解析、不报错、也没有任何提示**。
+        updates["max_seconds"] = int(run_budget)
 
     # ── 会话与工作目录 ────────────────────────────────────────────────────
     if getattr(args, "pass_session_id", False):
         state["pass_session_id"] = True
     if getattr(args, "source", None):
-        updates["session_source"] = str(args.source).strip()
+        # **--source 接到平台机制上**（MATRIX 6.4 / 1.7）。
+        #
+        # 原来写的是 updates["session_source"]，而全仓**零读取点**——
+        # 又是一个「写了没人读」的装饰 flag。
+        # --source 的语义就是「这个任务从哪来」，而 6.4 建的
+        # enqueue(..., platform=...) 正好消费这个信息（它决定工具暴露面）。
+        # 挂在 context 上而不是 state：_submit() 在另一层，拿不到 state。
+        context.session_source = str(args.source).strip()
     if getattr(args, "accept_hooks", False):
         state["accept_hooks"] = True
         context.note("--accept-hooks：本次自动信任新出现的 shell hooks（会写进 hooks 信任表）。")

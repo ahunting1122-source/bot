@@ -79,6 +79,12 @@ class Context:
         data_dir: Path | None = None,
     ) -> None:
         self.settings = settings or Settings()
+        #: `--source` 的落地处（MATRIX 1.7 / 6.4）。
+        #:
+        #: 为什么挂在 `Context` 上而不是 `state`：`_apply_flags()` 与 `_submit()`
+        #: 在**不同的层**，`state` 传不过去。而 `--source` 的语义是「这个任务从哪来」，
+        #: 它要被 `_submit()` 拿去当 `enqueue(..., platform=...)`。
+        self.session_source = ""
         if data_dir is not None:
             self.settings = self.settings.model_copy(update={"data_dir": data_dir})
         self.json = json_output

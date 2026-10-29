@@ -31,7 +31,10 @@ class StubRunner:
         self.answer = answer
         self.enqueued: list[str] = []
 
-    async def enqueue(self, task_id, resume=None):
+    async def enqueue(self, task_id, resume=None, *, platform="cli"):
+        # 签名要与真实 `AgentRunner.enqueue` 一致（MATRIX 6.4 之后 `_submit()`
+        # 会传 `platform=`）。假件签名不准会让「产品真的传了参数」变成测试报错。
+        self.platform_seen = platform
         from app.storage import Message
 
         self.enqueued.append(task_id)
@@ -174,7 +177,10 @@ def test_waiting_user_is_resumed(tmp_path, monkeypatch, capsys):
             super().__init__(store)
             self.rounds = 0
 
-        async def enqueue(self, task_id, resume=None):
+        async def enqueue(self, task_id, resume=None, *, platform="cli"):
+            # 签名要与真实 `AgentRunner.enqueue` 一致（MATRIX 6.4 之后 `_submit()`
+            # 会传 `platform=`）。假件签名不准会让「产品真的传了参数」变成测试报错。
+            self.platform_seen = platform
             from app.storage import Message
 
             self.enqueued.append(task_id)
