@@ -125,6 +125,25 @@ Orbit 的 `conversations.source` 列**已加**（`0012` 迁移），`sessions li
 **判据：`updates` 里出现的每个键都必须在 `Settings.model_fields` 里。**
 `tests/test_global_flag_consumers.py` 用**性质断言**守着这条（遍历当前实际写的键，不是清单）。
 
+### 3.9 复核方式必须跑在「被测的那个环境」里
+
+**这一条是元级的：它管的是「怎么复核」，不是「复核什么」。**
+
+**实例**：`GAPS.md` 的复核方式一度写成 `pip show coincurve` ——
+但**这个 venv 里没有 `pip` 模块**（`No module named pip`），
+而 **PATH 上的 `pip` 是 Miniconda 的**（`E:\Miniconda3\Scripts\pip.exe`）。
+→ **它查的是另一个环境**：如果 Miniconda 里恰好装了，它会报「有」而 venv 里没有。
+
+**正确写法**：
+```powershell
+cd E:\bbbooottt\backend
+.\.venv\Scripts\python.exe -c "import importlib.util as u; print(u.find_spec('coincurve') is not None)"
+# → False
+```
+
+**判据：复核方式必须跑在「被测的那个环境」里；全局 `pip` 不等于 venv ——
+而「查错环境」比「不查」更糟**（前者给出确定的错答案，后者至少让人知道没查）。
+
 ---
 
 ## 四、方法论（59 轮里用血换的，按价值排序）

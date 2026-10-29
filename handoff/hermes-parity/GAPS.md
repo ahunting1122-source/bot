@@ -60,7 +60,8 @@
 ## 汇总
 
 - **该 ✅（本机可造且小）：4 条** —— 13.5 / 6.4 / 15.4 / 4.9（**10.14 已于第 31 轮完成**）
-- **继续 🟡（> 1 天或依赖外部）：7 条** —— 5.14 / 4.12 / 12.5 / 12.10 / 4.8 / 1.13b / 14.8
+- **继续 🟡（依赖外部条件或真实现）：6 条** —— 5.14（41 条要外部条件）/ 4.12（15 家）/ 12.5（buzz+photon）/ 12.10 / 4.8（要二进制）/ 1.13b（要 electron 包）
+  **（14.8 已 ✅；14.11 第 61 轮已完成 —— 旧的汇总行把 14.8 列在这里是过期的）**
 - **该 ⚫：0 条** —— 没有一条是「实现已完成、只差验证」
 - **该 🟢：0 条** —— 「决定不做」是排期不是设计，按口径不转 🟢
 
@@ -142,7 +143,7 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 | **12.5** `photon` | `grpcio` 未装（同上） | `pip install grpcio`（需网络） | 约半天 |
 | **12.10** enroll | 需**公网可达的 HTTPS 回调**地址 | 隧道 / 公网 IP + 平台账号 | 约 1 天 |
 | **4.12** 语音 14 家 | 9 家云要 key + 网络；5 家引擎要装二进制 | 对应 provider 的 key，或 `pip install` 引擎 | 每家约 1–2 小时 |
-| **1.13b** 原生外壳 | Electron 工具链未装（`app/` 里 **零命中**，只有 `skill_seed.py` 的文档文本） | `npm install electron` + 打包器（需网络） | 约 3–5 天 |
+| **1.13b** 原生外壳 | **`npm` 与 `node` 已在 PATH**（`D:\npm.ps1` / `D:\node.exe`）；只缺 `electron` 包与网络 | `npm install electron` + 打包器（需网络） | **约半天到 1 天**（原写 3–5 天，是照「整条工具链都要装」估的，**实测证伪**） |
 | **4.8** iron-proxy | **要下载 iron-proxy 二进制 + 铸签 CA + 强制定向出站**（`install` / `setup` / `start` 三条，实测 `egress install` 直接返回 3） | 装二进制 + 有网络 → 约 1 周 | **不需二进制的部分已全部做完**：`allow` / `deny` / `policy` / `check` / `status` / `disable` / `reload` 都已实测可用（`disable`/`reload` 在无守护进程时返回 3 并解释，**那是正确答案**） |
 | **5.14** 工具 47 条未实现 | 见下（分三类） | 见下 | 见下 |
 
@@ -179,11 +180,11 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 
 | 条目 | 复核命令 | 期望结果 |
 |---|---|---|
-| **12.5** `buzz` | `backend\.venv\Scripts\python.exe -c "import importlib.util as u; print(u.find_spec('coincurve'))"` | `None`（未装） |
+| **12.5** `buzz` | `backend\.venv\Scripts\python.exe -c "import importlib.util as u; print(u.find_spec('coincurve') is not None)"` | `False` |
 | **12.5** `photon` | 同上，把 `coincurve` 换成 `grpcio` | `None`（未装） |
 | **12.10** enroll | `orbit pairing --help` 后看是否需要公网回调 | 文档要求公网可达 HTTPS |
-| **4.12** 语音 18 家 | `where ffmpeg` / `where say` / `where espeak` / … | `ffmpeg` 在；其余不在 |
-| **1.13b** 原生外壳 | `orbit desktop --help`（`app/` 里 electron 零命中） | 只有文档文本，无实现 |
+| **4.12** 语音 18 家 | `where ffmpeg` / `where say` / `where espeak` / … **（注意：`flite` 在 `EXTRA_TTS` 里，不在 `TTS_PROVIDERS` 里——只查后者会得出「0 可用」的错结论）** | `ffmpeg` 在（`flite` 走它的 libflite 滤镜）；其余 5 个命令不在 |
+| **1.13b** 原生外壳 | `where.exe npm` / `where.exe node` / `where.exe electron` | **`npm` 与 `node` 都在 PATH**（`D:\npm.ps1` / `D:\node.exe`）；**只有 `electron` 包没装** → **缺的是「一个 npm 包 + 网络」，不是「整条工具链」** |
 | **4.8** iron-proxy | `orbit egress install --data-dir <临时目录>` | **exit 3**（「没有可操作的对象」） |
 | **5.14** 工具 52/94 | `orbit tools coverage`（或 `scripts/matrix_stats.py`） | `covered 52 / 94` |
 
