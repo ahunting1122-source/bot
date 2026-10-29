@@ -47,6 +47,13 @@ _STORE: Any = None
 #: 装配层注入的**委派器构造器**：`(conversation_id) -> DelegateRunner`。
 _BUILDER: Any = None
 
+#: `父 task_id -> 这个父任务用过的 DelegateRunner`。
+#:
+#: **为什么必须按父任务留一份**：父任务被取消时（`AgentRunner.cancel`），
+#: 要能找到它派出去的子任务并一并停掉。不留这份，父停了子还在跑——
+#: 烧钱、占租约，而且父任务早已结束，那些产出没有任何人读。
+_RUNNERS: dict[str, Any] = {}
+
 #: 同时最多派几个。Hermes 的 `agent_swarm` 上限 128，但那要求先有 128 份模型配额；
 #: 这里取一个能跑完的数，**超了明确拒绝而不是排队**——排到超时比直接说不更糟。
 MAX_SWARM_ITEMS = 16
@@ -106,6 +113,7 @@ def reset() -> None:
     global _STORE, _BUILDER
     _STORE = None
     _BUILDER = None
+    _RUNNERS.clear()
 
 
 async def _runner_for(task_id: str) -> Any:
@@ -119,7 +127,35 @@ async def _runner_for(task_id: str) -> Any:
     task = await _STORE.get(Task, task_id)
     if task is None:
         raise RuntimeError(f"找不到任务 {task_id}，无法确定子任务该落在哪个会话")
-    return _BUILDER(task.conversation_id)
+    runner = _BUILDER(task.conversation_id)
+    # 按父任务留一份，供 `cancel_children` 在父被取消时找到它。
+    _RUNNERS[task_id] = runner
+    return runner
+
+
+async def cancel_children(task_id: str) -> int:
+    """停掉这个父任务派出去的所有子任务，返回停掉了几个（④ 中断传播）。
+
+    **由 `AgentRunner.cancel` 调用**。不这么做的话，父任务被取消后子任务会
+    继续跑到自己预算耗尽：烧钱、占租约，而且父已经结束，产出没人读。
+
+    失败**不抛**——取消路径上再抛异常只会让用户看到第二个错误，
+    而真正的取消已经发生了。但会留一条 warning。
+    """
+    runner = _RUNNERS.pop(task_id, None)
+    if runner is None:
+        return 0
+    stopped = 0
+    try:
+        for child_id in list(getattr(runner, "_children", {}) or {}):
+            try:
+                await runner.cancel(child_id)
+                stopped += 1
+            except Exception as exc:  # noqa: BLE001 —— 见 docstring
+                log.warning("停子任务 %s 失败：%s", child_id, exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("遍历子任务失败（父任务 %s）：%s", task_id, exc)
+    return stopped
 
 
 def _guard_depth() -> None:
@@ -224,6 +260,7 @@ def register_delegate_tools(
 
 __all__ = [
     "DELEGATE_TOOLS",
+    "cancel_children",
     "MAX_SWARM_ITEMS",
     "configure",
     "execute",

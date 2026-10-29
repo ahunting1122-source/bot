@@ -1264,7 +1264,10 @@ class Nodes:
         return {
             "messages": messages,
             "calls": state["calls"][1:],
-            "actions": state["actions"] + 1,
+            # 委派工具的子任务步数**记到父任务账上**（MATRIX 5.14 ②）。
+            # 不记的话：父预算 90 步 + 3 个子任务各 50 步 = 实际能烧 240 步，
+            # 而 `budget` 节点只看父自己的 `actions` —— **预算闸门形同虚设**。
+            "actions": state["actions"] + 1 + _child_steps(result),
             "answer": {},
             "waiting": {},
             "last_result": {
@@ -1794,6 +1797,20 @@ def register_ask_user(registry) -> None:
 
 
 __all__ = ["AskArgs", "Nodes", "register_ask_user", "tried_tool"]
+
+
+def _child_steps(result: Any) -> int:
+    """委派工具交回的子任务步数（MATRIX 5.14 ②）。
+
+    **只有委派工具会带 steps 键**，所以这个函数对其余工具恒返回 0——
+    不需要按工具名判断（按名字判断会在改名时静默失效）。
+    """
+    if not isinstance(result, dict):
+        return 0
+    try:
+        return max(0, int(result.get("steps") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _stop_hint(reason: str, budget: dict, turns: int) -> str:

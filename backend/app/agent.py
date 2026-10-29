@@ -410,6 +410,26 @@ class AgentRunner:
         await self.enqueue(task_id, resume, platform=platform)
 
     async def cancel(self, task_id: str):
+        """取消一个任务，**并把它派出去的子任务一起停掉**（MATRIX 5.14 ④）。
+
+        ## 为什么必须连带停子任务
+
+        `DelegateRunner` 只在自己被 `cancel()` 时才停子任务，而父任务被取消走的是
+        这里。**不连带的话，父停了子还在跑**：烧钱、占着会话租约，
+        而且父任务早已结束，那些子任务的产出没有任何人读。
+
+        调用顺序是**先停子再停父**：反过来的话父的 job 一 cancel，
+        这条协程可能就被打断在 `await` 上，子任务就漏掉了。
+
+        失败**不抛**——取消路径上再抛只会让用户看到第二个错误，
+        而真正的取消已经发生了。`cancel_children` 内部自己记 warning。
+        """
+        try:
+            from app import tool_delegate
+
+            await tool_delegate.cancel_children(task_id)
+        except Exception as exc:  # noqa: BLE001 —— 见 docstring
+            log.warning("停子任务失败（父任务 %s，继续取消父任务）：%s", task_id, exc)
         job = self.current.get(task_id)
         if job:
             job.cancel()
