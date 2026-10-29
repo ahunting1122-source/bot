@@ -430,8 +430,10 @@ def test_delegation_is_covered_and_the_kanban_board_is_partially_covered():
     # 而这轮已经为此红了三次。改成从「实际仍缺的看板工具」里取，
     # 断言的是**性质**（缺的必须带原因），不是**清单**（哪几个缺）。
     coverage = tool_catalog.orbit_coverage()
-    still_missing = [by_name[name] for name in coverage.missing if "kanban" in name]
-    assert still_missing, "看板全部覆盖了——这条断言该改成别的域，或整条删掉"
-    for record in still_missing:
-        assert record.orbit_status == "unavailable", record.name
-        assert record.reason.strip(), f"{record.name} 缺了却没写理由"
+    # **看板家族已 14/14 全实现**（第 70 轮）——所以这里不再断言「还有缺的看板工具」，
+    # 改成断言「已覆盖的看板工具都有真实映射」+「整个家族一条不缺」。
+    kanban_all = [t for t in tool_catalog.HERMES_TOOLS if t.domain == "kanban"]
+    kanban_missing = [t.name for t in kanban_all if t.name in set(coverage.missing)]
+    assert not kanban_missing, f"看板家族还缺：{kanban_missing}"
+    for tool in kanban_all:
+        assert tool.orbit_tools == (tool.name,), f"{tool.name} 没有真实映射"

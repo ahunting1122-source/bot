@@ -450,8 +450,12 @@ async def test_a_broken_base64_is_refused_with_a_clear_reason(board):
     assert "base64" in str(excinfo.value)
 
 
-def test_production_registers_thirteen(tmp_path):
-    """**生产装配**：`create_app()` 之后 13 个看板工具真的都在注册表里。"""
+def test_production_registers_every_declared_kanban_tool(tmp_path):
+    """**生产装配**：`create_app()` 之后**声明的每一个**看板工具都在注册表里。
+
+    **不写死数字**：从 `KANBAN_TOOLS` 实际长度派生。
+    写死数字的话，每加一个工具就要改一次测试 —— 而这个家族已经加过 4 次。
+    """
     from starlette.testclient import TestClient
 
     from app.config import Settings
@@ -461,8 +465,11 @@ def test_production_registers_thirteen(tmp_path):
     settings.prepare()
     app = create_app(settings=settings)
     with TestClient(app):
+        from app.tool_kanban import KANBAN_TOOLS
+
         names = set(app.state.kanban_tools)
-        assert len(names) == 13, sorted(names)
+        declared = {tool.name for tool in KANBAN_TOOLS}
+        assert names == declared, f"声明了 {sorted(declared)}，注册了 {sorted(names)}"
         assert "kanban_attach" in names
         assert "kanban_attachments" in names
 

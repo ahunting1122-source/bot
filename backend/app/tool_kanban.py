@@ -102,6 +102,12 @@ class AttachArgs(Args):
     content_base64: str = Field(min_length=1, description="文件内容的 base64 编码")
 
 
+class AttachUrlArgs(Args):
+    id: str = Field(min_length=1, description="卡片 id")
+    url: str = Field(min_length=1, description="要下载的附件 URL（http/https）")
+    name: str = Field(default="", description="附件名（空 = 从 URL 路径取）")
+
+
 KANBAN_TOOLS: list[Tool] = [
     Tool(
         "kanban_create",
@@ -169,6 +175,11 @@ KANBAN_TOOLS: list[Tool] = [
         "kanban_attachments",
         "列一张卡的附件（**交回绝对路径**，可以直接拿去读）。",
         CardIdArgs,
+    ),
+    Tool(
+        "kanban_attach_url",
+        "按 URL 挂附件（**服务端下载**后落盘）。云元数据端点会被拒；超过 8 MiB 会在下载过程中停下。",
+        AttachUrlArgs,
     ),
 ]
 
@@ -266,6 +277,15 @@ async def execute(
     if name == "kanban_attachments":
         items = kanban.attachments(data_dir, str(args["id"]))
         return {"ok": True, "count": len(items), "attachments": items}
+
+    if name == "kanban_attach_url":
+        card = kanban.attach_url(
+            data_dir,
+            str(args["id"]),
+            str(args["url"]),
+            name=str(args.get("name") or ""),
+        )
+        return {"ok": True, "card": _full(card)}
 
     raise ValueError(f"未知的看板工具：{name}")
 

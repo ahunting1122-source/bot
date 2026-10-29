@@ -112,6 +112,7 @@ TOOL_TOOLSET: dict[str, str] = {
     "kanban_request_changes": "kanban",
     "kanban_attach": "kanban",
     "kanban_attachments": "kanban",
+    "kanban_attach_url": "kanban",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

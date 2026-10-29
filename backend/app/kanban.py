@@ -515,6 +515,58 @@ def attach(data_dir: str | Path, card_id: str, name: str, data: bytes) -> Card:
     raise KanbanError(f"找不到卡片 {card_id}")
 
 
+def attach_url(
+    data_dir: str | Path, card_id: str, url: str, *, name: str = "", timeout: float = 60.0
+) -> Card:
+    """按 URL 挂附件：**服务端下载后落盘**，然后走与 `attach()` 同一条路径。
+
+    ## 为什么必须先过云元数据闸
+
+    「按 URL 下载」是**最经典的 SSRF 入口**：攻击者只要能让这个 URL 指向
+    `169.254.169.254`，就能把云实例凭证下载成「附件」再读出来。
+    所以这里第一件事是 `refuse_cloud_metadata(url)` —— 与其余出站点同一条规则。
+
+    ## 为什么在下载过程中判大小
+
+    先下完再判大小，等于让攻击者用 100MB 的响应把进程内存和磁盘打满。
+    这里按块累加，**超限立刻停**。
+
+    ## 为什么复用 `attach()`
+
+    下载完之后的「写文件 + 改卡片 + 同名覆盖」逻辑 `attach()` 已经做过并验过了。
+    **重写一份必然漂移。**
+    """
+    import httpx
+
+    from app.egress import refuse_cloud_metadata
+
+    refuse_cloud_metadata(url, where="附件下载")
+
+    # 名字没给就从 URL 路径里取；取不到就用一个安全默认名。
+    if not name:
+        from pathlib import PurePath
+        from urllib.parse import urlparse
+
+        candidate = PurePath(urlparse(str(url)).path or "").name
+        name = candidate or "attachment"
+
+    chunks: list[bytes] = []
+    total = 0
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with client.stream("GET", str(url)) as response:
+            response.raise_for_status()
+            for block in response.iter_bytes(65536):
+                total += len(block)
+                if total > MAX_ATTACHMENT_BYTES:
+                    raise KanbanError(
+                        f"附件过大：已下 {total} 字节（上限 {MAX_ATTACHMENT_BYTES}）。"
+                        "**下载过程中就停，不是先下完再拒绝**——否则一个大响应就能把内存打满。"
+                    )
+                chunks.append(block)
+
+    return attach(data_dir, card_id, name, b"".join(chunks))
+
+
 def attachments(data_dir: str | Path, card_id: str) -> list[dict[str, Any]]:
     """列附件，**并把相对路径还原成绝对路径**交回去。
 
@@ -640,6 +692,7 @@ __all__ = [
     "ATTACH_DIRNAME",
     "MAX_ATTACHMENT_BYTES",
     "attach",
+    "attach_url",
     "attachments",
     "blockers",
     "board_path",

@@ -367,7 +367,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("kanban_heartbeat", "kanban", "长操作期间发「我还活着」信号", orbit_tools=("kanban_heartbeat",)),
     _t("kanban_link", "kanban", "给两个已存在任务加父子依赖边", orbit_tools=("kanban_link",)),
     _t("kanban_attach", "kanban", "内联 base64 挂附件到任务", orbit_tools=("kanban_attach",)),
-    _t("kanban_attach_url", "kanban", "按 URL 挂附件（server 侧下载）", status="unavailable", reason="同上，且要 server 侧下载能力。"),
+    _t("kanban_attach_url", "kanban", "按 URL 挂附件（server 侧下载）", orbit_tools=("kanban_attach_url",)),
     _t("kanban_attachments", "kanban", "列任务附件（含磁盘绝对路径）", orbit_tools=("kanban_attachments",)),
     # ── 定时（1）───────────────────────────────────────────────────────────
     _t(
