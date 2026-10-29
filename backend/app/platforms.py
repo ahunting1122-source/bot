@@ -145,9 +145,14 @@ PLATFORMS: dict[Platform, PlatformSpec] = {
         label="Buzz",
         description="轮询 + 本地 CLI：shell out 到 buzz 命令，走 Nostr relay 收发",
         credentials=("BUZZ_PRIVATE_KEY",),
-        reason="需要 Nostr 私钥签名（secp256k1 / BIP-340 Schnorr）与本地 buzz CLI。"
-        "本机实测 `coincurve` / `ecdsa` / `secp256k1` 三个包**都没有**，也没有 buzz CLI、"
-        "没有 relay——签名这一步无法离线验证，所以不做",
+        reason="需要 Nostr 私钥签名（secp256k1 / **BIP-340 Schnorr**）与本地 buzz CLI。"
+        "**缺的到底是哪一层（实测）**：本机装了 `cryptography` 50.0.1，它"
+        "**原生支持 `SECP256K1` 曲线**（`ec.generate_private_key(ec.SECP256K1())` "
+        "+ sign/verify 实测通过）——**所以缺的不是曲线，是 `BIP-340 Schnorr` 这一层**："
+        "`cryptography` 的 `ec` 模块里没有任何 schnorr。而 `coincurve` / `ecdsa` / "
+        "`secp256k1` 三个包都没有、`buzz` CLI 也不在 PATH、没有 relay。"
+        "**结论**：签名这一步既实现不了也验证不了——"
+        "**不是「装一个包就行」，是要换一个支持 Schnorr 的库并重写签名**，所以不做",
     ),
     Platform.DINGTALK: PlatformSpec(
         platform=Platform.DINGTALK,

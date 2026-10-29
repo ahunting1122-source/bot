@@ -221,3 +221,21 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 
 **判据：说「本机能做的都做完了」之前，必须逐条看过 `reason`——
 否则「本机能做 0」和「我没找」在文档里长得一样。**
+
+## `12.5` 的阻塞条件补精确（第 62 轮实测）
+
+| 平台 | 原写法 | **实测之后的精确写法** |
+|---|---|---|
+| **buzz** | 「`coincurve` / `ecdsa` / `secp256k1` 三个包都没有」 | **缺的不是 secp256k1 曲线，是 `BIP-340 Schnorr` 这一层**：本机装了 `cryptography` 50.0.1，它**原生支持 `SECP256K1`**（`ec.generate_private_key(ec.SECP256K1())` + sign/verify 实测通过），但它的 `ec` 模块里**没有任何 schnorr**。**加上 `buzz` CLI 不在 PATH、没有 relay** → 签名这一步既实现不了也验证不了 |
+| **photon** | 「`grpcio` / `grpc` 都没有」 | **准确**（另需 spectrum-ts 的 Node sidecar + 项目凭证 + 设备登录 token） |
+
+**为什么这条更正重要**：原写法**会让读者以为「装一个包就行」**，
+而实际是**「要换一个支持 Schnorr 的库并重写签名」**。
+
+**判据：阻塞条件要写到「缺的到底是哪一层」，否则「装个包就行」和
+「得换个库重写」在文档里长得一样。**
+
+**顺带说明**：我一度怀疑 `12.5` 可能被漏判成「不可做」——
+因为 `cryptography` 已经装了、而它能做 secp256k1。**查过之后确认漏判不成立**：
+`buzz` 要的是 Schnorr（`cryptography` 没有），`photon` 要的是 gRPC + Node sidecar。
+**「怀疑自己的分类」这个动作本身是对的，它让这条结论从「我记得」变成「我查过」。**
