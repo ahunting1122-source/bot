@@ -331,7 +331,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "vision",
         "把图片加载进对话（任意时刻用户提到图片都可调）",
         status="unavailable",
-        reason="**需要多模态 provider，并且需要「工具层能调模型」这条通道** —— `app/tool_*.py` 里没有任何一处调模型（工具是纯函数式执行器）。原文写「本机无网络」——**已被第 66 轮实测推翻**（PyPI 200、`pip install` 成功过两次）。所以它缺的是架构通道 + 一个视觉模型，不是网络。",
+        reason="**缺一个视觉 provider，外加一小段接线** —— `GrowthContext` 里已经有 `settings`（模型配置），所以工具**能**建模型（`providers.build_chat_model(settings)`）；缺的是「把建好的模型传进工具」那一小段，**不是架构障碍**。**为什么不现在就实现**：本机没有视觉模型可验，只能拿 stub 测「消息构造出来了」，**而 stub 不会告诉我 provider 适配层有没有把 `image_url` 块丢掉** —— 那正是「接上了但没有」的形状（测试通过、真实使用静默失效）。**判据：一个功能如果没有能验证它的条件，实现它就是在制造一条假 ✅。",
     ),
     _t(
         "video_analyze",
