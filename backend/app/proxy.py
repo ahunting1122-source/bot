@@ -124,6 +124,37 @@ AUTH_MODES: tuple[str, ...] = (API_KEY, OAUTH)
 DEFAULT_MAX_TOKENS = 4096
 
 
+def _refuse_cloud_metadata(url: str) -> None:
+    """拒绝把代理请求转发到云元数据端点。
+
+    **名单复用 `path_security`**，与 `providers.py` 里那条同一个来源——
+    不是新建一份（两份必然漂移）。
+
+    **为什么代理这条路要单独拦**：`proxy.py` 是本地 OpenAI 兼容代理，
+    **它可以被任何客户端打到**（curl、第三方 SDK、别的进程），
+    那条路根本不经过 `providers.py` 的模型客户端构造。
+    **两条路互不覆盖，所以两处都要有。**
+
+    **边界（如实写）**：只判字面量。DNS 解析到元数据 IP 的域名挡不住——
+    那要真查 DNS，而这里在同步的转发路径上。**已知残余风险。**
+    """
+    from urllib.parse import urlparse
+
+    from app.path_security import BLOCKED_HOSTNAMES, BLOCKED_IPS
+
+    host = (urlparse(str(url or "")).hostname or "").strip().lower()
+    if not host:
+        return
+    blocked = {name.lower() for name in BLOCKED_HOSTNAMES} | {
+        str(ip).lower() for ip in BLOCKED_IPS
+    }
+    if host in blocked:
+        raise ProxyError(
+            f"拒绝转发到云元数据端点（{host}）："
+            "**它的唯一用途是交出实例凭证，代理没有任何正当理由转发到那里**"
+        )
+
+
 class ProxyError(RuntimeError):
     """代理层的可预期失败（消息要能直接给人看）。"""
 
@@ -1208,6 +1239,11 @@ def http_forward(plan: ProxyPlan, *, api_key: str = "", timeout: float = 60.0) -
     def forward(url: str, headers: dict[str, str], body: dict[str, Any]) -> dict[str, Any]:
         import httpx
 
+        # **闸门放在真正发请求的那一步**（第 56 轮）：不管 `url` 最终来自
+        # `ProxyPlan.upstream`（配置面）还是别处，这里都是执行面——
+        # **配置面可能被绕过（直接构造 plan），执行面不会。**
+        _refuse_cloud_metadata(url)
+
         merged = {**auth_headers(plan, api_key), "content-type": "application/json", **headers}
         with httpx.Client(timeout=timeout) as client:
             response = client.post(url, headers=merged, json=body)
@@ -1237,6 +1273,11 @@ def http_forward_stream(
 
     def forward(url: str, headers: dict[str, str], body: dict[str, Any]) -> Iterator[str]:
         import httpx
+
+        # **闸门放在真正发请求的那一步**（第 56 轮）：不管 `url` 最终来自
+        # `ProxyPlan.upstream`（配置面）还是别处，这里都是执行面——
+        # **配置面可能被绕过（直接构造 plan），执行面不会。**
+        _refuse_cloud_metadata(url)
 
         merged = {
             **auth_headers(plan, api_key),
