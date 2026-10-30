@@ -111,13 +111,44 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
 
+    def do_POST(self) -> None:  # noqa: N802 —— http.server 的约定
+        """**只处理 `POST /__shutdown`**：代理自己退出，`stop` 不需要知道 pid。
+
+        ## 为什么 `stop` 用这个而不是信号
+
+        Windows 上 `os.kill(pid, 0)` 会真的 `TerminateProcess` ——
+        第 88 轮我用它做「探活」，等于写了个随机杀进程的函数。
+        **自停端点让 `stop` 完全不需要进程管理能力。**
+
+        ## 两道约束
+
+        - 只接受 `127.0.0.1`（代理本来就只绑回环，再挡一道）；
+        - 只接受 `POST`（不给 GET，免得被 `<img>` / 预取意外触发）。
+        """
+        if self.path != "/__shutdown":
+            self.send_error(404, "unknown endpoint")
+            return
+        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+            self.send_error(403, "loopback only")
+            return
+        body = b"stopping"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+        # **在响应写完之后**再停，否则调用方拿到的是连接被断而不是 200。
+        import threading
+
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
     def do_GET(self) -> None:  # noqa: N802 —— http.server 的约定
         proxy: EgressProxy = self.server.proxy  # type: ignore[attr-defined]
         headers = {k: v for k, v in self.headers.items()}
         # 代理请求的目标在请求行里是绝对 URL。
         target = self.path
         if not urllib.parse.urlsplit(target).netloc:
-            self.send_error(400, "代理请求必须是绝对 URL")
+            self.send_error(400, "absolute URL required")
             return
         try:
             response = proxy.forward(target, headers)
