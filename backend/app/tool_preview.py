@@ -96,7 +96,12 @@ class PreviewTool:
         #: **路径策略的 root 是工作目录**，不是数据目录 —— 预览只能看工作目录里的文件。
         self.workspace = pathlib.Path(workspace)
 
-    def execute(self, name, args, task_id, operation_id) -> dict[str, Any]:
+    async def execute(self, name, args, task_id, operation_id) -> dict[str, Any]:
+        """**必须是 async** —— `ToolRegistry.execute` 用 `await external[name](...)` 调它。
+
+        同步版会抛 `TypeError: object dict can't be used in 'await' expression`，
+        而**单测直调 `execute()` 发现不了这件事**（它不经注册表）。
+        """
         if name in ("desktop_preview", "open_preview"):
             return self._open(args)
         if name == "read_preview":
