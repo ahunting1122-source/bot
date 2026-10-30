@@ -384,3 +384,54 @@ pytest -q    1 failed, 3749 passed, 3 skipped
 
 **判据：「这个失败一直都有」不等于「这个失败是预期的」。
 基线这个词必须带证据 —— 否则它就是一个让人不再看的标签。**
+
+## 5 条 🟡 的关闭方案（第 93 轮整理，每条都是实测过的）
+
+### `4.12` 语音 TTS —— 缺 16 家，**卡在带宽**
+
+**已验通 2 家**：`flite`（`synthesize` 返回 43,918 字节，只支持英文）·
+`piper`（`PIPER_BIN` + `PIPER_MODEL`，产出 44,076 字节 wav）。
+
+**下一步（按性价比排序）**：
+1. `pip install edge-tts` —— **免费默认 provider，不需要凭证**。
+   实测：**29 分钟无进展**（依赖树含 `aiohttp`）。**换快网络即可**。
+2. `pip install kittentts`（+ 25MB 模型）—— 实测同样 25 分钟无进展。
+3. `pip install neutts`（+ `neutts-air-q4-gguf` 权重）。
+4. `espeak` / `festival` / `pico2wave` 是 Linux 二进制，Windows 下需另找移植。
+5. `sapi` / `onecore` **实测 `available=False`** —— `sapi` 报「2 个音色装着但探测合成失败」
+   （PowerShell 说「No voice installed… or none available with the **current security setting**」），
+   `onecore` 报「列不出任何 OneCore 音色」。**这不是代码问题，是权限/音色安装问题。**
+
+### `5.14` 内置工具 94 → 53 —— 剩 41 条，**40 条要外部服务**
+
+按域：desktop 15 · collab 12 · media 4 · home 4 · browser 3 · vision 2 · search 1。
+
+**唯一不需要凭证的方向**：`vision_analyze` / `video_analyze` / `browser_vision` ——
+`GrowthContext` 里**已经有 `settings`**（模型配置），所以工具**能**建模型；
+缺的是「把 `build_chat_model(settings)` 的结果传进工具」那一小段接线 + **一个视觉 provider 用来验证**。
+
+**判据（别忘）**：没有能验证它的条件就实现它，等于制造假 ✅ ——
+stub 不会告诉你 provider 适配层有没有把 `image_url` 块丢掉。
+
+### `12.5` 平台适配器 —— buzz / photon
+
+- **`buzz`**：签名层**已经不缺**（`coincurve` 21.0.0 已装，`sign_schnorr` 64 字节验签通过）。
+  真实阻塞是 **`buzz` CLI（不在 PATH）+ Nostr relay**。
+  **注意**：npm/PyPI 上都有叫 `buzz` 的包，**但都不是它** —— 包名匹配 ≠ 语义匹配。
+- **`photon`**：`pip install grpcio` 可装；真实阻塞是 **spectrum-ts 的 Node sidecar + 项目凭证 + 设备登录 token**。
+
+### `12.10` `gateway enroll` —— 3 条路径里 2 条已做完
+
+本机已做完并有测试（`test_gateway_enroll.py` 2 条 + `test_gateway_peer.py` 3 条）。
+**只剩「向平台注册回调地址」那条要公网可达的 HTTPS 端点。**
+**下一步**：有公网 IP / 隧道（`orbit gateway tunnel`）时跑一次真回调。
+
+### `1.13b` 原生桌面壳 —— **卡在带宽 + 一整块新工程**
+
+`npm view electron version` → **45.1.0**（npm 通）。`npm`/`node` 都在 PATH。
+**真实阻塞**：① `electron` 包 ~100MB，**~54 kB/s 下约 30 分钟起**；
+② 托盘 / 全局快捷键 / 单实例锁 / 系统通知 / 开机自启 / 自动更新是**一整块新工程**。
+
+**下一步**：`npm install electron` 成功后，先做**最小可验壳**
+（`requestSingleInstanceLock` + `Tray` + 指向本地 Orbit UI 的 `BrowserWindow`），
+**自动更新要发布服务器，那条只能等有发布渠道**。

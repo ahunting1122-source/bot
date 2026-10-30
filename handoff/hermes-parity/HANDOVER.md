@@ -206,6 +206,35 @@ cd E:\bbbooottt\backend
 
 **判据：门禁要区分「静态可能跳过」和「本机确实跳过」—— 前者是提醒，后者是账。**
 
+### 3.14 八道门禁一览（唯一权威清单）
+
+**全部从仓库根跑，全部 exit 0 才算绿。**
+
+```powershell
+cd E:\bbbooottt
+$env:PYTHONIOENCODING='utf-8'          # 不加会在 GBK 下报 UnicodeEncodeError
+.\backend\.venv\Scripts\python.exe scripts\matrix_stats.py --check        # 1 行数/状态列/完成度
+.\backend\.venv\Scripts\python.exe scripts\audit_matrix_citations.py      # 2 引用测试文件是否存在
+.\backend\.venv\Scripts\python.exe scripts\audit_matrix_flags.py --check  # 3 提到的 --flag 是否存在
+.\backend\.venv\Scripts\python.exe scripts\audit_tool_mappings.py         # 4 covered 映射是否指向真工具
+.\backend\.venv\Scripts\python.exe scripts\audit_test_claims.py           # 5 「有断言」是否点名测试
+.\backend\.venv\Scripts\python.exe scripts\audit_skipped_tests.py         # 6 被引用的测试是否含 skip
+cd backend
+.\.venv\Scripts\python.exe -m ruff check .                                 # 7 风格
+.\.venv\Scripts\python.exe -m mypy app                                     # 8 类型
+```
+
+**注意两条口径**：
+
+- `matrix_stats` 报「Orbit 顶层 84」而 MATRIX `1.4` 说 **81** —— **两个数都对**：
+  81 是 `REGISTRY.all()` 的**命令名**数，84 是**含别名**。见 `1.4` 的行内说明。
+- 门禁 5 / 6 是**报告式**的（`audit_skipped_tests` 恒返回 0）——
+  **它们把需要人看一眼的地方集中起来，不替你判死。**
+
+**判据：门禁要有一份权威清单 —— 否则「八道」只是传说，
+而第 75 轮我就是这样让第七道门禁整整 17 轮没人知道。**
+
+
 ---
 
 ## 四、方法论（66 轮里用血换的，按价值排序）
