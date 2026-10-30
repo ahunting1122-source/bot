@@ -120,6 +120,10 @@ TOOL_TOOLSET: dict[str, str] = {
     "discord": "collab",
     "discord_admin": "collab",
     "feishu_doc_read": "collab",
+    "desktop_preview": "desktop",
+    "read_preview": "desktop",
+    "annotate_preview": "desktop",
+    "close_preview": "desktop",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

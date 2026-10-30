@@ -380,12 +380,12 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "工具不会自己把任务跑起来。实现见 app/tool_extra_impl.py，需装配层注册。",
     ),
     # ── 桌面与窗口（16）────────────────────────────────────────────────────
-    _t("desktop_preview", "desktop", "预览面板（open/read/close 复合动作）", status="unavailable", reason="需要桌面客户端运行时（预览面板），Orbit 是本地服务 + CLI。"),
+    _t("desktop_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("desktop_preview",)),
     _t("open_preview", "desktop", "打开聊天旁的预览面板", status="unavailable", reason="需要桌面客户端运行时（预览面板 / 布局 / 导览 / 气泡），**Orbit 是本地服务 + CLI，没有这层 UI**"),
-    _t("read_preview", "desktop", "读预览面板内容", status="unavailable", reason="需要桌面客户端运行时（预览面板 / 布局 / 导览 / 气泡），**Orbit 是本地服务 + CLI，没有这层 UI**"),
-    _t("close_preview", "desktop", "关闭预览面板或其中一个标签页", status="unavailable", reason="需要桌面客户端运行时（预览面板 / 布局 / 导览 / 气泡），**Orbit 是本地服务 + CLI，没有这层 UI**"),
+    _t("read_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("read_preview",)),
+    _t("close_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("close_preview",)),
     _t("drive_preview", "desktop", "驱动预览面板里的网页（登录/填表/点击）", status="unavailable", reason="同上；Orbit 的等价能力在 browser_* 里，不在预览面板上。"),
-    _t("annotate_preview", "desktop", "在预览页留持久标记", status="unavailable", reason="需要桌面客户端运行时（预览面板 / 布局 / 导览 / 气泡），**Orbit 是本地服务 + CLI，没有这层 UI**"),
+    _t("annotate_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("annotate_preview",)),
     _t(
         "read_terminal",
         "desktop",
