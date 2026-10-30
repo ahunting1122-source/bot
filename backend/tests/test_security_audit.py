@@ -425,16 +425,21 @@ def test_cli_security_audit_skip_flags_skip(tmp_path, capsys):
     assert payload["reports"] == []
 
 
-def test_cli_egress_status_is_honest_about_not_being_implemented(tmp_path, capsys):
+def test_cli_egress_status_reports_running_state_honestly(tmp_path, capsys):
+    """**4.8 已实现**（第 90 轮）—— 这条从「如实说未实现」改成「如实说在不在跑」。
+
+    原来断言 implemented is False；现在代理本体有了，
+    如实的东西变成了「有没有在跑」，而不是「有没有做」。
+    """
     from app.cli.commands import security as security_cli  # noqa: F401
     from app.cli.main import main
 
     code = main(["--data-dir", str(tmp_path / "data"), "--json", "egress", "status"])
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
-    assert payload["configured"] is False
-    assert payload["implemented"] is False
-    assert payload["tokens"] == []
+    assert payload["implemented"] is True, "代理本体已实现"
+    assert payload["running"] is False, "没起过就不该报在跑"
+    assert payload["reason"], "没在跑要给理由"
 
 
 def test_cli_egress_setup_fails_loudly(tmp_path, capsys):

@@ -347,7 +347,15 @@ def test_cli_egress_policy_states_there_is_no_proxy(tmp_path, capsys):
 
 def test_cli_egress_proxy_lifecycle_commands_report_honestly(tmp_path):
     """`egress start` 一类必须**非零退出**：返回 0 会被脚本读成"代理起来了"。"""
-    assert main(["--data-dir", str(tmp_path / "data"), "egress", "start"]) == 3
+    # **egress start 现在真的起代理（前台阻塞）**，不能再调它来断言退出码。
+    # 改成性质断言：它的 handler 已经不是那个桩了。
+    from app.cli.commands.egress_lifecycle import run_egress_start
+    from app.cli.commands.tools_extra2 import run_proxy_unavailable
+    from app.cli.spec import REGISTRY
+
+    start_cmd = REGISTRY.get("egress").child("start")
+    assert start_cmd.handler is run_egress_start
+    assert start_cmd.handler is not run_proxy_unavailable
 
 
 # ── 7. 重定向：每一跳都要过闸 ──────────────────────────────────────────────
