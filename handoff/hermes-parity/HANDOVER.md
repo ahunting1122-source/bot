@@ -453,6 +453,17 @@ cd backend
 但报告式工具必须说清它会误报什么，否则下一个人会把它当真。**
 
 
+**第 115 轮：删掉了 `scripts/audit_tool_dispatch.py`。**
+
+它原本是「把 83 个注册工具各用空参调一次」的扫描 —— **实测挂住了**：
+空参调 `browser_*` 会真的开浏览器、调 `terminal` 会真的跑 shell。
+
+**安全的那一半已经变成常驻测试**：`tests/test_tool_registry_integration.py`
+（只覆盖 13 个无副作用的新工具，走真实注册表分发路径）。
+
+**判据：一个不安全且不被门禁覆盖的工具，应该删掉而不是「保留备查」——
+「保留备查」的潜台词是「有人会跑它」。**
+
 ### 3.17 第十道门禁：scripts/audit_doc_consistency.py
 
 **它查的是「GAPS / HANDOVER / README 里的『N 条 🟡』是否与 MATRIX 实际一致」。**
