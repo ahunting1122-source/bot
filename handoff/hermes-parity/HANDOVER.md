@@ -457,6 +457,26 @@ cd backend
 
 **判据：写在注释里的警告不会自己执行 —— 它需要一个门禁。**
 
+**第 109 轮：把这个 bug 直接泛化扫了一遍。**
+
+`app/` 里一共 **10 个** `register_*` 函数。逐个查「有没有被调用」：
+
+| 函数 | 定义于 | 结论 |
+|---|---|---|
+| `register_action_route` | `plugin_host.py` | 同文件内调用 ✓ |
+| `register_ask_user` | `nodes.py` | `agent.py` / `nodes.py` 调用 ✓ |
+| `register_handler` | `_table.py` | **31 个模块**调用 ✓ |
+| `register_provider` | `web_providers.py` | `plugin_capabilities.py` 调用 ✓ |
+| `register_specs` | `_table.py` | **15 个模块**调用 ✓ |
+| `register_extra_tools` / `register_round3_tools` | `tool_extra_impl*.py` | `main.py` 调用 ✓ |
+| **`register_growth_tools`** | `tool_extra_impl.py` | **没人调用 ✗（第 108 轮已修）** |
+
+**结论：`register_growth_tools` 是唯一真漏的。** 另外 5 个看似「main.py 里没有」的，
+其实是被几十个模块共用的 helper —— **扫一遍才知道，凭印象会漏。**
+
+**判据：发现一个 bug 之后，把它所属的那一类扫一遍 —— 
+否则你只修了那一处，而不知道还有没有第二处。**
+
 ---
 
 ## 四、方法论（66 轮里用血换的，按价值排序）
