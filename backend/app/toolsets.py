@@ -119,6 +119,7 @@ TOOL_TOOLSET: dict[str, str] = {
     "ha_call_service": "home",
     "discord": "collab",
     "discord_admin": "collab",
+    "feishu_doc_read": "collab",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

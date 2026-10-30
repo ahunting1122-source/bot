@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     home_assistant_token: SecretStr = SecretStr("")
     #: Discord bot token（Discord 开发者门户 → Bot）。
     discord_bot_token: SecretStr = SecretStr("")
+    #: 飞书开放平台应用的 App ID / App Secret（用于换 tenant_access_token）。
+    feishu_app_id: str = ""
+    feishu_app_secret: SecretStr = SecretStr("")
     notion_url: str = ""
     browser_url: str = ""
     granted_actions: str = ""

@@ -34,6 +34,7 @@ from app.storage import (
 )
 from app.summaries import SummaryService, list_conversations
 from app.tool_discord import DISCORD_TOOLS, DiscordConnector
+from app.tool_feishu import FEISHU_TOOLS, FeishuConnector
 from app.tool_home import HOME_TOOLS, HomeAssistantConnector
 from app.tools import ToolRegistry
 from app.vault import Vault
@@ -159,6 +160,8 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         registry.register(HOME_TOOLS, app.state.home.execute)
         app.state.discord = DiscordConnector(settings)
         registry.register(DISCORD_TOOLS, app.state.discord.execute)
+        app.state.feishu = FeishuConnector(settings)
+        registry.register(FEISHU_TOOLS, app.state.feishu.execute)
         registry.register(BROWSER_TOOLS, app.state.browser.execute)
         # 联网检索与正文抽取。Orbit 是"网页操作特化"的 agent，但在此之前它**没有搜索工具**
         # ——上网全靠浏览器点，成本高且容易被页面结构变化打穿。这两个工具补的就是这个缺口：

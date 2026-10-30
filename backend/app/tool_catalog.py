@@ -428,7 +428,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     ),
     _t("discord", "collab", "Discord（app/tool_discord.py）", orbit_tools=("discord",)),
     _t("discord_admin", "collab", "Discord（app/tool_discord.py）", orbit_tools=("discord_admin",)),
-    _t("feishu_doc_read", "collab", "读飞书/Lark 文档全文为纯文本", status="unavailable", reason="需要飞书开放平台凭证与网络。"),
+    _t("feishu_doc_read", "collab", "飞书文档读取（app/tool_feishu.py）", orbit_tools=("feishu_doc_read",)),
     _t("feishu_drive_list_comments", "collab", "列飞书文档评论", status="unavailable", reason="需要飞书开放平台凭证与网络"),
     _t("feishu_drive_list_comment_replies", "collab", "列某条评论线程的全部回复", status="unavailable", reason="需要飞书开放平台凭证与网络"),
     _t("feishu_drive_reply_comment", "collab", "回复局部（引用文本）评论", status="unavailable", reason="需要飞书开放平台凭证与网络"),
