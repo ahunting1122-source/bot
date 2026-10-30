@@ -22,7 +22,7 @@
 | `05-plugin-gateway-layer.md` | 插件与网关 | 18 组 / **103 provider** / **22 平台** / 19 种 register_* |
 | `06-model-layer.md` | 模型适配 | 39 目录 → **48 profile** / 5 transport / config 43 键 |
 | `07-memory-layer.md` | 记忆层 | MEMORY.md 2,200 字符 / USER.md 1,375 / 8 provider |
-| `08-orbit-current-state.md` | **Orbit 现状矩阵** | 16 层成熟度 / 28 工具 / 24 表 / 15 条"声明了没接线" |
+| `08-orbit-current-state.md` | **调研时的 Orbit 快照**（**不是现状**） | 16 层成熟度 / 28 工具 / 24 表 / 15 条「声明了没接线」—— **这是第 1 轮的样子；现状看 `MATRIX.md`** |
 | `09-core-loop-layer.md` | 核心循环与上下文 | 三层 prompt / 预算与心跳 / 压缩谱系 / UI 入口 |
 
 `research/_raw/` 是**原始证据**：408 次 `--help` 的逐字输出（`cmd-*.txt`、`sub/`、`sub3/`、
