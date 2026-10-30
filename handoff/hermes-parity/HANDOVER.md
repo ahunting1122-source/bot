@@ -310,7 +310,25 @@ cd E:\bbbooottt\backend
 
 **判据：门禁要区分「静态可能跳过」和「本机确实跳过」—— 前者是提醒，后者是账。**
 
-### 3.14 十一道门禁一览（唯一权威清单）
+### 3.14 门禁总入口：`scripts/check_all.py`（**一条命令跑完**）
+
+```powershell
+cd E:\bbbooottt
+.\backend\.venv\Scripts\python.exe scripts\check_all.py
+```
+
+**exit 0 = 全绿；非 0 = 至少一道红。** 它会打出一张「哪道绿哪道红」的表。
+
+**脚本自己设 `PYTHONIOENCODING=utf-8`** —— 不设的话 `matrix_stats` 在 GBK 控制台会
+`UnicodeEncodeError`（这个坑踩过）。
+
+**12 项里 3 项是「报告式」，恒返回 0**（`audit_skipped_tests` / `audit_cited_skips` /
+`audit_hardcoded_counts`）—— 它们把需要人看一眼的地方集中起来，**不替你判死**。
+
+---
+
+下面是各项的说明（想单独跑某一道时用）：
+
 
 **全部从仓库根跑，全部 exit 0 才算绿。**
 
