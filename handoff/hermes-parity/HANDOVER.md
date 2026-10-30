@@ -50,6 +50,60 @@
 
 **这五样没有一样能靠「再多写点代码」变出来。**
 
+## 〇·一 第 100 轮里程碑快照（全部本轮实跑）
+
+```
+HEAD                      ca29045
+git status                干净（0 项）
+
+MATRIX                    182 行：✅ 168 · 🟢 5 · ⚫ 4 · 🟡 5 · ⬜ 0
+严格完成度                95.1%   = (✅+🟢)/182
+可验证完成度              97.2%   = (✅+🟢)/(182−4)
+工具覆盖                  59 / 94（missing 35）
+
+pytest -q                 3770 passed, 3 skipped, 0 failed   (468.53s)
+ruff check .              All checks passed!
+mypy app                  Success: no issues found in 181 source files
+
+matrix_stats --check      exit 0
+audit_matrix_citations    exit 0
+audit_matrix_flags        exit 0
+audit_tool_mappings       exit 0（59 个 covered 全指向真实工具）
+audit_test_claims         exit 0
+audit_skipped_tests       exit 0
+audit_cited_skips         exit 0
+```
+
+### 从第 60 轮到第 100 轮发生了什么
+
+| 项 | 第 60 轮 | 第 100 轮 |
+|---|---|---|
+| MATRIX | ✅166 · 🟡7 | **✅168 · 🟡5** |
+| 严格完成度 | 94.0% | **95.1%** |
+| 工具覆盖 | 52/94 | **59/94** |
+| 门禁 | 4 道 | **9 道 + 1 个报告工具** |
+| 全量测试 | 3729 passed（1 条「基线失败」） | **3770 passed（0 failed）** |
+
+**关掉的 🟡**：`14.11`（出站闸全覆盖）· `4.8`（egress 凭证注入代理）· `1.7`（`--usage-file`）。
+**新增工具**：`kanban_attach_url` · `ha_*` ×4 · `discord` / `discord_admin`。
+
+### 这 40 轮里最值钱的四条教训
+
+1. **「本机做不到」是本项目最贵的一类断言** —— 第 66 轮实测推翻了「本机无网络」，
+   而它此前支撑了 4 条 🟡 约 65 轮。
+2. **批量文本替换必须限定在「目标行」内** —— 第 44 轮的 `reason="同上。"` 替换
+   误伤了 20 条（跨 desktop/collab/home 三个域），而那 20 条正是分类依据。
+3. **接数据源之前先确认「那个字段真的有人写」** —— `Chunk.tokens` 有列、有类型、
+   有默认值，**却没有写入点**；第一版 `--usage-file` 因此永远报 `tokens: 0`。
+4. **`os.kill(pid, 0)` 在 Windows 上是「杀进程」不是「探活」** ——
+   我写了个「随机杀进程」的函数，靠整段回退才没进仓库。
+
+### 剩下的 5 条 🟡 与 35 条工具，缺的都是本机之外的东西
+
+详见「〇、定论」那一节 —— 五样：快网络 / 飞书+元宝 API 文档 / 公网 HTTPS 端点 /
+一批凭证 / 一个排期决定。**没有一样能靠「再多写点代码」变出来。**
+
+
 ---
 
 ## 一、已封口（做完且有验证证据）
