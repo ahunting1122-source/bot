@@ -222,6 +222,19 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         from app.tool_extra_impl import register_extra_tools
 
         app.state.extra_tools = register_extra_tools(registry, data_dir=settings.data_dir)
+        # **growth 工具（`tool_call` / `context_usage` / `compact` / `setup_mcp` /
+        # `text_to_speech`）** —— 第 108 轮发现它们一直没被注册：
+        # 有实现、有测试、目录标了 covered，**但模型看不见**。
+        # `scripts/audit_tool_registration.py` 现在守着这条。
+        from app.tool_extra_impl import register_growth_tools
+
+        app.state.growth_tools = register_growth_tools(
+            registry,
+            settings=settings,
+            store=app.state.store,
+            summary_service=app.state.summaries,
+            data_dir=settings.data_dir,
+        )
         # 第三轮工具（MATRIX 5.14）：`send_message` / `memory_provider_list` /
         # `skill_search` / `egress_status` / `budget_status`。
         # 同样不能漏——漏了就是"报告说覆盖了、模型看不见"。

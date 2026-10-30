@@ -437,6 +437,26 @@ cd backend
 
 **判据：门禁的覆盖面要配得上它占的那一行 —— 只覆盖 1 处的检查不该叫门禁。**
 
+### 3.19 第十二道门禁：`scripts/audit_tool_registration.py`
+
+**它查的是「目录里标 covered 的工具，真的注册进应用了吗」。**
+
+**为什么 `audit_tool_mappings` 不够**：它只查「那个名字在某个 `*_TOOLS` 列表里存在」。
+**它不查那个列表有没有被 `registry.register()` 接进应用。**
+于是会出现：**工具写好了、测试绿了、目录标了 covered —— 但模型永远看不到它。**
+
+**它真起一次应用**（`create_app()` + `TestClient`），拿 `ToolRegistry` 里实际的工具名来比对。
+
+**首轮抓到 5 条**：`setup_mcp` / `text_to_speech` / `compact` / `context_usage` / `tool_call` ——
+全在 `GROWTH_TOOLS` 里，有实现有测试，**但 `main.py` 只调了 `register_extra_tools` 与
+`register_round3_tools`，没调 `register_growth_tools`**。已接上：注册工具 78 → **83**。
+
+**最讽刺的地方**：`main.py` 第 221 行的注释原文就是
+「覆盖率报告会说『覆盖了』，但模型看不见——**那种不一致比没做更糟**」。
+**这句话警告的正是这件事，而它自己漏了。**
+
+**判据：写在注释里的警告不会自己执行 —— 它需要一个门禁。**
+
 ---
 
 ## 四、方法论（66 轮里用血换的，按价值排序）

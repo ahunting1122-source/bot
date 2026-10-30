@@ -40,6 +40,12 @@ CHECKS: list[tuple[str, list[str], object, bool]] = [
     ("audit_matrix_citations", [PY, str(SCRIPTS / "audit_matrix_citations.py")], ROOT, False),
     ("audit_matrix_flags", [PY, str(SCRIPTS / "audit_matrix_flags.py"), "--check"], ROOT, False),
     ("audit_tool_mappings", [PY, str(SCRIPTS / "audit_tool_mappings.py")], ROOT, False),
+    (
+        "audit_tool_registration",
+        [PY, str(SCRIPTS / "audit_tool_registration.py")],
+        ROOT,
+        False,
+    ),
     ("audit_test_claims", [PY, str(SCRIPTS / "audit_test_claims.py")], ROOT, False),
     ("audit_skipped_tests", [PY, str(SCRIPTS / "audit_skipped_tests.py")], ROOT, True),
     ("audit_cited_skips", [PY, str(SCRIPTS / "audit_cited_skips.py")], ROOT, True),
