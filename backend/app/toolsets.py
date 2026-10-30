@@ -113,6 +113,10 @@ TOOL_TOOLSET: dict[str, str] = {
     "kanban_attach": "kanban",
     "kanban_attachments": "kanban",
     "kanban_attach_url": "kanban",
+    "ha_list_entities": "home",
+    "ha_get_state": "home",
+    "ha_list_services": "home",
+    "ha_call_service": "home",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

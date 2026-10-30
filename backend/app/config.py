@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     model_api_key: SecretStr = SecretStr("")
     github_token: SecretStr = SecretStr("")
     github_repo: str = ""
+    #: Home Assistant 实例地址（如 http://homeassistant.local:8123）。
+    home_assistant_url: str = ""
+    #: HA 的长期访问令牌。
+    home_assistant_token: SecretStr = SecretStr("")
     notion_url: str = ""
     browser_url: str = ""
     granted_actions: str = ""

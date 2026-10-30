@@ -439,10 +439,10 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("yb_search_sticker", "collab", "按关键词搜内置贴纸", status="unavailable", reason="需要元宝（腾讯）网关与凭证 + 网络"),
     _t("yb_send_sticker", "collab", "发内置贴纸到当前会话", status="unavailable", reason="需要元宝（腾讯）网关与凭证 + 网络"),
     # ── 智能家居（4）───────────────────────────────────────────────────────
-    _t("ha_list_entities", "home", "列实体，可按 domain/area 过滤", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
-    _t("ha_get_state", "home", "单个实体的详细状态 + 全部属性", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
-    _t("ha_list_services", "home", "列可用服务（动作）", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
-    _t("ha_call_service", "home", "调服务控制设备", status="unavailable", reason="需要 **Home Assistant 实例地址 + 长期令牌**；**网络是通的**（第 66 轮实测），缺的是一个 HA 实例。"),
+    _t("ha_list_entities", "home", "Home Assistant（app/tool_home.py）", orbit_tools=("ha_list_entities",)),
+    _t("ha_get_state", "home", "Home Assistant（app/tool_home.py）", orbit_tools=("ha_get_state",)),
+    _t("ha_list_services", "home", "Home Assistant（app/tool_home.py）", orbit_tools=("ha_list_services",)),
+    _t("ha_call_service", "home", "Home Assistant（app/tool_home.py）", orbit_tools=("ha_call_service",)),
     # ── 元工具（8）─────────────────────────────────────────────────────────
     _t("todo", "meta", "会话任务清单（无参 = 读）", ("todo",), reason="Orbit 改成「每次调用回读完整清单」，不注入上下文（图节点是禁改区）。"),
     _t("clarify", "meta", "需要决策/澄清时向用户提一个或多个问题", ("clarify",), reason="Orbit 落成带序号的选择题（2-6 选项），不是多问题表单。"),
