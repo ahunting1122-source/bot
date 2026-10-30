@@ -251,7 +251,7 @@ cd E:\bbbooottt\backend
 
 **判据：门禁要区分「静态可能跳过」和「本机确实跳过」—— 前者是提醒，后者是账。**
 
-### 3.14 八道门禁一览（唯一权威清单）
+### 3.14 九道门禁一览（唯一权威清单）
 
 **全部从仓库根跑，全部 exit 0 才算绿。**
 
@@ -263,7 +263,8 @@ $env:PYTHONIOENCODING='utf-8'          # 不加会在 GBK 下报 UnicodeEncodeEr
 .\backend\.venv\Scripts\python.exe scripts\audit_matrix_flags.py --check  # 3 提到的 --flag 是否存在
 .\backend\.venv\Scripts\python.exe scripts\audit_tool_mappings.py         # 4 covered 映射是否指向真工具
 .\backend\.venv\Scripts\python.exe scripts\audit_test_claims.py           # 5 「有断言」是否点名测试
-.\backend\.venv\Scripts\python.exe scripts\audit_skipped_tests.py         # 6 被引用的测试是否含 skip
+# 6 被引用的测试是否含 skip
+.\backend\.venv\Scripts\python.exe scripts\audit_cited_skips.py          # 9 ✅ 行是否引用了含 skip 的文件
 cd backend
 .\.venv\Scripts\python.exe -m ruff check .                                 # 7 风格
 .\.venv\Scripts\python.exe -m mypy app                                     # 8 类型
@@ -278,6 +279,29 @@ cd backend
 
 **判据：门禁要有一份权威清单 —— 否则「八道」只是传说，
 而第 75 轮我就是这样让第七道门禁整整 17 轮没人知道。**
+
+
+### 3.15 第九道门禁：`scripts/audit_cited_skips.py`
+
+**它把前两道门禁交叉起来**：`audit_test_claims` 只问「有没有点名测试文件」，
+`audit_skipped_tests` 只问「哪些文件含 skip 标记」。
+**两者都没问的是**：一条 ✅ 行的证据落在**一个含 skip 的文件**上时，
+**那个被跳过的测试，是不是这条行唯一的依据？**
+
+**口径（宽，只抓需要人看一眼的）**：列出「✅ 行引用含 skip 文件」的全部组合，
+**不判死** —— 一个文件 20 个测试只跳 1 个是很常见的。
+
+**首轮结果**：12 个测试文件含 skip 标记；**7 条 ✅ 行引用了它们**
+（`5.4` / `5.5` / `7.18` / `10.7` / `11.3` / `11.6` / `15.4`）。
+
+**逐条看过之后：0 条真有问题。**
+- 运行时**实际只跳过 3 个测试**（`test_budget.py:206`、`test_voice_local.py:119/144`），
+  其余文件里的 skip 是 `skipif` 条件在本机求值为假；
+- 所以只有引用 `test_budget.py` 的 `5.4` / `5.5` 值得查 ——
+  **而它们都没提 symlink**，被跳过的那个 `test_symlink_spill_escape_is_refused` 不是它们的依据。
+
+**判据：交叉审计的价值不在「找出问题」，在「把两个门禁都没覆盖的缝补上」——
+而这条缝的第一轮结果是干净的，那也是一个结果。**
 
 
 ---
