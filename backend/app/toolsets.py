@@ -117,6 +117,8 @@ TOOL_TOOLSET: dict[str, str] = {
     "ha_get_state": "home",
     "ha_list_services": "home",
     "ha_call_service": "home",
+    "discord": "collab",
+    "discord_admin": "collab",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

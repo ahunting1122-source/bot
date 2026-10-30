@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     home_assistant_url: str = ""
     #: HA 的长期访问令牌。
     home_assistant_token: SecretStr = SecretStr("")
+    #: Discord bot token（Discord 开发者门户 → Bot）。
+    discord_bot_token: SecretStr = SecretStr("")
     notion_url: str = ""
     browser_url: str = ""
     granted_actions: str = ""
