@@ -328,3 +328,29 @@ await DelegateRunner().run('say hi')      -> DelegateError:
 **这不是「我卡住了」，是「剩下的工作不在这台机器上」。**
 
 **判据：一条「决定不做」的 🟡 永远等不到 ✅ —— 它拖着的不是一个任务，是一个决定。把「决定」和「任务」混在同一列里，会让「进度」失去意义。**
+
+## os.kill(pid, 0) 在 Windows 上是「杀进程」不是「探活」（第 88 轮）
+
+我为 egress stop/status 写了探活函数：
+
+`python
+try:
+    os.kill(pid, 0)   # POSIX 上这是「只探测，不发信号」
+except OSError:
+    return False
+`
+
+**Windows 上 os.kill 调 TerminateProcess** —— os.kill(pid, 0) 会**用退出码 0 终止那个进程**。
+**所以这个「探活」实际是「随机杀进程」**：pid 文件一陈旧（进程已退、pid 被复用），它就杀掉无辜进程。
+
+**现场症状**：改完后连续三次整条命令被中断；
+	ests/test_egress_proxy.py 单独跑 5.23 秒全过，而 	est_egress.py 一起跑就挂住。
+
+**判据：跨平台代码里 os.kill / signal / 文件锁这类「看起来通用」的 API，
+在 Windows 上常有完全不同的语义 —— 而它们的作用对象是「别的进程」，代价最高。**
+
+**Windows 上判断进程存活要用 OpenProcess + GetExitCodeProcess，
+或者干脆不用 pid 文件**（端口探测 / 命名互斥体 / 守护进程自写心跳）。
+
+**我整段回退了 CLI 接线**：pp/egress_proxy.py（核心 + 6 条测试）已提交且全绿、不碰 pid；
+**一个会杀无辜进程的「探活」比没有这个功能差得多。**
