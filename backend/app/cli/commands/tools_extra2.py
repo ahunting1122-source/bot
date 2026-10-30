@@ -343,6 +343,18 @@ def run_egress_check(context: Context, args: Any) -> int:
     return 0
 
 
+_REAL_PROXY_HANDLERS: dict[str, Any] = {}
+
+
+def _real_proxy_handlers() -> dict[str, Any]:
+    if not _REAL_PROXY_HANDLERS:
+        from app.cli.commands.egress_lifecycle import run_egress_start, run_egress_stop
+
+        _REAL_PROXY_HANDLERS['egress start'] = run_egress_start
+        _REAL_PROXY_HANDLERS['egress stop'] = run_egress_stop
+    return _REAL_PROXY_HANDLERS
+
+
 def run_proxy_unavailable(context: Context, args: Any) -> int:
     """iron-proxy 生命周期命令的统一答复：**没有守护进程可起停**。
 
@@ -551,6 +563,17 @@ def _bind_proxy_paths() -> None:
         if path in _table.HANDLERS:
             # 已经接过（模块被重复导入）：不重复登记——`register_handler` 会抛错，
             # 而重复导入在测试与热重载里都可能发生。
+            continue
+        real = _real_proxy_handlers().get(path)
+        if real is not None:
+            register_handler(path, real)
+            head, _, leaf = path.partition(' ')
+            parent = REGISTRY.get(head)
+            if parent is not None:
+                target = parent.child(leaf) if leaf else parent
+                if target is not None:
+                    target.handler = real
+                    target.state = 'done'
             continue
         register_handler(path, run_proxy_unavailable)
         head, _, leaf = path.partition(" ")

@@ -346,35 +346,37 @@ def _print_egress_shape(context: Context) -> None:
 
 
 def run_egress_status(context: Context, args: Any) -> int:
-    """如实报"未配置"。Orbit 没有代理进程，所以这里没有"运行中/已停止"可报。"""
+    """报代理状态：在跑就报端口 + 策略条数，不在跑就如实说没在跑。"""
+    from app.cli.commands.egress_lifecycle import describe_state
+
+    state = describe_state(context.data_dir)
     path = context.data_dir / PROXY_YAML
-    context.out("出口凭证注入（iron-proxy 风格）：未配置 · 未实现")
+    if state.get('running'):
+        context.out(
+            f'出口凭证注入（iron-proxy 风格）：**运行中** · 端口 {state["port"]} · '
+            f'策略 {state.get("rules", 0)} 条'
+        )
+        context.out('停止：orbit egress stop')
+        context.emit({'ok': True, 'command': 'egress status', 'running': True, **state})
+        return 0
+    context.out(f'出口凭证注入（iron-proxy 风格）：未运行 · {state.get("reason", "")}')
     context.out()
-    context.out("Orbit 里没有代理进程：没有 iron-proxy 二进制、没有 CA、没有令牌铸造，")
-    context.out(f"也没有 {path.name}。模型与工具的出站请求由 httpx 直连，密钥在进程内使用，")
-    context.out("**不经过任何令牌代换代理**。")
-    context.out()
-    context.out(f"配置文件（应存在但不存在）：{path}")
+    context.out('**代理本体已经有了**（pp/egress_proxy.py），只是默认没在跑 —— 用 orbit egress start 起它。')
     context.out()
     _print_egress_shape(context)
-    if getattr(args, "show_tokens", False):
-        context.out()
-        context.out("--show-tokens：没有令牌可显示（代理未实现，一枚令牌都没铸过）。")
     context.emit(
         {
-            "ok": True,
-            "command": "egress status",
-            "configured": False,
-            "implemented": False,
-            "config_path": str(path),
-            "config_exists": path.exists(),
-            "tokens": [],
-            "shape": [{"key": key, "meaning": meaning} for key, meaning in EGRESS_SHAPE],
+            'ok': True,
+            'command': 'egress status',
+            'running': False,
+            'reason': state.get('reason', ''),
+            'implemented': True,
+            'config_path': str(path),
+            'config_exists': path.exists(),
+            'shape': [{'key': k, 'meaning': m} for k, m in EGRESS_SHAPE],
         }
     )
     return 0
-
-
 def run_egress_config(context: Context, args: Any) -> int:
     """打印**本应**生成的 `proxy.yaml` 路径，并说清它不存在。"""
     path = context.data_dir / PROXY_YAML
