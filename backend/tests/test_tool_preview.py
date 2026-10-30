@@ -19,13 +19,24 @@ def tool(tmp_path):
     return PreviewTool(data_dir, workspace), data_dir, workspace
 
 
-def test_four_tools_are_declared():
+def test_five_tools_are_declared():
+    """`open_preview` 是 `desktop_preview` 的同义工具 —— **同一个处理器的第二个名字**。"""
     assert [t.name for t in PREVIEW_TOOLS] == [
         "desktop_preview",
+        "open_preview",
         "read_preview",
         "annotate_preview",
         "close_preview",
     ]
+
+
+def test_open_preview_is_an_alias_of_desktop_preview(tool):
+    """**两者行为必须完全一致** —— 否则就是两个名字两套逻辑，迟早漂移。"""
+    preview, _data_dir, workspace = tool
+    opened = preview.execute("open_preview", {"target": str(workspace / "note.md")}, "t", "o")
+    assert opened["status"] == "ok"
+    read = preview.execute("read_preview", {}, "t", "o")
+    assert "# 标题" in read["content"], "open_preview 打开的东西 read_preview 读不到"
 
 
 def test_open_a_local_file_records_it(tool):

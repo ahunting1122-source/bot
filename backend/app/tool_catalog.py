@@ -381,7 +381,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     ),
     # ── 桌面与窗口（16）────────────────────────────────────────────────────
     _t("desktop_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("desktop_preview",)),
-    _t("open_preview", "desktop", "打开聊天旁的预览面板", status="unavailable", reason="需要桌面客户端运行时（预览面板 / 布局 / 导览 / 气泡），**Orbit 是本地服务 + CLI，没有这层 UI**"),
+    _t("open_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("open_preview",)),
     _t("read_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("read_preview",)),
     _t("close_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("close_preview",)),
     _t("drive_preview", "desktop", "驱动预览面板里的网页（登录/填表/点击）", status="unavailable", reason="同上；Orbit 的等价能力在 browser_* 里，不在预览面板上。"),

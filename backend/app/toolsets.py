@@ -124,6 +124,7 @@ TOOL_TOOLSET: dict[str, str] = {
     "read_preview": "desktop",
     "annotate_preview": "desktop",
     "close_preview": "desktop",
+    "open_preview": "desktop",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

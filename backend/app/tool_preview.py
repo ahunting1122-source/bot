@@ -59,6 +59,8 @@ class PreviewCloseArgs(Args):
 
 PREVIEW_TOOLS = [
     Tool("desktop_preview", "在预览面板里打开一个本地文件或 URL", PreviewOpenArgs),
+    # **同一个处理器的第二个名字** —— Hermes 里两者是同一能力的不同命名。
+    Tool("open_preview", "打开预览面板（`desktop_preview` 的同义工具）", PreviewOpenArgs),
     Tool("read_preview", "读当前预览面板的内容", PreviewReadArgs),
     Tool("annotate_preview", "在预览上留一条持久标记", PreviewAnnotateArgs),
     Tool("close_preview", "关闭预览面板", PreviewCloseArgs),
@@ -95,7 +97,7 @@ class PreviewTool:
         self.workspace = pathlib.Path(workspace)
 
     def execute(self, name, args, task_id, operation_id) -> dict[str, Any]:
-        if name == "desktop_preview":
+        if name in ("desktop_preview", "open_preview"):
             return self._open(args)
         if name == "read_preview":
             return self._read(args)
