@@ -47,6 +47,10 @@ NEW_TOOLS: tuple[tuple[str, dict], ...] = (
     ("apply_layout", {"preset": "split"}),
     ("tip", {"target": "composer", "text": "hi"}),
     ("tour", {"action": "stop"}),
+    ("close_terminal", {"all": True}),
+    ("drive_preview", {"action": "observe"}),
+    ("browser_vision", {}),
+    ("vision_analyze", {"image": "nope.png"}),
 )
 
 

@@ -129,6 +129,10 @@ TOOL_TOOLSET: dict[str, str] = {
     "apply_layout": "desktop",
     "tip": "desktop",
     "tour": "desktop",
+    "close_terminal": "desktop",
+    "drive_preview": "desktop",
+    "browser_vision": "desktop",
+    "vision_analyze": "desktop",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

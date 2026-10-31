@@ -34,6 +34,7 @@ from app.storage import (
     serialize,
 )
 from app.summaries import SummaryService, list_conversations
+from app.tool_desktop_extra import DESKTOP_EXTRA_TOOLS, DesktopExtraTool
 from app.tool_discord import DISCORD_TOOLS, DiscordConnector
 from app.tool_feishu import FEISHU_TOOLS, FeishuConnector
 from app.tool_home import HOME_TOOLS, HomeAssistantConnector
@@ -172,6 +173,16 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         # **前端 `frontend/src/UiState.tsx` 真的渲染它们**，不是只存状态。
         app.state.ui = UiStateTool(settings.data_dir)
         registry.register(UI_TOOLS, app.state.ui.execute)
+        # 桌面域最后 4 条：`close_terminal` / `drive_preview` /
+        # `browser_vision` / `vision_analyze`。**后两个走「工具→模型」通道**
+        # （`providers.resolve_provider` + `build_chat_model`），没配模型就返回可照做的错误。
+        app.state.desktop_extra = DesktopExtraTool(
+            settings.data_dir,
+            settings=settings,
+            browser=app.state.browser,
+            workspace=settings.workspace,
+        )
+        registry.register(DESKTOP_EXTRA_TOOLS, app.state.desktop_extra.execute)
         registry.register(BROWSER_TOOLS, app.state.browser.execute)
         # 联网检索与正文抽取。Orbit 是"网页操作特化"的 agent，但在此之前它**没有搜索工具**
         # ——上网全靠浏览器点，成本高且容易被页面结构变化打穿。这两个工具补的就是这个缺口：

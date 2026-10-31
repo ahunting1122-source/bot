@@ -199,13 +199,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "**如实边界**：产出的东西主要喂视觉模型，而本机没有可用的多模态调用链——"
         "提取本身是真的，消费方没有。",
     ),
-    _t(
-        "browser_vision",
-        "browser",
-        "截图做视觉检查（CAPTCHA / 视觉验证 / 复杂布局）",
-        status="unavailable",
-        reason="**缺的不是截图，是「让工具能调模型」这条通道**：截图那一半已经做完（`BrowserController.last_screenshot_data_url()` 返回 `data:image/png;base64,…`，且被 `tests/test_browser_lifecycle.py` 覆盖）；而 `app/tool_*.py` 里没有任何一处调模型（工具是纯函数式执行器，模型只在 agent 循环里）。原文写「要截图 + 多模态模型；本机无网络、无视觉 provider」——**「要截图」已不成立，「无网络」也被第 66 轮推翻**。**所以它是架构决定（工具要不要有模型通道），不是缺一条依赖。",
-    ),
+    _t("browser_vision", "browser", "看一眼当前浏览器页面并让模型描述（app/tool_desktop_extra.py）", orbit_tools=("browser_vision",)),
     _t(
         "browser_console",
         "browser",
@@ -326,13 +320,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("xai_video_edit", "media", "用 xAI Imagine 编辑已有视频", status="unavailable", reason="需要 **xAI 凭证**；**网络是通的**（第 66 轮实测），缺的是凭证。"),
     _t("xai_video_extend", "media", "用 xAI Imagine 延长已有视频", status="unavailable", reason="需要 **xAI 凭证**；**网络是通的**（第 66 轮实测），缺的是凭证。"),
     # ── 视觉理解（2）────────────────────────────────────────────────────────
-    _t(
-        "vision_analyze",
-        "vision",
-        "把图片加载进对话（任意时刻用户提到图片都可调）",
-        status="unavailable",
-        reason="**缺一个视觉 provider，外加一小段接线** —— `GrowthContext` 里已经有 `settings`（模型配置），所以工具**能**建模型（`providers.build_chat_model(settings)`）；缺的是「把建好的模型传进工具」那一小段，**不是架构障碍**。**为什么不现在就实现**：本机没有视觉模型可验，只能拿 stub 测「消息构造出来了」，**而 stub 不会告诉我 provider 适配层有没有把 `image_url` 块丢掉** —— 那正是「接上了但没有」的形状（测试通过、真实使用静默失效）。**判据：一个功能如果没有能验证它的条件，实现它就是在制造一条假 ✅。",
-    ),
+    _t("vision_analyze", "vision", "让模型分析一张图片（app/tool_desktop_extra.py）", orbit_tools=("vision_analyze",)),
     _t(
         "video_analyze",
         "vision",
@@ -384,7 +372,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
     _t("open_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("open_preview",)),
     _t("read_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("read_preview",)),
     _t("close_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("close_preview",)),
-    _t("drive_preview", "desktop", "驱动预览面板里的网页（登录/填表/点击）", status="unavailable", reason="同上；Orbit 的等价能力在 browser_* 里，不在预览面板上。"),
+    _t("drive_preview", "desktop", "桌面域（app/tool_desktop_extra.py）", orbit_tools=("drive_preview",)),
     _t("annotate_preview", "desktop", "预览面板（app/tool_preview.py）", orbit_tools=("annotate_preview",)),
     _t(
         "read_terminal",
@@ -395,14 +383,7 @@ HERMES_TOOLS: tuple[HermesTool, ...] = (
         "（日志落在 <data>/processes/<id>.log，退出码也一并给出）。这是能力覆盖，"
         "不是界面覆盖：Orbit 没有桌面终端面板。",
     ),
-    _t(
-        "close_terminal",
-        "desktop",
-        "关闭某个后台进程的只读终端标签页",
-        status="unavailable",
-        reason="Orbit 没有只读终端标签页。最接近的动作是 process kill，但那是**终止进程**"
-        "（比关一个视图重得多），拿它当覆盖会把「看一眼就关掉」变成「把任务杀掉」。",
-    ),
+    _t("close_terminal", "desktop", "关闭只读终端视图（app/tool_desktop_extra.py）", orbit_tools=("close_terminal",)),
     _t("read_window_below", "desktop", "识别 Hermes 窗口正后方的应用窗口", status="unavailable", reason="需要窗口枚举与桌面权限，Orbit 没有这层。"),
     _t("focus_pane", "desktop", "桌面 UI 状态（app/tool_ui.py + frontend/src/UiState.tsx）", orbit_tools=("focus_pane",)),
     _t("apply_layout", "desktop", "桌面 UI 状态（app/tool_ui.py + frontend/src/UiState.tsx）", orbit_tools=("apply_layout",)),
