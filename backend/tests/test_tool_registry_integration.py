@@ -43,6 +43,10 @@ NEW_TOOLS: tuple[tuple[str, dict], ...] = (
     ("annotate_preview", {"note": "x"}),
     ("close_preview", {}),
     ("context_usage", {}),
+    ("focus_pane", {"pane": "preview"}),
+    ("apply_layout", {"preset": "split"}),
+    ("tip", {"target": "composer", "text": "hi"}),
+    ("tour", {"action": "stop"}),
 )
 
 

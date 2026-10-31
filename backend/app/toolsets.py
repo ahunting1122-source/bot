@@ -125,6 +125,10 @@ TOOL_TOOLSET: dict[str, str] = {
     "annotate_preview": "desktop",
     "close_preview": "desktop",
     "open_preview": "desktop",
+    "focus_pane": "desktop",
+    "apply_layout": "desktop",
+    "tip": "desktop",
+    "tour": "desktop",
     # delegation（第 37 轮）
     "delegate_task": "delegation",
     "agent_swarm": "delegation",

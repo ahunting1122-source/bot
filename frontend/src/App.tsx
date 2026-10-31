@@ -28,6 +28,7 @@ import { Memories } from "./Memories";
 import { Skills } from "./Skills";
 import { Vault } from "./Vault";
 import { Composer } from "./Composer";
+import { UiState } from "./UiState";
 import { Welcome } from "./Welcome";
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -590,6 +591,7 @@ export function App() {
           )}
         </div>
       </div>
+      <UiState />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import secrets
+import uuid
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -37,6 +38,7 @@ from app.tool_discord import DISCORD_TOOLS, DiscordConnector
 from app.tool_feishu import FEISHU_TOOLS, FeishuConnector
 from app.tool_home import HOME_TOOLS, HomeAssistantConnector
 from app.tool_preview import PREVIEW_TOOLS, PreviewTool
+from app.tool_ui import UI_TOOLS, UiStateTool, load_ui_state
 from app.tools import ToolRegistry
 from app.vault import Vault
 
@@ -166,6 +168,10 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
         # **路径策略的 root 是工作目录** —— 预览只能看工作目录里的文件。
         app.state.preview = PreviewTool(settings.data_dir, settings.workspace)
         registry.register(PREVIEW_TOOLS, app.state.preview.execute)
+        # 桌面 UI 状态（`focus_pane` / `apply_layout` / `tip` / `tour`）——
+        # **前端 `frontend/src/UiState.tsx` 真的渲染它们**，不是只存状态。
+        app.state.ui = UiStateTool(settings.data_dir)
+        registry.register(UI_TOOLS, app.state.ui.execute)
         registry.register(BROWSER_TOOLS, app.state.browser.execute)
         # 联网检索与正文抽取。Orbit 是"网页操作特化"的 agent，但在此之前它**没有搜索工具**
         # ——上网全靠浏览器点，成本高且容易被页面结构变化打穿。这两个工具补的就是这个缺口：
@@ -389,6 +395,31 @@ def create_app(settings: Settings | None = None, *, run_agent: bool = True) -> F
             # 命令执行是常驻能力（两档都有），这里只是让前端/探针一眼看到它开着。
             "command_execution": True,
         }
+
+    @app.get("/api/ui/state")
+    async def ui_state():
+        """桌面 UI 状态：聚焦面板 / 布局 / 气泡 / 导览。
+
+        **只读** —— 写侧只有 4 条工具（`focus_pane` / `apply_layout` / `tip` / `tour`）。
+        前端不直接改它，**这样「谁改了 UI」只有一个答案**。
+        """
+        return load_ui_state(settings.data_dir)
+
+    @app.post("/api/ui/tour/advance")
+    async def ui_tour_advance(payload: dict):
+        """导览翻页（用户点「上一步 / 下一步」时调）。
+
+        **为什么这个写端点可以存在**：导览是给人点着走的，
+        只让模型翻页等于用户没法自己看完 —— 那不是导览，是演示。
+        **但面板聚焦 / 布局 / 气泡仍然只由工具写**（那三样是「模型对用户说话」）。
+        """
+        direction = str(payload.get("direction") or "next")
+        if direction not in ("next", "prev"):
+            return {"status": "error", "error": "direction 只能是 next / prev"}
+        result = await app.state.ui.execute(
+            "tour", {"action": direction}, "ui", f"tour-{uuid.uuid4().hex[:8]}"
+        )
+        return result
 
     @app.get("/api/conversations")
     async def conversations():
