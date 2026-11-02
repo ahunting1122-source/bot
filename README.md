@@ -6,7 +6,7 @@ Python + FastAPI + LangGraph 后端，React 工作台。核心能力是**在真�
 
 当前状态：站点识别、进入、站内搜索/排序/翻页/进详情、表单填写提交均已用真实模型与真实站点实测；密钥存储支持查看密钥、保存站点账号与自动登录（密码不经过模型）；站点级免确认可减少重复询问。固定任务集 10 个用例首轮 10 / 10，见 `test-results/eval-<日期>/`。人工接管目前只验证到"模型主动请求"这一步，完整的人工处理流程尚未演练。
 
-在 MVP 主链之上，后续已补齐五个模块并均有测试覆盖：**知识层（RAG 三档检索 + 引用回填）**、**技能层（加载 / 沉淀 / 四道闸治理）**、**MCP 补齐（生命周期、prompts→技能、resources→RAG）**、**记忆卫生与用户画像**（迁移 `0009`–`0011`）、**权限级别与系统命令执行**（对话页可切「仅工作文件夹 / 完全访问权限」，后者可读写整机任意文件并执行任意命令）。当前回归基线：后端 `pytest` **279 passed**、`ruff` / `mypy` clean。剩下的方向与已知问题全部列在「下一步」。
+在 MVP 主链之上，后续已补齐五个模块并均有测试覆盖：**知识层（RAG 三档检索 + 引用回填）**、**技能层（加载 / 沉淀 / 四道闸治理）**、**MCP 补齐（生命周期、prompts→技能、resources→RAG）**、**记忆卫生与用户画像**（迁移 `0009`–`0011`）、**权限级别与系统命令执行**（对话页可切「仅工作文件夹 / 完全访问权限」，后者可读写整机任意文件并执行任意命令）。当前回归基线（第 122 轮实测）：后端 `pytest` **3852 passed, 3 skipped, 0 failed**、`ruff` / `mypy` clean；功能对齐有 **13 项门禁**一键复核（`backend\.venv\Scripts\python.exe scripts\check_all.py`）。剩下的方向与已知问题全部列在「下一步」。
 
 ## 启动
 
@@ -24,14 +24,17 @@ npm ci
 npm run build
 ```
 
-启动已构建的工作台：
+启动已构建的工作台（二选一）：
 
 ```powershell
 cd E:\bbbooottt
-.\scripts\start.ps1
+.\scripts\start.ps1            # uvicorn 直起，端口 6185
+# 或
+cd backend
+.\venv\Scripts\python.exe -m app.cli.main serve --skip-build   # 端口 9119
 ```
 
-打开 <http://127.0.0.1:6185>，API 文档在 <http://127.0.0.1:6185/docs>。启动脚本会保持在当前终端，按 Ctrl+C 停止。Windows 下运行一个 worker，不启用 Uvicorn reload，保证 Playwright 的子进程事件循环可用。
+`start.ps1` 打开 <http://127.0.0.1:6185>；`orbit serve` 打开 <http://127.0.0.1:9119>，API 文档在 <http://127.0.0.1:6185/docs>。启动脚本会保持在当前终端，按 Ctrl+C 停止。Windows 下运行一个 worker，不启用 Uvicorn reload，保证 Playwright 的子进程事件循环可用。
 
 开发前端时，在另一终端进入 `frontend` 执行 `npm run dev`，访问 <http://127.0.0.1:5173>，请求通过 Vite 代理到后端。
 
@@ -57,6 +60,16 @@ cd E:\bbbooottt
 > 记住：我的报告格式是中文 Markdown。
 
 确认保存后新建对话，要求生成报告。新对话注入已保存的偏好，不会自动载入其他对话原文。历史工作可通过 `history_search_tasks` 和 `history_get_task` 检索；界面的“对话摘要”用于回顾多轮内容。
+
+## Hermes 功能对齐
+
+以本机 Hermes Agent（runtime 0.21.0-cn.18）为基准的**16 层逐项对标**，入口在 `handoff/hermes-parity/`：
+
+- **MATRIX.md**：182 行逐条证据。当前 **✅168 · 🟢5 · ⚫4 · 🟡5 · ⬜0**（严格 95.1% / 可验证 97.2%）。
+- **工具覆盖**：**73/94**（`orbit_coverage()` 是唯一事实源）。剩余 21 条全部卡在外部条件（凭证 / provider / 平台能力）或已作设计决定，见 MATRIX 每条 `reason`。
+- **HANDOVER.md**：定论（哪些 🟡 为什么在本机不可达）、门禁清单、历轮方法论与踩坑。
+- **GAPS.md**：差距表（带过期标注，以 MATRIX 为准）。
+- 一道门禁全查：`backend\.venv\Scripts\python.exe scripts\check_all.py`。
 
 ## 已实现模块
 
@@ -104,13 +117,15 @@ GitHub 与 Notion 连接器代码仍然保留，但已不是主线：它们现�
 
 ## 最小验证
 
-后端：
+后端（一键门禁，exit 0 = 全绿）：
 
 ```powershell
+cd E:\bbbooottt
+backend\.venv\Scripts\python.exe scripts\check_all.py   # 13 项（含 pytest 之外的 10 道审计门禁）
 cd backend
-uv run pytest -q
-uv run ruff check .
-uv run mypy app
+.\venv\Scripts\python.exe -m pytest -q        # 3852 passed / 0 failed
+.\venv\Scripts\python.exe -m ruff check .
+.\venv\Scripts\python.exe -m mypy app
 ```
 
 前端：
@@ -205,6 +220,7 @@ backend/migrations/  Alembic 数据迁移（0001–0011，其中 0008 预留给�
 backend/tests/     单元与集成测试
 frontend/src/      React 工作台（工作台 / 对话摘要 / 记忆 / 技能 / 密钥存储 / 连接与设置）
 scripts/           启动、界面冒烟、固定任务集跑批、单任务探针、离线检索评测与诊断
+handoff/hermes-parity/  与 Hermes 的 16 层逐项对标：MATRIX / HANDOVER / GAPS / 9 份调研
 handoff/           设计决策与实施交接记录（按主题归档，含 RAG / 技能 / MCP / 编排等）
 examples/          可复制到工作目录的演示资料
 data/              运行数据、浏览器 Profile、文件及截图，不入 Git
