@@ -61,16 +61,6 @@ cd backend
 
 确认保存后新建对话，要求生成报告。新对话注入已保存的偏好，不会自动载入其他对话原文。历史工作可通过 `history_search_tasks` 和 `history_get_task` 检索；界面的“对话摘要”用于回顾多轮内容。
 
-## Hermes 功能对齐
-
-以本机 Hermes Agent（runtime 0.21.0-cn.18）为基准的**16 层逐项对标**，入口在 `handoff/hermes-parity/`：
-
-- **MATRIX.md**：182 行逐条证据。当前 **✅168 · 🟢5 · ⚫4 · 🟡5 · ⬜0**（严格 95.1% / 可验证 97.2%）。
-- **工具覆盖**：**73/94**（`orbit_coverage()` 是唯一事实源）。剩余 21 条全部卡在外部条件（凭证 / provider / 平台能力）或已作设计决定，见 MATRIX 每条 `reason`。
-- **HANDOVER.md**：定论（哪些 🟡 为什么在本机不可达）、门禁清单、历轮方法论与踩坑。
-- **GAPS.md**：差距表（带过期标注，以 MATRIX 为准）。
-- 一道门禁全查：`backend\.venv\Scripts\python.exe scripts\check_all.py`。
-
 ## 已实现模块
 
 | 模块 | 实现 |
@@ -180,7 +170,7 @@ uv run python ..\scripts\check_browser_visible.py
 ### 1. 子 Agent（唯一"协议已声明、零消费方"的扩展点）
 - **现状**：`backend/app/policies.py` 声明了 `subagents: SubAgentRunner` 并注入 `DefaultSubAgentRunner()`，但全仓**只有这两处**，没有任何调用路径（实现为 `available=False` + `NotImplementedError`）。
 - **已定方案**：定位"并行 / 隔离 / 专家"三合一；编排方式 = 作为 `execute` 的一个工具 `subagent_run`，复用现有 loop 与护栏，**不动 8 节点图骨架**。
-- **设计要点**（参考 Hermes / Codex / dsh 三个 harness）：
+- **设计要点**（参考 Codex / dsh 等 harness）：
   1. 子 Agent 各持一份更紧的 `DefaultBudgetPolicy`，**不共享父预算池**（并发扇出会把父额度吃光）；
   2. 并发上限，对齐既有 `TOOL_CONCURRENCY=4`；
   3. **级联取消**：父取消 → 广播停子，每个子再带独立 timeout 兜底；LangGraph 取消需补 `tool_result` 占位以保持消息配对；
@@ -220,7 +210,6 @@ backend/migrations/  Alembic 数据迁移（0001–0011，其中 0008 预留给�
 backend/tests/     单元与集成测试
 frontend/src/      React 工作台（工作台 / 对话摘要 / 记忆 / 技能 / 密钥存储 / 连接与设置）
 scripts/           启动、界面冒烟、固定任务集跑批、单任务探针、离线检索评测与诊断
-handoff/hermes-parity/  与 Hermes 的 16 层逐项对标：MATRIX / HANDOVER / GAPS / 9 份调研
 handoff/           设计决策与实施交接记录（按主题归档，含 RAG / 技能 / MCP / 编排等）
 examples/          可复制到工作目录的演示资料
 data/              运行数据、浏览器 Profile、文件及截图，不入 Git
